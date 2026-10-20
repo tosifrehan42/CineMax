@@ -125,17 +125,34 @@ export const SearchOverlay: React.FC<SearchOverlayProps> = ({
     }
   };
 
+  const [activeIndex, setActiveIndex] = useState<number>(-1);
+
   useEffect(() => {
+    setActiveIndex(-1);
+  }, [results]);
+
+  useEffect(() => {
+    if (!isOpen) return;
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
-      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+      if (e.key === 'Escape') {
+        onClose();
+      } else if (e.key === 'ArrowDown') {
         e.preventDefault();
-        if (isOpen) onClose();
+        setActiveIndex((prev) => (results.length > 0 ? (prev + 1) % results.length : -1));
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        setActiveIndex((prev) =>
+          results.length > 0 ? (prev <= 0 ? results.length - 1 : prev - 1) : -1
+        );
+      } else if (e.key === 'Enter' && activeIndex >= 0 && results[activeIndex]) {
+        e.preventDefault();
+        onClose();
+        onSelectMedia(results[activeIndex]);
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [isOpen, onClose]);
+  }, [isOpen, onClose, results, activeIndex, onSelectMedia]);
 
   if (!isOpen) return null;
 
@@ -222,21 +239,28 @@ export const SearchOverlay: React.FC<SearchOverlayProps> = ({
             </div>
           ) : (
             <>
-              {results.map((item) => (
+              {results.map((item, idx) => (
                 <div
                   key={item.id}
+                  onMouseEnter={() => setActiveIndex(idx)}
                   onClick={() => {
                     onClose();
                     onSelectMedia(item);
                   }}
-                  className="group flex items-center justify-between p-3 rounded-xl hover:bg-white/5 cursor-pointer transition-colors"
+                  className={`group flex items-center justify-between p-3 rounded-xl cursor-pointer transition-colors ${
+                    activeIndex === idx ? 'bg-white/10' : 'hover:bg-white/5'
+                  }`}
                 >
                   <div className="flex items-center gap-3.5 min-w-0">
                     <div className="w-12 h-16 rounded overflow-hidden shrink-0 border border-white/10">
                       <MediaPoster media={item} aspect="poster" />
                     </div>
                     <div className="min-w-0">
-                      <h4 className="text-sm font-semibold text-white group-hover:text-amber-400 transition-colors truncate">
+                      <h4
+                        className={`text-sm font-semibold transition-colors truncate ${
+                          activeIndex === idx ? 'text-amber-400' : 'text-white group-hover:text-amber-400'
+                        }`}
+                      >
                         {item.title}
                       </h4>
                       <div className="flex items-center gap-1.5 text-xs text-slate-400 mt-0.5">
@@ -256,7 +280,11 @@ export const SearchOverlay: React.FC<SearchOverlayProps> = ({
                       <Star className="w-3.5 h-3.5 fill-amber-400" />
                       <span>{item.rating.toFixed(1)}</span>
                     </div>
-                    <ArrowRight className="w-4 h-4 text-slate-600 group-hover:text-white transition-colors" />
+                    <ArrowRight
+                      className={`w-4 h-4 transition-colors ${
+                        activeIndex === idx ? 'text-white' : 'text-slate-600 group-hover:text-white'
+                      }`}
+                    />
                   </div>
                 </div>
               ))}

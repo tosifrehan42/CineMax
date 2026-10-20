@@ -14,20 +14,32 @@ export const TrailerModal: React.FC<TrailerModalProps> = ({ media, onClose }) =>
   const [duration] = useState(134); // 2m 14s
 
   useEffect(() => {
+    if (!media) return;
+
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
-      if (e.key === ' ') {
+      const target = e.target as HTMLElement | null;
+      const isEditable =
+        target instanceof HTMLInputElement ||
+        target instanceof HTMLTextAreaElement ||
+        target instanceof HTMLSelectElement ||
+        target?.isContentEditable;
+
+      if (e.key === 'Escape') {
+        onClose();
+        return;
+      }
+      if (e.key === ' ' && !isEditable) {
         e.preventDefault();
         setIsPlaying((p) => !p);
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [onClose]);
+  }, [media, onClose]);
 
-  // Simulate progress when playing
+  // Simulate progress when playing and modal is open
   useEffect(() => {
-    if (!isPlaying) return;
+    if (!media || !isPlaying) return;
     const interval = setInterval(() => {
       setProgress((prev) => {
         if (prev >= 100) return 0;
@@ -35,7 +47,7 @@ export const TrailerModal: React.FC<TrailerModalProps> = ({ media, onClose }) =>
       });
     }, 400);
     return () => clearInterval(interval);
-  }, [isPlaying]);
+  }, [media, isPlaying]);
 
   if (!media) return null;
 

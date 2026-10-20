@@ -170,7 +170,11 @@ function mapTmdbItemToMediaItem(raw: any, forcedType?: 'movie' | 'tv', indexOffs
     : 7.6;
 
   const palette = PALETTES[hashString(id) % PALETTES.length];
-  const posterUrl = raw.poster_path ? `${TMDB_IMAGE_W500}${raw.poster_path}` : '';
+  const posterUrl = raw.poster_path
+    ? `${TMDB_IMAGE_W500}${raw.poster_path}`
+    : raw.backdrop_path
+    ? `${TMDB_IMAGE_W500}${raw.backdrop_path}`
+    : '';
   const backdropUrl = raw.backdrop_path
     ? `${TMDB_IMAGE_W1280}${raw.backdrop_path}`
     : posterUrl;
@@ -547,16 +551,16 @@ async function startServer() {
               fetchFromTmdb('/discover/tv', buildDiscoverParams('tv')),
             ]);
 
-            const movieResults: any[] = Array.isArray(movieData?.results) ? movieData.results : [];
-            const tvResults: any[] = Array.isArray(tvData?.results) ? tvData.results : [];
+            const movieResults: any[] = (Array.isArray(movieData?.results) ? movieData.results : [])
+              .filter((r: any) => r.poster_path || r.backdrop_path)
+              .slice(0, 10);
+            const tvResults: any[] = (Array.isArray(tvData?.results) ? tvData.results : [])
+              .filter((r: any) => r.poster_path || r.backdrop_path)
+              .slice(0, 10);
 
             const combinedRaw: Array<{ raw: any; mediaType: 'movie' | 'tv' }> = [
-              ...movieResults
-                .filter((r) => r.poster_path || r.backdrop_path)
-                .map((raw) => ({ raw, mediaType: 'movie' as const })),
-              ...tvResults
-                .filter((r) => r.poster_path || r.backdrop_path)
-                .map((raw) => ({ raw, mediaType: 'tv' as const })),
+              ...movieResults.map((raw) => ({ raw, mediaType: 'movie' as const })),
+              ...tvResults.map((raw) => ({ raw, mediaType: 'tv' as const })),
             ];
 
             combinedRaw.sort((a, b) => {
@@ -582,11 +586,9 @@ async function startServer() {
               return (b.raw.popularity || 0) - (a.raw.popularity || 0);
             });
 
-            const items = combinedRaw
-              .slice(0, 20)
-              .map((entry, idx) =>
-                mapTmdbItemToMediaItem(entry.raw, entry.mediaType, (page - 1) * 20 + idx + 1)
-              );
+            const items = combinedRaw.map((entry, idx) =>
+              mapTmdbItemToMediaItem(entry.raw, entry.mediaType, (page - 1) * 20 + idx + 1)
+            );
 
             const totalPages = Math.min(
               Math.max(movieData?.total_pages || 1, tvData?.total_pages || 1),
@@ -806,22 +808,59 @@ async function startServer() {
   });
 
   // 3. Detailed Title Endpoint (Enriches cast, director, runtime, similar titles)
+  const SEED_TO_TMDB_ID: Record<string, { mediaType: 'movie' | 'tv'; tmdbId: string }> = {
+    'dune-part-two': { mediaType: 'movie', tmdbId: '693134' },
+    severance: { mediaType: 'tv', tmdbId: '95396' },
+    oppenheimer: { mediaType: 'movie', tmdbId: '872585' },
+    shogun: { mediaType: 'tv', tmdbId: '126308' },
+    'blade-runner-2049': { mediaType: 'movie', tmdbId: '335984' },
+    succession: { mediaType: 'tv', tmdbId: '76331' },
+    interstellar: { mediaType: 'movie', tmdbId: '157336' },
+    'the-bear': { mediaType: 'tv', tmdbId: '136315' },
+    arcane: { mediaType: 'tv', tmdbId: '94605' },
+    mindhunter: { mediaType: 'tv', tmdbId: '67744' },
+    'past-lives': { mediaType: 'movie', tmdbId: '666277' },
+    'poor-things': { mediaType: 'movie', tmdbId: '792307' },
+    dark: { mediaType: 'tv', tmdbId: '70523' },
+    'the-batman': { mediaType: 'movie', tmdbId: '414906' },
+    chernobyl: { mediaType: 'tv', tmdbId: '87108' },
+    arrival: { mediaType: 'movie', tmdbId: '329865' },
+    'spirited-away': { mediaType: 'movie', tmdbId: '129' },
+    fallout: { mediaType: 'tv', tmdbId: '106379' },
+    'true-detective-s1': { mediaType: 'tv', tmdbId: '46648' },
+    'everything-everywhere-all-at-once': { mediaType: 'movie', tmdbId: '545611' },
+  };
+
   app.get('/api/title/:type/:id', async (req, res) => {
-    const { type, id } = req.params;
+    const { id } = req.params;
     const tmdbKey = getTmdbKey();
 
-    // If it's a TMDB ID and TMDB_API_KEY is configured
-    if (tmdbKey && id.startsWith('tmdb-')) {
+    // If TMDB_API_KEY is configured and ID is either tmdb-* or one of the 20 seed titles
+    const seedMatch = SEED_TO_TMDB_ID[id];
+    if (tmdbKey && (id.startsWith('tmdb-') || seedMatch)) {
       try {
-        const parts = id.split('-');
-        const mediaType = (parts[1] === 'tv' ? 'tv' : 'movie') as 'movie' | 'tv';
-        const rawTmdbId = parts[2];
+        let mediaType: 'movie' | 'tv';
+        let rawTmdbId: string;
+
+        if (seedMatch) {
+          mediaType = seedMatch.mediaType;
+          rawTmdbId = seedMatch.tmdbId;
+        } else {
+          const parts = id.split('-');
+          mediaType = (parts[1] === 'tv' ? 'tv' : 'movie') as 'movie' | 'tv';
+          rawTmdbId = parts[2];
+        }
 
         const detail = await fetchFromTmdb(`/${mediaType}/${rawTmdbId}`, {
           append_to_response: 'credits,recommendations,watch/providers',
         });
 
         const baseItem = mapTmdbItemToMediaItem(detail, mediaType);
+        // Preserve original seed ID so watchlist state stays linked
+        if (seedMatch) {
+          baseItem.id = id;
+        }
+
         const crew: any[] = detail?.credits?.crew || [];
         const directorObj =
           crew.find((c) => c.job === 'Director') ||

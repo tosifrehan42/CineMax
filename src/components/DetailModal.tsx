@@ -78,14 +78,15 @@ export const DetailModal: React.FC<DetailModalProps> = ({
     };
   }, [media, watchlistStatus, personalRating, personalNotes]);
 
-  // Handle ESC key to close
+  // Handle ESC key to close when modal is open
   useEffect(() => {
+    if (!media) return;
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose();
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [onClose]);
+  }, [media, onClose]);
 
   const activeMedia = enrichedMedia || media;
   if (!activeMedia) return null;
