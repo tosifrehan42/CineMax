@@ -80,15 +80,23 @@ export const MediaCard: React.FC<MediaCardProps> = ({
       <div className="mt-2.5 px-0.5">
         <div className="flex items-center justify-between gap-2 text-xs text-slate-400">
           <div className="flex items-center gap-1.5 truncate">
-            <span>{media.year}</span>
+            <span>{media.year > 0 ? media.year : 'TBA'}</span>
             <span aria-hidden="true" className="text-slate-600">·</span>
-            <span>{media.type === 'movie' ? 'Film' : `${media.seasons} Seasons`}</span>
+            <span>
+              {media.type === 'movie'
+                ? 'Film'
+                : media.seasons
+                ? `${media.seasons} ${media.seasons === 1 ? 'Season' : 'Seasons'}`
+                : 'TV Series'}
+            </span>
             <span aria-hidden="true" className="text-slate-600">·</span>
             <span className="truncate">{media.genres[0]}</span>
           </div>
           <div className="flex items-center gap-1 text-amber-400/90 font-mono font-medium shrink-0">
             <Star className="w-3 h-3 fill-amber-400 text-amber-400" />
-            <span className="tabular-nums text-xs">{media.rating.toFixed(1)}</span>
+            <span className="tabular-nums text-xs">
+              {media.rating > 0 ? media.rating.toFixed(1) : 'NR'}
+            </span>
           </div>
         </div>
 

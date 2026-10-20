@@ -133,7 +133,7 @@ function deriveMoodsFromGenres(genres: string[]): string[] {
 }
 
 function formatVoteCount(count: number): string {
-  if (!count || count <= 0) return '1.2k';
+  if (!count || count <= 0) return '0';
   if (count >= 1_000_000) return `${(count / 1_000_000).toFixed(1)}M`;
   if (count >= 1_000) return `${Math.round(count / 1_000)}k`;
   return String(count);
@@ -147,14 +147,126 @@ function hashString(str: string): number {
   return h;
 }
 
+export function normalizeForSearch(text: string): string {
+  return (text || '')
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/['’`]/g, '')
+    .replace(/[-–—:/.,!?&()+"]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function getTitleMatchTier(
+  normTitle: string,
+  titleWords: string[],
+  normQuery: string,
+  queryWords: string[]
+): number {
+  if (!normTitle || !normQuery) return 0;
+  if (normTitle === normQuery) return 4.0;
+  if (normTitle.startsWith(normQuery + ' ')) return 3.0;
+  if (normTitle.startsWith(normQuery)) return 2.8;
+  if ((' ' + normTitle + ' ').includes(' ' + normQuery + ' ')) return 2.5;
+  if (normTitle.includes(normQuery)) return 2.2;
+  if (queryWords.length > 1 && queryWords.every((qw) => titleWords.includes(qw))) {
+    return 2.0;
+  }
+  if (queryWords.length > 0) {
+    const matched = queryWords.filter((qw) =>
+      titleWords.some((tw) => tw === qw || (qw.length >= 3 && tw.startsWith(qw)))
+    );
+    if (matched.length > 0) {
+      return 1.0 + (matched.length / queryWords.length) * 0.8;
+    }
+  }
+  return 0.5;
+}
+
+function rankTmdbSearchResults(
+  rawResults: any[],
+  forcedType: 'movie' | 'tv' | undefined,
+  query: string
+): any[] {
+  const normQuery = normalizeForSearch(query);
+  if (!normQuery) return rawResults;
+  const queryWords = normQuery.split(' ').filter(Boolean);
+
+  const scored = rawResults.map((raw, tmdbIndex) => {
+    const mediaType: 'movie' | 'tv' =
+      forcedType ||
+      (raw.media_type === 'tv' || raw.first_air_date !== undefined || raw.name !== undefined
+        ? 'tv'
+        : 'movie');
+
+    const displayTitle =
+      (mediaType === 'tv' ? raw.name || raw.original_name : raw.title || raw.original_title) || '';
+    const originalTitle =
+      (mediaType === 'tv' ? raw.original_name : raw.original_title) || '';
+
+    const normDisplay = normalizeForSearch(displayTitle);
+    const normOrig = normalizeForSearch(originalTitle);
+    const displayWords = normDisplay ? normDisplay.split(' ') : [];
+    const origWords = normOrig ? normOrig.split(' ') : [];
+
+    const displayTier = getTitleMatchTier(normDisplay, displayWords, normQuery, queryWords);
+    const origTier = getTitleMatchTier(normOrig, origWords, normQuery, queryWords);
+
+    // Primary display title takes precedence; foreign/alternate original_title matches are capped below strong display matches
+    const effectiveTier =
+      normDisplay === normOrig ? displayTier : Math.max(displayTier, Math.min(origTier, 1.9));
+
+    const voteCount = Number(raw.vote_count || 0);
+    const isEstablished = voteCount >= 15;
+
+    let bucket: number;
+    if (effectiveTier >= 2.0) {
+      bucket = (isEstablished ? 10 : 5) + effectiveTier;
+    } else {
+      bucket = (isEstablished ? 2 : 0) + effectiveTier;
+    }
+
+    return {
+      raw,
+      tmdbIndex,
+      bucket,
+      displayTier,
+      voteCount,
+    };
+  });
+
+  scored.sort((a, b) => {
+    if (Math.abs(b.bucket - a.bucket) > 0.001) {
+      return b.bucket - a.bucket;
+    }
+    // Within exact title matches, prefer the canonical release if one has >3x the votes of another
+    if (a.displayTier === 4.0 && b.displayTier === 4.0) {
+      if (a.voteCount > b.voteCount * 3 || b.voteCount > a.voteCount * 3) {
+        return b.voteCount - a.voteCount;
+      }
+    }
+    // Otherwise preserve TMDB's native relevance ranking
+    return a.tmdbIndex - b.tmdbIndex;
+  });
+
+  return scored.map((s) => s.raw);
+}
+
 function mapTmdbItemToMediaItem(raw: any, forcedType?: 'movie' | 'tv', indexOffset = 0): MediaItem {
   const mediaType: 'movie' | 'tv' =
-    forcedType || (raw.media_type === 'tv' || raw.first_air_date || raw.name ? 'tv' : 'movie');
+    forcedType ||
+    (raw.media_type === 'tv' || raw.first_air_date !== undefined || raw.name !== undefined
+      ? 'tv'
+      : 'movie');
   const tmdbId = raw.id;
   const id = `tmdb-${mediaType}-${tmdbId}`;
-  const title = (mediaType === 'tv' ? raw.name || raw.original_name : raw.title || raw.original_title) || 'Untitled';
+  const title =
+    (mediaType === 'tv' ? raw.name || raw.original_name : raw.title || raw.original_title) ||
+    'Untitled';
   const dateStr = (mediaType === 'tv' ? raw.first_air_date : raw.release_date) || '';
-  const year = dateStr ? parseInt(dateStr.slice(0, 4), 10) || 2024 : 2024;
+  const parsedYear = dateStr ? parseInt(dateStr.slice(0, 4), 10) : 0;
+  const year = Number.isFinite(parsedYear) && parsedYear > 0 ? parsedYear : 0;
 
   const genreMap = mediaType === 'tv' ? TMDB_TV_GENRES : TMDB_MOVIE_GENRES;
   let genres: string[] = [];
@@ -165,9 +277,10 @@ function mapTmdbItemToMediaItem(raw: any, forcedType?: 'movie' | 'tv', indexOffs
   }
   if (genres.length === 0) genres = ['Drama'];
 
-  const rating = typeof raw.vote_average === 'number' && raw.vote_average > 0
-    ? Number(raw.vote_average.toFixed(1))
-    : 7.6;
+  const rating =
+    typeof raw.vote_average === 'number' && raw.vote_average > 0
+      ? Number(raw.vote_average.toFixed(1))
+      : 0;
 
   const palette = PALETTES[hashString(id) % PALETTES.length];
   const posterUrl = raw.poster_path
@@ -184,17 +297,23 @@ function mapTmdbItemToMediaItem(raw: any, forcedType?: 'movie' | 'tv', indexOffs
     title,
     type: mediaType,
     year,
-    runtime: mediaType === 'movie'
-      ? raw.runtime
-        ? `${Math.floor(raw.runtime / 60)}h ${raw.runtime % 60}m`
-        : '2h 12m'
-      : undefined,
-    seasons: mediaType === 'tv' ? raw.number_of_seasons || 1 : undefined,
+    runtime:
+      mediaType === 'movie'
+        ? raw.runtime
+          ? `${Math.floor(raw.runtime / 60)}h ${raw.runtime % 60}m`
+          : undefined
+        : undefined,
+    seasons:
+      mediaType === 'tv' && typeof raw.number_of_seasons === 'number' && raw.number_of_seasons > 0
+        ? raw.number_of_seasons
+        : undefined,
     genres,
     rating,
-    voteCount: formatVoteCount(raw.vote_count || 1800),
-    synopsis: raw.overview || 'An acclaimed cinematic release exploring compelling characters and high-stakes drama.',
-    tagline: raw.tagline || `Experience ${title} in high definition.`,
+    voteCount: formatVoteCount(raw.vote_count || 0),
+    synopsis:
+      raw.overview ||
+      'Synopsis not yet available for this title.',
+    tagline: raw.tagline || `Experience ${title}.`,
     director: 'Acclaimed Filmmaker',
     cast: [],
     moods: deriveMoodsFromGenres(genres),
@@ -455,7 +574,15 @@ async function startServer() {
   app.get('/api/catalogue', async (req, res) => {
     const category = String(req.query.category || 'discover');
     const page = Math.max(1, parseInt(String(req.query.page || '1'), 10) || 1);
-    const type = String(req.query.type || 'all') as 'all' | 'movie' | 'tv';
+    const rawType = String(req.query.type || 'all') as 'all' | 'movie' | 'tv';
+    const effectiveType: 'all' | 'movie' | 'tv' =
+      rawType === 'movie' || rawType === 'tv'
+        ? rawType
+        : category.includes('movies')
+        ? 'movie'
+        : category.includes('_tv')
+        ? 'tv'
+        : 'all';
     const genre = String(req.query.genre || 'All');
     const mood = String(req.query.mood || 'all');
     const sortBy = String(req.query.sortBy || 'popularity') as 'popularity' | 'rating' | 'year' | 'title';
@@ -474,9 +601,13 @@ async function startServer() {
 
         if (query) {
           const searchEndpoint =
-            type === 'movie' ? '/search/movie' : type === 'tv' ? '/search/tv' : '/search/multi';
-          if (type === 'movie') forcedType = 'movie';
-          if (type === 'tv') forcedType = 'tv';
+            effectiveType === 'movie'
+              ? '/search/movie'
+              : effectiveType === 'tv'
+              ? '/search/tv'
+              : '/search/multi';
+          if (effectiveType === 'movie') forcedType = 'movie';
+          if (effectiveType === 'tv') forcedType = 'tv';
           data = await fetchFromTmdb(searchEndpoint, {
             query,
             page,
@@ -545,7 +676,7 @@ async function startServer() {
             };
           };
 
-          if (type === 'all') {
+          if (effectiveType === 'all') {
             const [movieData, tvData] = await Promise.all([
               fetchFromTmdb('/discover/movie', buildDiscoverParams('movie')),
               fetchFromTmdb('/discover/tv', buildDiscoverParams('tv')),
@@ -605,16 +736,35 @@ async function startServer() {
               provider: 'tmdb',
             });
           } else {
-            const targetType: 'movie' | 'tv' = type === 'tv' ? 'tv' : 'movie';
+            const targetType: 'movie' | 'tv' = effectiveType === 'tv' ? 'tv' : 'movie';
             forcedType = targetType;
             data = await fetchFromTmdb(`/discover/${targetType}`, buildDiscoverParams(targetType));
           }
         }
 
         const rawResults: any[] = Array.isArray(data?.results) ? data.results : [];
-        const items = rawResults
-          .filter((r) => r.media_type !== 'person' && (r.poster_path || r.backdrop_path))
-          .map((r, idx) => mapTmdbItemToMediaItem(r, forcedType, (page - 1) * 20 + idx + 1));
+
+        let filteredRaw: any[];
+        if (query) {
+          filteredRaw = rawResults.filter((r) => {
+            if (effectiveType === 'movie') {
+              return !r.media_type || r.media_type === 'movie';
+            }
+            if (effectiveType === 'tv') {
+              return !r.media_type || r.media_type === 'tv';
+            }
+            return r.media_type === 'movie' || r.media_type === 'tv';
+          });
+          filteredRaw = rankTmdbSearchResults(filteredRaw, forcedType, query);
+        } else {
+          filteredRaw = rawResults.filter(
+            (r) => r.media_type !== 'person' && (r.poster_path || r.backdrop_path)
+          );
+        }
+
+        const items = filteredRaw.map((r, idx) =>
+          mapTmdbItemToMediaItem(r, forcedType, (page - 1) * 20 + idx + 1)
+        );
 
         return res.json({
           items,
@@ -641,7 +791,7 @@ async function startServer() {
       let pool = [...catalog];
 
       // If user searches a specific query, also query live TVMaze search endpoint to find any show on earth
-      if (query.length >= 2) {
+      if (query.length >= 2 && effectiveType !== 'movie') {
         try {
           const liveTvRes = await fetch(
             `https://api.tvmaze.com/search/shows?q=${encodeURIComponent(query)}`
@@ -651,7 +801,7 @@ async function startServer() {
             const existingTitles = new Set(pool.map((p) => `${p.type}:${p.title.toLowerCase()}`));
             for (const entry of liveTvData) {
               const show = entry?.show;
-              if (!show?.name || !show?.image?.original) continue;
+              if (!show?.name) continue;
               const k = `tv:${show.name.toLowerCase()}`;
               if (existingTitles.has(k)) continue;
               existingTitles.add(k);
@@ -663,15 +813,16 @@ async function startServer() {
                 Array.isArray(show.genres) && show.genres.length > 0 ? show.genres : ['Drama'];
               const genres = Array.from(new Set(rawGenres.map(normalizeGenreName))).slice(0, 3);
               const networkName = show.network?.name || show.webChannel?.name || 'Streaming';
+              const posterUrl = show.image?.original || show.image?.medium || '';
 
               pool.push({
                 id,
                 title: show.name,
                 type: 'tv',
-                year: show.premiered ? parseInt(show.premiered.slice(0, 4), 10) || 2022 : 2022,
+                year: show.premiered ? parseInt(show.premiered.slice(0, 4), 10) || 0 : 0,
                 seasons: 2,
                 genres,
-                rating: Number((show.rating?.average || 7.6).toFixed(1)),
+                rating: Number((show.rating?.average || 0).toFixed(1)),
                 voteCount: `${15 + (h % 180)}k`,
                 synopsis: stripHtml(show.summary) || `${show.name} is a television series.`,
                 tagline: `Original series on ${networkName}.`,
@@ -681,8 +832,8 @@ async function startServer() {
                 contentRating: 'TV-MA',
                 streamOn: [networkName],
                 themeColor: palette.themeColor,
-                posterUrl: show.image.original,
-                backdropUrl: show.image.original,
+                posterUrl,
+                backdropUrl: posterUrl,
                 posterVisual: {
                   bgFrom: palette.bgFrom,
                   bgTo: palette.bgTo,
@@ -697,91 +848,80 @@ async function startServer() {
         }
       }
 
-      // Filter by category preset
-      if (!query) {
-        if (category === 'popular_movies') {
-          pool = pool.filter((i) => i.type === 'movie');
-        } else if (category === 'top_rated_movies') {
-          pool = pool.filter((i) => i.type === 'movie').sort((a, b) => b.rating - a.rating);
+      // Filter by media type strictly
+      if (effectiveType !== 'all') {
+        pool = pool.filter((item) => item.type === effectiveType);
+      }
+
+      if (query) {
+        const normQ = normalizeForSearch(query);
+        const qWords = normQ.split(' ').filter(Boolean);
+
+        const scoredPool = pool
+          .map((item, idx) => {
+            const normTitle = normalizeForSearch(item.title);
+            const titleWords = normTitle ? normTitle.split(' ') : [];
+            const titleTier = getTitleMatchTier(normTitle, titleWords, normQ, qWords);
+            const metaMatch =
+              normalizeForSearch(item.director).includes(normQ) ||
+              item.cast.some((c) => normalizeForSearch(c.name).includes(normQ));
+
+            return {
+              item,
+              idx,
+              tier: titleTier >= 1.0 ? titleTier : metaMatch ? 0.8 : 0,
+            };
+          })
+          .filter((entry) => entry.tier > 0);
+
+        scoredPool.sort((a, b) => {
+          if (Math.abs(b.tier - a.tier) > 0.001) return b.tier - a.tier;
+          return a.idx - b.idx;
+        });
+
+        pool = scoredPool.map((entry) => entry.item);
+      } else {
+        // Non-search browse filters
+        if (category === 'top_rated_movies' || category === 'top_rated_tv') {
+          pool.sort((a, b) => b.rating - a.rating);
         } else if (category === 'upcoming_movies') {
-          pool = pool
-            .filter((i) => i.type === 'movie')
-            .sort((a, b) => b.year - a.year || b.rating - a.rating);
-        } else if (category === 'popular_tv') {
-          pool = pool.filter((i) => i.type === 'tv');
-        } else if (category === 'top_rated_tv') {
-          pool = pool.filter((i) => i.type === 'tv').sort((a, b) => b.rating - a.rating);
+          pool.sort((a, b) => b.year - a.year || b.rating - a.rating);
         }
-      }
 
-      // Filter by query
-      if (query) {
-        const q = query.toLowerCase();
-        pool = pool.filter(
-          (item) =>
-            item.title.toLowerCase().includes(q) ||
-            item.director.toLowerCase().includes(q) ||
-            item.genres.some((g) => g.toLowerCase().includes(q)) ||
-            item.cast.some((c) => c.name.toLowerCase().includes(q)) ||
-            item.synopsis.toLowerCase().includes(q)
-        );
-      }
-
-      // Filter by type
-      if (type !== 'all') {
-        pool = pool.filter((item) => item.type === type);
-      }
-
-      // Filter by genre (supports comma-separated multi-genre intersection)
-      if (genre !== 'All') {
-        const selectedGenreList = genre
-          .split(',')
-          .map((g) => g.trim().toLowerCase())
-          .filter((g) => g && g !== 'all');
-        if (selectedGenreList.length > 0) {
-          pool = pool.filter((item) =>
-            selectedGenreList.every((reqG) =>
-              item.genres.some((itemG) => itemG.toLowerCase() === reqG)
-            )
-          );
+        if (genre !== 'All') {
+          const selectedGenreList = genre
+            .split(',')
+            .map((g) => g.trim().toLowerCase())
+            .filter((g) => g && g !== 'all');
+          if (selectedGenreList.length > 0) {
+            pool = pool.filter((item) =>
+              selectedGenreList.every((reqG) =>
+                item.genres.some((itemG) => itemG.toLowerCase() === reqG)
+              )
+            );
+          }
         }
-      }
 
-      // Filter by mood
-      if (mood !== 'all') {
-        pool = pool.filter((item) => item.moods.includes(mood));
-      }
+        if (mood !== 'all') {
+          pool = pool.filter((item) => item.moods.includes(mood));
+        }
 
-      // Filter by minRating
-      if (minRating > 0) {
-        pool = pool.filter((item) => item.rating >= minRating);
-      }
+        if (minRating > 0) {
+          pool = pool.filter((item) => item.rating >= minRating);
+        }
 
-      // Sort (prioritizing exact/title matches when searching)
-      if (query) {
-        const q = query.toLowerCase();
-        pool.sort((a, b) => {
-          const aExact = a.title.toLowerCase() === q ? 1 : 0;
-          const bExact = b.title.toLowerCase() === q ? 1 : 0;
-          if (aExact !== bExact) return bExact - aExact;
-
-          const aStarts = a.title.toLowerCase().startsWith(q) ? 1 : 0;
-          const bStarts = b.title.toLowerCase().startsWith(q) ? 1 : 0;
-          if (aStarts !== bStarts) return bStarts - aStarts;
-
-          const aTitle = a.title.toLowerCase().includes(q) ? 1 : 0;
-          const bTitle = b.title.toLowerCase().includes(q) ? 1 : 0;
-          if (aTitle !== bTitle) return bTitle - aTitle;
-
-          return b.rating - a.rating;
-        });
-      } else if (category !== 'top_rated_movies' && category !== 'top_rated_tv' && category !== 'upcoming_movies') {
-        pool.sort((a, b) => {
-          if (sortBy === 'rating') return b.rating - a.rating;
-          if (sortBy === 'year') return b.year - a.year || b.rating - a.rating;
-          if (sortBy === 'title') return a.title.localeCompare(b.title);
-          return (a.popularityRank || 999) - (b.popularityRank || 999);
-        });
+        if (
+          category !== 'top_rated_movies' &&
+          category !== 'top_rated_tv' &&
+          category !== 'upcoming_movies'
+        ) {
+          pool.sort((a, b) => {
+            if (sortBy === 'rating') return b.rating - a.rating;
+            if (sortBy === 'year') return b.year - a.year || b.rating - a.rating;
+            if (sortBy === 'title') return a.title.localeCompare(b.title);
+            return (a.popularityRank || 999) - (b.popularityRank || 999);
+          });
+        }
       }
 
       const PAGE_SIZE = 20;

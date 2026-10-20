@@ -47,7 +47,11 @@ export const DiscoverView: React.FC<DiscoverViewProps> = ({
   const [category, setCategory] = useState<CatalogueCategory>(initialCategory);
   const [selectedMood, setSelectedMood] = useState(initialMood);
   const [selectedGenre, setSelectedGenre] = useState('All');
-  const [selectedType, setSelectedType] = useState<'all' | 'movie' | 'tv'>('all');
+  const [selectedType, setSelectedType] = useState<'all' | 'movie' | 'tv'>(() => {
+    if (initialCategory.includes('movies')) return 'movie';
+    if (initialCategory.includes('_tv')) return 'tv';
+    return 'all';
+  });
   const [sortBy, setSortBy] = useState<'popularity' | 'rating' | 'year' | 'title'>('popularity');
   const [minRating, setMinRating] = useState<number>(0);
 
@@ -58,6 +62,7 @@ export const DiscoverView: React.FC<DiscoverViewProps> = ({
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [isLoadingMore, setIsLoadingMore] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
+  const requestIdRef = React.useRef(0);
 
   // Sync external initialMood / initialCategory changes
   useEffect(() => {
@@ -66,6 +71,13 @@ export const DiscoverView: React.FC<DiscoverViewProps> = ({
 
   useEffect(() => {
     setCategory(initialCategory);
+    if (initialCategory.includes('movies')) {
+      setSelectedType('movie');
+    } else if (initialCategory.includes('_tv')) {
+      setSelectedType('tv');
+    } else {
+      setSelectedType('all');
+    }
   }, [initialCategory]);
 
   // Debounce search input (350ms)
@@ -78,6 +90,7 @@ export const DiscoverView: React.FC<DiscoverViewProps> = ({
 
   const loadCataloguePage = useCallback(
     async (targetPage: number, mode: 'replace' | 'append', signal?: AbortSignal) => {
+      const currentReqId = ++requestIdRef.current;
       try {
         if (mode === 'replace') {
           setIsLoading(true);
@@ -100,6 +113,8 @@ export const DiscoverView: React.FC<DiscoverViewProps> = ({
           signal
         );
 
+        if (signal?.aborted || currentReqId !== requestIdRef.current) return;
+
         if (onRegisterMedia && response.items.length > 0) {
           onRegisterMedia(response.items);
         }
@@ -118,11 +133,15 @@ export const DiscoverView: React.FC<DiscoverViewProps> = ({
         setTotalPages(response.totalPages);
         setTotalResults(response.totalResults);
       } catch (err: any) {
-        if (err?.name === 'AbortError') return;
+        if (err?.name === 'AbortError' || signal?.aborted || currentReqId !== requestIdRef.current) {
+          return;
+        }
         setError(err.message || 'Unable to load catalogue results.');
       } finally {
-        setIsLoading(false);
-        setIsLoadingMore(false);
+        if (!signal?.aborted && currentReqId === requestIdRef.current) {
+          setIsLoading(false);
+          setIsLoadingMore(false);
+        }
       }
     },
     [category, selectedType, selectedGenre, selectedMood, sortBy, minRating, debouncedQuery, onRegisterMedia]

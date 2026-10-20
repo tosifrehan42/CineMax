@@ -1,8 +1,8 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { MediaItem } from '../types';
 import { MediaPoster } from './MediaPoster';
 import { fetchCatalogue } from '../services/mediaApi';
-import { Search, X, Star, Film, ArrowRight, Loader2, Plus } from 'lucide-react';
+import { Search, X, Star, Film, ArrowRight, Loader2, Plus, AlertCircle } from 'lucide-react';
 
 interface SearchOverlayProps {
   isOpen: boolean;
@@ -28,8 +28,10 @@ export const SearchOverlay: React.FC<SearchOverlayProps> = ({
   const [totalResults, setTotalResults] = useState(items.length);
   const [isLoading, setIsLoading] = useState(false);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   const inputRef = useRef<HTMLInputElement>(null);
+  const requestIdRef = useRef(0);
 
   useEffect(() => {
     if (isOpen) {
@@ -37,6 +39,7 @@ export const SearchOverlay: React.FC<SearchOverlayProps> = ({
     } else {
       setQuery('');
       setDebouncedQuery('');
+      setError(null);
     }
   }, [isOpen]);
 
@@ -48,13 +51,11 @@ export const SearchOverlay: React.FC<SearchOverlayProps> = ({
     return () => clearTimeout(timer);
   }, [query]);
 
-  // Fetch live search results when debouncedQuery or typeFilter changes
-  useEffect(() => {
-    if (!isOpen) return;
-    const controller = new AbortController();
-
-    async function runSearch() {
+  const executeSearch = useCallback(
+    async (signal?: AbortSignal) => {
+      const currentReqId = ++requestIdRef.current;
       setIsLoading(true);
+      setError(null);
       try {
         const res = await fetchCatalogue(
           {
@@ -63,8 +64,10 @@ export const SearchOverlay: React.FC<SearchOverlayProps> = ({
             type: typeFilter,
             page: 1,
           },
-          controller.signal
+          signal
         );
+        if (signal?.aborted || currentReqId !== requestIdRef.current) return;
+
         if (onRegisterMedia && res.items.length > 0) {
           onRegisterMedia(res.items);
         }
@@ -73,34 +76,32 @@ export const SearchOverlay: React.FC<SearchOverlayProps> = ({
         setTotalPages(res.totalPages);
         setTotalResults(res.totalResults);
       } catch (err: any) {
-        if (err?.name !== 'AbortError') {
-          // Fallback to local filter
-          const q = debouncedQuery.toLowerCase();
-          const local = items.filter((item) => {
-            if (typeFilter !== 'all' && item.type !== typeFilter) return false;
-            if (!q) return true;
-            return (
-              item.title.toLowerCase().includes(q) ||
-              item.director.toLowerCase().includes(q) ||
-              item.genres.some((g) => g.toLowerCase().includes(q))
-            );
-          });
-          setResults(local);
-          setTotalResults(local.length);
-          setTotalPages(1);
+        if (err?.name === 'AbortError' || signal?.aborted || currentReqId !== requestIdRef.current) {
+          return;
         }
+        setError(err?.message || 'Unable to fetch search results from server.');
       } finally {
-        setIsLoading(false);
+        if (!signal?.aborted && currentReqId === requestIdRef.current) {
+          setIsLoading(false);
+        }
       }
-    }
+    },
+    [debouncedQuery, typeFilter, onRegisterMedia]
+  );
 
-    runSearch();
+  // Fetch live search results when debouncedQuery or typeFilter changes
+  useEffect(() => {
+    if (!isOpen) return;
+    const controller = new AbortController();
+    executeSearch(controller.signal);
     return () => controller.abort();
-  }, [isOpen, debouncedQuery, typeFilter, items, onRegisterMedia]);
+  }, [isOpen, executeSearch]);
 
   const handleLoadMore = async () => {
-    if (page >= totalPages || isLoadingMore) return;
+    if (page >= totalPages || isLoadingMore || isLoading) return;
+    const activeReqId = requestIdRef.current;
     setIsLoadingMore(true);
+    setError(null);
     try {
       const nextPage = page + 1;
       const res = await fetchCatalogue({
@@ -109,6 +110,7 @@ export const SearchOverlay: React.FC<SearchOverlayProps> = ({
         type: typeFilter,
         page: nextPage,
       });
+      if (activeReqId !== requestIdRef.current) return;
       if (onRegisterMedia && res.items.length > 0) {
         onRegisterMedia(res.items);
       }
@@ -116,12 +118,16 @@ export const SearchOverlay: React.FC<SearchOverlayProps> = ({
         const seen = new Set(prev.map((i) => i.id));
         return [...prev, ...res.items.filter((i) => !seen.has(i.id))];
       });
-      setPage(nextPage);
+      setPage(res.page || nextPage);
       setTotalPages(res.totalPages);
-    } catch {
-      // Ignore
+    } catch (err: any) {
+      if (activeReqId === requestIdRef.current) {
+        setError(err?.message || 'Failed to load additional results.');
+      }
     } finally {
-      setIsLoadingMore(false);
+      if (activeReqId === requestIdRef.current) {
+        setIsLoadingMore(false);
+      }
     }
   };
 
@@ -156,6 +162,9 @@ export const SearchOverlay: React.FC<SearchOverlayProps> = ({
 
   if (!isOpen) return null;
 
+  const isPendingDebounce = query.trim() !== debouncedQuery;
+  const showBusy = isLoading || isPendingDebounce;
+
   return (
     <div className="fixed inset-0 z-50 overflow-y-auto bg-black/85 backdrop-blur-md flex items-start justify-center pt-16 sm:pt-24 px-4 animate-in fade-in duration-150">
       <div className="fixed inset-0" onClick={onClose} />
@@ -163,7 +172,7 @@ export const SearchOverlay: React.FC<SearchOverlayProps> = ({
       <div className="relative z-10 w-full max-w-2xl bg-[#0f1118] border border-white/10 rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[80vh]">
         {/* Search Bar Input */}
         <div className="flex items-center gap-3 px-5 py-4 border-b border-white/10 bg-slate-900/60">
-          {isLoading ? (
+          {showBusy ? (
             <Loader2 className="w-5 h-5 text-amber-400 animate-spin shrink-0" />
           ) : (
             <Search className="w-5 h-5 text-amber-400 shrink-0" />
@@ -178,7 +187,10 @@ export const SearchOverlay: React.FC<SearchOverlayProps> = ({
           />
           {query && (
             <button
-              onClick={() => setQuery('')}
+              onClick={() => {
+                setQuery('');
+                setDebouncedQuery('');
+              }}
               className="p-1 text-slate-400 hover:text-white rounded"
             >
               <X className="w-4 h-4" />
@@ -229,9 +241,25 @@ export const SearchOverlay: React.FC<SearchOverlayProps> = ({
           </span>
         </div>
 
+        {/* API Error Banner */}
+        {error && (
+          <div className="mx-3 mt-3 p-3 rounded-xl bg-red-500/10 border border-red-500/30 flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2 text-xs text-red-200">
+              <AlertCircle className="w-4 h-4 text-red-400 shrink-0" />
+              <span>{error}</span>
+            </div>
+            <button
+              onClick={() => executeSearch()}
+              className="px-2.5 py-1 rounded-lg bg-red-500/20 hover:bg-red-500/30 text-red-200 text-xs font-semibold shrink-0"
+            >
+              Retry
+            </button>
+          </div>
+        )}
+
         {/* Results List */}
         <div className="overflow-y-auto divide-y divide-white/5 p-2">
-          {results.length === 0 && !isLoading ? (
+          {results.length === 0 && !showBusy ? (
             <div className="py-12 text-center text-slate-500">
               <Film className="w-10 h-10 mx-auto stroke-1 opacity-40 mb-2" />
               <p className="text-sm font-medium text-slate-400">No matching titles found</p>
@@ -264,13 +292,11 @@ export const SearchOverlay: React.FC<SearchOverlayProps> = ({
                         {item.title}
                       </h4>
                       <div className="flex items-center gap-1.5 text-xs text-slate-400 mt-0.5">
-                        <span>{item.year}</span>
+                        <span>{item.year > 0 ? item.year : 'TBA'}</span>
                         <span aria-hidden="true" className="text-slate-600">·</span>
-                        <span>{item.type === 'movie' ? 'Film' : `${item.seasons || 1}S TV`}</span>
+                        <span>{item.type === 'movie' ? 'Movie' : 'TV Series'}</span>
                         <span aria-hidden="true" className="text-slate-600">·</span>
                         <span className="truncate">{item.genres.slice(0, 2).join(', ')}</span>
-                        <span aria-hidden="true" className="text-slate-600">·</span>
-                        <span className="text-slate-400 truncate">Dir. {item.director.split('&')[0]}</span>
                       </div>
                     </div>
                   </div>
@@ -278,7 +304,7 @@ export const SearchOverlay: React.FC<SearchOverlayProps> = ({
                   <div className="flex items-center gap-3 shrink-0 ml-4">
                     <div className="flex items-center gap-1 text-amber-400 font-mono text-xs">
                       <Star className="w-3.5 h-3.5 fill-amber-400" />
-                      <span>{item.rating.toFixed(1)}</span>
+                      <span>{item.rating > 0 ? item.rating.toFixed(1) : 'NR'}</span>
                     </div>
                     <ArrowRight
                       className={`w-4 h-4 transition-colors ${

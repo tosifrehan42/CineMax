@@ -90,7 +90,7 @@ export const MediaPoster: React.FC<MediaPosterProps> = ({
         }}
       >
         {/* Loading Shimmer State */}
-        {!isLoaded && !hasError && (
+        {Boolean(targetUrl) && !isLoaded && !hasError && (
           <div className="absolute inset-0 bg-slate-900/60 animate-pulse pointer-events-none" />
         )}
 
@@ -101,7 +101,7 @@ export const MediaPoster: React.FC<MediaPosterProps> = ({
             src={targetUrl}
             srcSet={backdropSrcSet}
             sizes="100vw"
-            alt={`${media.title} (${media.year}) backdrop`}
+            alt={`${media.title} (${media.year || 'TBA'}) backdrop`}
             referrerPolicy="no-referrer"
             loading={priority ? 'eager' : 'lazy'}
             onLoad={() => setIsLoaded(true)}
@@ -141,7 +141,7 @@ export const MediaPoster: React.FC<MediaPosterProps> = ({
       }}
     >
       {/* Loading Skeleton Shimmer */}
-      {!isLoaded && !hasError && (
+      {Boolean(targetUrl) && !isLoaded && !hasError && (
         <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-slate-900/80 animate-pulse p-3">
           <div className="w-8 h-8 rounded-full border-2 border-amber-400/30 border-t-amber-400 animate-spin mb-2" />
           <span className="text-[10px] font-medium text-slate-400 text-center line-clamp-1">
@@ -157,7 +157,7 @@ export const MediaPoster: React.FC<MediaPosterProps> = ({
           src={targetUrl}
           srcSet={posterSrcSet}
           sizes="(max-width: 640px) 45vw, (max-width: 1024px) 30vw, 260px"
-          alt={`${media.title} (${media.year}) official poster`}
+          alt={`${media.title} (${media.year || 'TBA'}) official poster`}
           referrerPolicy="no-referrer"
           loading={priority ? 'eager' : 'lazy'}
           onLoad={() => setIsLoaded(true)}
@@ -172,9 +172,9 @@ export const MediaPoster: React.FC<MediaPosterProps> = ({
           <div className="flex items-center justify-between text-[11px] tracking-wider uppercase text-white/60 font-medium">
             <span className="flex items-center gap-1">
               <span className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: accent }} />
-              {media.type === 'movie' ? 'Film' : `${media.seasons}S TV`}
+              {media.type === 'movie' ? 'Film' : 'TV Series'}
             </span>
-            <span className="text-white/40">{media.year}</span>
+            <span className="text-white/40">{media.year > 0 ? media.year : 'TBA'}</span>
           </div>
 
           <div className="my-auto flex flex-col items-center justify-center text-center py-4">
@@ -195,7 +195,9 @@ export const MediaPoster: React.FC<MediaPosterProps> = ({
             </h4>
             <div className="flex items-center justify-between mt-1 text-[11px] text-white/50">
               <span className="truncate max-w-[100px]">{media.director.split('&')[0]}</span>
-              <span className="text-amber-400/90 font-medium font-mono">★ {media.rating.toFixed(1)}</span>
+              <span className="text-amber-400/90 font-medium font-mono">
+                ★ {media.rating > 0 ? media.rating.toFixed(1) : 'NR'}
+              </span>
             </div>
           </div>
         </div>
