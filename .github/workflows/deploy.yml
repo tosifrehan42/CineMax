@@ -57,14 +57,17 @@ jobs:
             echo "Error: dist/index.html still contains an uncompiled /src/main.tsx script tag"
             exit 1
           fi
-          if ! grep -Eq '<script[^>]+src="/CineMax/assets/[^"]+\.js"' dist/index.html; then
-            echo "Error: dist/index.html does not reference compiled /CineMax/assets/*.js"
+          JS_ASSET=$(grep -Eo '/CineMax/assets/[^"]+\.js' dist/index.html | head -n 1)
+          CSS_ASSET=$(grep -Eo '/CineMax/assets/[^"]+\.css' dist/index.html | head -n 1)
+          if [ -z "$JS_ASSET" ] || [ ! -f "dist/${JS_ASSET#/CineMax/}" ]; then
+            echo "Error: Referenced JS asset ($JS_ASSET) is missing from dist/assets/"
             exit 1
           fi
-          if ! grep -Eq '<link[^>]+href="/CineMax/assets/[^"]+\.css"' dist/index.html; then
-            echo "Error: dist/index.html does not reference compiled /CineMax/assets/*.css"
+          if [ -z "$CSS_ASSET" ] || [ ! -f "dist/${CSS_ASSET#/CineMax/}" ]; then
+            echo "Error: Referenced CSS asset ($CSS_ASSET) is missing from dist/assets/"
             exit 1
           fi
+          echo "Verified compiled assets: $JS_ASSET and $CSS_ASSET"
           cp dist/index.html dist/404.html
           touch dist/.nojekyll
 

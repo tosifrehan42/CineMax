@@ -1,6 +1,6 @@
 {
-  "summary":  "Implementation plan to fix the failing 'Set up Node.js' step in GitHub Actions, support both GitHub Actions Pages deployment and a published gh-pages branch, and harden index.html against raw source serving and white-screen failures.",
-  "updatedAt":  "2026-10-23T06:50:43.873324192Z",
+  "summary":  "Implementation plan to align the deployed GitHub Pages build with the Google AI Studio preview by mirroring the live catalogue and category resolution logic in the static client fallback, adding HTML cache-busting and stale service-worker cleanup, and verifying hashed asset references in CI.",
+  "updatedAt":  "2026-10-23T08:09:24.424649435Z",
   "requestFeedback":  true,
   "userFacing":  true
 }
