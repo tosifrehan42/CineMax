@@ -46,7 +46,7 @@
               var src = target.src || target.getAttribute('src') || 'unknown script';
               var isRawMainTsx = src.indexOf('/src/main.tsx') !== -1;
               var hint = isRawMainTsx
-                ? 'GitHub Pages is currently serving the uncompiled main branch source instead of the built dist bundle. In your GitHub repository, open Settings → Pages and set Source to "GitHub Actions" (or "Deploy from a branch" → "gh-pages").'
+                ? 'GitHub Pages is currently serving the uncompiled repository source instead of the built dist bundle. In your GitHub repository, open Settings → Pages and set Source to "GitHub Actions".'
                 : 'A required application script failed to load.';
               renderStartupError('CineMax Bundle Load Error', 'Failed to load script: ' + src, hint);
               return;
