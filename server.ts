@@ -1664,6 +1664,27 @@ async function startServer() {
         ranked = rankTmdbVideos(allRaw, resolvedTitle || titleHint);
       }
 
+      // Verify playability/embeddability of the top candidates via YouTube oEmbed
+      if (ranked.length > 0) {
+        const toVerify = ranked.slice(0, 4);
+        const checks = await Promise.all(
+          toVerify.map(async (v) => {
+            try {
+              const oembedUrl = `https://www.youtube.com/oembed?url=${encodeURIComponent(
+                `https://www.youtube.com/watch?v=${v.key}`
+              )}&format=json`;
+              const r = await fetch(oembedUrl);
+              return r.ok;
+            } catch {
+              // If network check to YouTube times out, do not discard candidate
+              return true;
+            }
+          })
+        );
+        const verifiedTop = toVerify.filter((_, i) => checks[i]);
+        ranked = [...verifiedTop, ...ranked.slice(4)];
+      }
+
       const finalSearchUrl = resolvedTitle
         ? `https://www.youtube.com/results?search_query=${encodeURIComponent(
             `${resolvedTitle} ${resolved.resolvedYear || yearHint || ''} official trailer`.trim()

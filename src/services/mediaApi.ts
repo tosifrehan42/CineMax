@@ -1,4 +1,5 @@
 import { MEDIA_ITEMS } from '../data/mediaData';
+import { VERIFIED_TMDB_TRAILERS } from '../data/verifiedTrailers';
 import {
   CastMember,
   EpisodeInfo,
@@ -751,10 +752,8 @@ export async function fetchTvSeasonEpisodes(
 }
 
 // ============================================================================
-// Official TMDB Trailer & Video Lookup (Server Proxy + Client TMDB Fallback)
+// Official TMDB Trailer & Video Lookup (Server Proxy + Static Host Fallback)
 // ============================================================================
-
-const CLIENT_TMDB_BASE_URL = 'https://api.themoviedb.org/3';
 
 export const SEED_TO_TMDB_ID: Record<string, { mediaType: 'movie' | 'tv'; tmdbId: number }> = {
   'dune-part-two': { mediaType: 'movie', tmdbId: 693134 },
@@ -780,50 +779,7 @@ export const SEED_TO_TMDB_ID: Record<string, { mediaType: 'movie' | 'tv'; tmdbId
 };
 
 const clientTrailerCache = new Map<string, { timestamp: number; data: TrailerLookupResult }>();
-const clientResolvedTmdbIdCache = new Map<string, { mediaType: 'movie' | 'tv'; tmdbId: number }>();
 const CLIENT_TRAILER_CACHE_TTL_MS = 1000 * 60 * 30; // 30 minutes
-
-function getClientTmdbKey(): string {
-  const raw = String(
-    (import.meta as any).env?.VITE_TMDB_API_KEY ||
-      (import.meta as any).env?.VITE_TMDB_READ_ACCESS_TOKEN ||
-      ''
-  ).trim();
-  if (!raw || raw === 'MY_TMDB_API_KEY' || raw === 'YOUR_TMDB_API_KEY') return '';
-  return raw;
-}
-
-async function fetchClientTmdbJson(
-  endpoint: string,
-  params: Record<string, string | number | undefined> = {},
-  signal?: AbortSignal
-): Promise<any> {
-  const apiKey = getClientTmdbKey();
-  if (!apiKey) throw new Error('VITE_TMDB_API_KEY is not configured');
-
-  const url = new URL(`${CLIENT_TMDB_BASE_URL}${endpoint}`);
-  const headers: Record<string, string> = {
-    Accept: 'application/json',
-  };
-
-  if (apiKey.startsWith('eyJ') || apiKey.length > 45) {
-    headers.Authorization = `Bearer ${apiKey}`;
-  } else {
-    url.searchParams.set('api_key', apiKey);
-  }
-
-  for (const [k, v] of Object.entries(params)) {
-    if (v !== undefined && v !== '') {
-      url.searchParams.set(k, String(v));
-    }
-  }
-
-  const res = await fetch(url.toString(), { headers, signal });
-  if (!res.ok) {
-    throw new Error(`TMDB request failed with status ${res.status}`);
-  }
-  return res.json();
-}
 
 export function rankTmdbVideos(rawVideos: any[], mediaTitle = ''): TrailerVideo[] {
   if (!Array.isArray(rawVideos)) return [];
@@ -944,18 +900,41 @@ export function extractDirectTmdbId(
   return null;
 }
 
-async function resolveClientNumericTmdbId(
+/**
+ * Resolves verified TMDB trailers on static hosts (such as GitHub Pages)
+ * where Express server routes (/api/trailer/*) are unavailable and secret API keys
+ * must never be exposed in client-side bundles.
+ */
+export async function resolveStaticHostTrailers(
   media: MediaItem,
   signal?: AbortSignal
-): Promise<{ mediaType: 'movie' | 'tv'; tmdbId: number } | null> {
+): Promise<TrailerLookupResult> {
+  const youtubeSearchUrl = `https://www.youtube.com/results?search_query=${encodeURIComponent(
+    `${media.title} ${media.year || ''} official trailer`.trim()
+  )}`;
+
   const direct = extractDirectTmdbId(media.id, media.type);
-  if (direct) return direct;
+  const candidateKeys = [
+    `id:${media.id}`,
+    direct ? `id:tmdb-${direct.mediaType}-${direct.tmdbId}` : '',
+    `title:${media.type}:${media.title.toLowerCase().trim()}`,
+  ].filter(Boolean);
 
-  const cacheKey = `${media.type}:${media.id}:${media.title.toLowerCase()}`;
-  const cached = clientResolvedTmdbIdCache.get(cacheKey);
-  if (cached) return cached;
+  for (const k of candidateKeys) {
+    const record = VERIFIED_TMDB_TRAILERS[k];
+    if (record && Array.isArray(record.videos) && record.videos.length > 0) {
+      return {
+        status: 'ok',
+        tmdbId: record.tmdbId,
+        mediaType: record.mediaType,
+        primaryVideo: record.videos[0],
+        videos: record.videos,
+        youtubeSearchUrl,
+      };
+    }
+  }
 
-  // If TVMaze item, try IMDb external ID first if available
+  // Optional keyless public Wikidata lookup by IMDb ID for TVMaze shows not in pre-verified index
   if (media.id.startsWith('tvmaze-tv-')) {
     const showId = media.id.replace('tvmaze-tv-', '');
     if (/^\d+$/.test(showId)) {
@@ -964,17 +943,41 @@ async function resolveClientNumericTmdbId(
         if (tvMazeRes.ok) {
           const showData = await tvMazeRes.json();
           const imdbId = showData?.externals?.imdb ? String(showData.externals.imdb).trim() : '';
-          if (imdbId) {
-            const findData = await fetchClientTmdbJson(
-              `/find/${encodeURIComponent(imdbId)}`,
-              { external_source: 'imdb_id' },
-              signal
-            );
-            const tvResults = findData?.tv_results;
-            if (Array.isArray(tvResults) && tvResults.length > 0 && tvResults[0]?.id) {
-              const resolved = { mediaType: 'tv' as const, tmdbId: Number(tvResults[0].id) };
-              clientResolvedTmdbIdCache.set(cacheKey, resolved);
-              return resolved;
+          if (/^tt\d+$/.test(imdbId)) {
+            const sparql = `SELECT ?video WHERE { ?item wdt:P345 "${imdbId}" . ?item wdt:P1651 ?video . } LIMIT 3`;
+            const wdUrl = `https://query.wikidata.org/sparql?format=json&query=${encodeURIComponent(
+              sparql
+            )}`;
+            const wdRes = await fetch(wdUrl, {
+              headers: { Accept: 'application/sparql-results+json' },
+              signal,
+            });
+            if (wdRes.ok) {
+              const wdData = await wdRes.json();
+              const bindings: any[] = wdData?.results?.bindings || [];
+              const ytKeyRegex = /^[A-Za-z0-9_-]{11}$/;
+              const videos: TrailerVideo[] = bindings
+                .map((b, idx) => String(b?.video?.value || '').trim())
+                .filter((key) => ytKeyRegex.test(key))
+                .map((key, idx) => ({
+                  id: `wd-${imdbId}-${idx}`,
+                  key,
+                  name: `${media.title} — Official Trailer`,
+                  site: 'YouTube' as const,
+                  type: 'Trailer' as const,
+                  official: true,
+                }));
+
+              if (videos.length > 0) {
+                return {
+                  status: 'ok',
+                  tmdbId: direct?.tmdbId || null,
+                  mediaType: media.type,
+                  primaryVideo: videos[0],
+                  videos,
+                  youtubeSearchUrl,
+                };
+              }
             }
           }
         }
@@ -984,87 +987,28 @@ async function resolveClientNumericTmdbId(
     }
   }
 
-  // Search TMDB by title + year
-  const searchEndpoint = media.type === 'tv' ? '/search/tv' : '/search/movie';
-  const searchData = await fetchClientTmdbJson(
-    searchEndpoint,
-    {
-      query: media.title,
-      include_adult: 'false',
-    },
-    signal
-  );
-
-  const rawResults: any[] = Array.isArray(searchData?.results) ? searchData.results : [];
-  if (rawResults.length === 0) return null;
-
-  const normTarget = normalizeForSearch(media.title);
-  const targetWords = normTarget.split(' ').filter(Boolean);
-
-  const scoredCandidates = rawResults
-    .filter((r) => r && Number.isFinite(Number(r.id)) && Number(r.id) > 0)
-    .map((r, idx) => {
-      const cTitle =
-        (media.type === 'tv' ? r.name || r.original_name : r.title || r.original_title) || '';
-      const cOrig =
-        (media.type === 'tv' ? r.original_name : r.original_title) || '';
-      const normC = normalizeForSearch(cTitle);
-      const normOrig = normalizeForSearch(cOrig);
-      const tier = Math.max(
-        getTitleMatchTier(normC, normC.split(' ').filter(Boolean), normTarget, targetWords),
-        getTitleMatchTier(normOrig, normOrig.split(' ').filter(Boolean), normTarget, targetWords) * 0.95
-      );
-
-      const dateStr = String((media.type === 'tv' ? r.first_air_date : r.release_date) || '');
-      const cYear = dateStr ? parseInt(dateStr.slice(0, 4), 10) || 0 : 0;
-      let yearBonus = 0;
-      if (media.year && cYear > 0) {
-        const diff = Math.abs(cYear - media.year);
-        if (diff === 0) yearBonus = 1.5;
-        else if (diff === 1) yearBonus = 0.8;
-        else if (diff > 3) yearBonus = -0.8;
-      }
-
-      const votes = Number(r.vote_count || 0);
-      const voteBonus = votes >= 100 ? 0.6 : votes >= 20 ? 0.3 : 0;
-
-      return {
-        raw: r,
-        totalScore: tier * 3 + yearBonus + voteBonus,
-        votes,
-        idx,
-      };
-    });
-
-  scoredCandidates.sort((a, b) => {
-    if (Math.abs(b.totalScore - a.totalScore) > 0.15) return b.totalScore - a.totalScore;
-    if (b.votes !== a.votes) return b.votes - a.votes;
-    return a.idx - b.idx;
-  });
-
-  const best = scoredCandidates[0]?.raw;
-  if (!best?.id) return null;
-
-  const resolved = { mediaType: media.type, tmdbId: Number(best.id) };
-  clientResolvedTmdbIdCache.set(cacheKey, resolved);
-  return resolved;
+  return {
+    status: 'unavailable',
+    tmdbId: direct?.tmdbId || null,
+    mediaType: media.type,
+    primaryVideo: null,
+    videos: [],
+    youtubeSearchUrl,
+    reason: 'No official YouTube trailer is available for this title.',
+  };
 }
 
 export async function fetchMediaTrailers(
   media: MediaItem,
   signal?: AbortSignal
 ): Promise<TrailerLookupResult> {
-  const youtubeSearchUrl = `https://www.youtube.com/results?search_query=${encodeURIComponent(
-    `${media.title} ${media.year || ''} official trailer`.trim()
-  )}`;
-
   const cacheKey = `${media.type}:${media.id}`;
   const cached = clientTrailerCache.get(cacheKey);
   if (cached && Date.now() - cached.timestamp < CLIENT_TRAILER_CACHE_TTL_MS) {
     return cached.data;
   }
 
-  // 1. Try server proxy endpoint (/api/trailer/:type/:id)
+  // 1. Try server proxy endpoint (/api/trailer/:type/:id) first
   const queryParams = new URLSearchParams({
     title: media.title,
     year: media.year ? String(media.year) : '',
@@ -1074,115 +1018,17 @@ export async function fetchMediaTrailers(
     { signal }
   );
 
-  if (serverResult && serverResult.status === 'ok' && serverResult.primaryVideo) {
-    clientTrailerCache.set(cacheKey, { timestamp: Date.now(), data: serverResult });
-    return serverResult;
-  }
-
-  // 2. If running on a static host (e.g. GitHub Pages) or server didn't have TMDB configured,
-  //    use client-side TMDB lookup when VITE_TMDB_API_KEY is available.
-  const clientTmdbKey = getClientTmdbKey();
-  if (clientTmdbKey) {
-    try {
-      const resolved = await resolveClientNumericTmdbId(media, signal);
-      if (!resolved || !Number.isFinite(resolved.tmdbId) || resolved.tmdbId <= 0) {
-        const unavailable: TrailerLookupResult = {
-          status: 'unavailable',
-          tmdbId: null,
-          mediaType: media.type,
-          primaryVideo: null,
-          videos: [],
-          youtubeSearchUrl,
-          reason: 'Could not resolve a verified TMDB entry for this title.',
-        };
-        clientTrailerCache.set(cacheKey, { timestamp: Date.now(), data: unavailable });
-        return unavailable;
-      }
-
-      const { mediaType, tmdbId } = resolved;
-      const enData = await fetchClientTmdbJson(
-        `/${mediaType}/${tmdbId}/videos`,
-        { language: 'en-US' },
-        signal
-      );
-      const rawVideos: any[] = Array.isArray(enData?.results) ? [...enData.results] : [];
-
-      if (
-        mediaType === 'tv' &&
-        !rawVideos.some((v) => v?.site === 'YouTube' && v?.type === 'Trailer')
-      ) {
-        try {
-          const s1Data = await fetchClientTmdbJson(
-            `/tv/${tmdbId}/season/1/videos`,
-            { language: 'en-US' },
-            signal
-          );
-          if (Array.isArray(s1Data?.results)) {
-            rawVideos.push(...s1Data.results);
-          }
-        } catch (s1Err: any) {
-          if (s1Err?.name === 'AbortError') throw s1Err;
-        }
-      }
-
-      let ranked = rankTmdbVideos(rawVideos, media.title);
-
-      if (ranked.length === 0) {
-        const allData = await fetchClientTmdbJson(
-          `/${mediaType}/${tmdbId}/videos`,
-          {},
-          signal
-        );
-        ranked = rankTmdbVideos(
-          Array.isArray(allData?.results) ? allData.results : [],
-          media.title
-        );
-      }
-
-      const result: TrailerLookupResult = {
-        status: ranked.length > 0 ? 'ok' : 'unavailable',
-        tmdbId,
-        mediaType,
-        primaryVideo: ranked[0] || null,
-        videos: ranked,
-        youtubeSearchUrl,
-        reason:
-          ranked.length === 0
-            ? 'No official YouTube trailer or teaser was returned by TMDB for this title.'
-            : undefined,
-      };
-      clientTrailerCache.set(cacheKey, { timestamp: Date.now(), data: result });
-      return result;
-    } catch (err: any) {
-      if (err?.name === 'AbortError') throw err;
-      return {
-        status: 'error',
-        tmdbId: null,
-        mediaType: media.type,
-        primaryVideo: null,
-        videos: [],
-        youtubeSearchUrl,
-        reason: 'Unable to reach TMDB video service. Check your connection or try again.',
-      };
-    }
-  }
-
-  // 3. If server returned a structured unavailable/error response and no client key exists
   if (serverResult) {
-    if (serverResult.status === 'unavailable') {
+    if (serverResult.status === 'ok' || serverResult.status === 'unavailable') {
       clientTrailerCache.set(cacheKey, { timestamp: Date.now(), data: serverResult });
     }
     return serverResult;
   }
 
-  return {
-    status: 'unavailable',
-    tmdbId: null,
-    mediaType: media.type,
-    primaryVideo: null,
-    videos: [],
-    youtubeSearchUrl,
-    reason: 'Official trailer metadata is unavailable for this title.',
-  };
+  // 2. Static host (GitHub Pages) fallback when Express server route is unavailable
+  const fallbackResult = await resolveStaticHostTrailers(media, signal);
+  clientTrailerCache.set(cacheKey, { timestamp: Date.now(), data: fallbackResult });
+  return fallbackResult;
 }
+
 

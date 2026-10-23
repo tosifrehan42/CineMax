@@ -33,7 +33,7 @@ function getYoutubeEmbedUrl(videoKey: string): string {
   if (typeof window !== 'undefined' && window.location?.origin) {
     params.set('origin', window.location.origin);
   }
-  return `https://www.youtube-nocookie.com/embed/${encodeURIComponent(videoKey)}?${params.toString()}`;
+  return `https://www.youtube.com/embed/${encodeURIComponent(videoKey)}?${params.toString()}`;
 }
 
 export const TrailerModal: React.FC<TrailerModalProps> = ({ media, onClose }) => {
@@ -100,7 +100,9 @@ export const TrailerModal: React.FC<TrailerModalProps> = ({ media, onClose }) =>
       .then((res) => {
         if (controller.signal.aborted) return;
         setLookupResult(res);
-        setActiveVideo(res.primaryVideo || res.videos[0] || null);
+        const initialVideo = res.primaryVideo || res.videos[0] || null;
+        setActiveVideo(initialVideo);
+        setIsPlayerActive(Boolean(initialVideo));
       })
       .catch((err: any) => {
         if (controller.signal.aborted || err?.name === 'AbortError') return;
@@ -286,17 +288,32 @@ export const TrailerModal: React.FC<TrailerModalProps> = ({ media, onClose }) =>
                 </div>
               </div>
             ) : isPlayerActive ? (
-              /* 2b. Real Embedded YouTube Player */
-              <iframe
-                ref={iframeRef}
-                key={activeVideo.key}
-                src={getYoutubeEmbedUrl(activeVideo.key)}
-                title={`${media.title} - ${activeVideo.name}`}
-                onLoad={handleIframeLoad}
-                className="w-full h-full border-0"
-                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-                allowFullScreen
-              />
+              /* 2b. Real Embedded YouTube Player with real thumbnail backdrop while iframe initializes */
+              <div className="relative w-full h-full bg-black">
+                {thumbnailUrl && (
+                  <img
+                    src={thumbnailUrl}
+                    alt={`${media.title} - ${activeVideo.name}`}
+                    onError={() => {
+                      if (!thumbnailHighResFailed) {
+                        setThumbnailHighResFailed(true);
+                      }
+                    }}
+                    referrerPolicy="no-referrer"
+                    className="absolute inset-0 w-full h-full object-cover object-center opacity-30 pointer-events-none"
+                  />
+                )}
+                <iframe
+                  ref={iframeRef}
+                  key={activeVideo.key}
+                  src={getYoutubeEmbedUrl(activeVideo.key)}
+                  title={`${media.title} - ${activeVideo.name}`}
+                  onLoad={handleIframeLoad}
+                  className="relative z-10 w-full h-full border-0"
+                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                  allowFullScreen
+                />
+              </div>
             ) : (
               /* 2c. Real YouTube Thumbnail Preview Before Playback */
               <div className="relative w-full h-full group">
