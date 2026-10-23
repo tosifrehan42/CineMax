@@ -1,4 +1,5 @@
 import { MEDIA_ITEMS } from '../data/mediaData';
+import { EXTRA_ANCHOR_ITEMS, INDIAN_TRENDING_ITEMS } from '../data/franchiseData';
 import { VERIFIED_TMDB_TRAILERS } from '../data/verifiedTrailers';
 import {
   CastMember,
@@ -11,6 +12,9 @@ import {
 
 export type CatalogueCategory =
   | 'trending'
+  | 'trending_india'
+  | 'top_10_movies'
+  | 'top_10_tv'
   | 'popular_movies'
   | 'top_rated_movies'
   | 'upcoming_movies'
@@ -24,7 +28,9 @@ export interface CatalogueQueryParams {
   type?: 'all' | 'movie' | 'tv';
   genre?: string;
   mood?: string;
-  sortBy?: 'popularity' | 'rating' | 'year' | 'title';
+  year?: string;
+  language?: string;
+  sortBy?: 'relevance' | 'popularity' | 'rating' | 'year' | 'title';
   minRating?: number;
   query?: string;
 }
@@ -177,6 +183,20 @@ function getTitleMatchTier(
   return 0.5;
 }
 
+function matchesClientYearFilter(itemYear: number, yearFilter: string): boolean {
+  if (!yearFilter || yearFilter === 'All' || yearFilter === 'all') return true;
+  if (!itemYear || itemYear <= 0) return false;
+  if (yearFilter === '2025-2026') return itemYear >= 2025 && itemYear <= 2026;
+  if (yearFilter === '2024') return itemYear === 2024;
+  if (yearFilter === '2020-2023') return itemYear >= 2020 && itemYear <= 2023;
+  if (yearFilter === '2010-2019') return itemYear >= 2010 && itemYear <= 2019;
+  if (yearFilter === '2000-2009') return itemYear >= 2000 && itemYear <= 2009;
+  if (yearFilter === 'classic') return itemYear < 2000;
+  const exactYear = parseInt(yearFilter, 10);
+  if (Number.isFinite(exactYear) && exactYear > 1900) return itemYear === exactYear;
+  return true;
+}
+
 let cachedLiveCatalog: MediaItem[] | null = null;
 let lastCacheTimestamp = 0;
 let catalogLoadPromise: Promise<MediaItem[]> | null = null;
@@ -198,9 +218,15 @@ async function getClientLiveExpandedCatalog(): Promise<MediaItem[]> {
   catalogLoadPromise = (async () => {
     const byTitleKey = new Map<string, MediaItem>();
 
-    // 1. Seed with the 20 rich TMDB-poster anchor titles
-    for (const item of MEDIA_ITEMS) {
-      byTitleKey.set(`${item.type}:${item.title.toLowerCase()}`, item);
+    // 1. Seed with the 20 rich TMDB-poster anchor titles + franchise/regional anchor items
+    for (const item of [...MEDIA_ITEMS, ...EXTRA_ANCHOR_ITEMS]) {
+      const k = `${item.type}:${item.title.toLowerCase()}`;
+      if (!byTitleKey.has(k)) {
+        byTitleKey.set(k, {
+          ...item,
+          language: item.language || 'en',
+        });
+      }
     }
 
     // 2. Fetch live Movies from Apple iTunes Movie RSS genre feeds (CORS-enabled)
@@ -222,7 +248,7 @@ async function getClientLiveExpandedCatalog(): Promise<MediaItem[]> {
       })
     );
 
-    let movieRankCounter = 21;
+    let movieRankCounter = 25;
     for (const res of feedResults) {
       if (res.status !== 'fulfilled' || !Array.isArray(res.value)) continue;
       for (const entry of res.value) {
@@ -264,6 +290,7 @@ async function getClientLiveExpandedCatalog(): Promise<MediaItem[]> {
           type: 'movie',
           year,
           runtime,
+          language: 'en',
           genres,
           rating: deterministicRating,
           voteCount,
@@ -298,7 +325,7 @@ async function getClientLiveExpandedCatalog(): Promise<MediaItem[]> {
       fetch('https://api.tvmaze.com/shows?page=1').then((r) => (r.ok ? r.json() : [])),
     ]);
 
-    let tvRankCounter = 21;
+    let tvRankCounter = 25;
     for (const res of tvPages) {
       if (res.status !== 'fulfilled' || !Array.isArray(res.value)) continue;
       const validShows = res.value
@@ -325,6 +352,18 @@ async function getClientLiveExpandedCatalog(): Promise<MediaItem[]> {
         const h = hashString(id);
         const palette = PALETTES[h % PALETTES.length];
         const seasons = Math.max(1, Math.min(8, Math.round((show.weight || 85) / 22)));
+        const rawLang = String(show.language || 'English').toLowerCase();
+        const langCode = rawLang.startsWith('ja')
+          ? 'ja'
+          : rawLang.startsWith('ko')
+          ? 'ko'
+          : rawLang.startsWith('es')
+          ? 'es'
+          : rawLang.startsWith('hi')
+          ? 'hi'
+          : rawLang.startsWith('fr')
+          ? 'fr'
+          : 'en';
 
         byTitleKey.set(key, {
           id,
@@ -332,6 +371,7 @@ async function getClientLiveExpandedCatalog(): Promise<MediaItem[]> {
           type: 'tv',
           year,
           seasons,
+          language: langCode,
           genres,
           rating,
           voteCount: `${40 + (h % 320)}k`,
@@ -392,12 +432,28 @@ async function resolveClientCatalogue(
       : 'all';
   const genre = String(params.genre || 'All').trim();
   const mood = String(params.mood || 'all').trim();
-  const sortBy = (params.sortBy || 'popularity') as 'popularity' | 'rating' | 'year' | 'title';
+  const yearFilter = String(params.year || 'All').trim();
+  const languageFilter = String(params.language || 'all').trim().toLowerCase();
+  const sortBy = (params.sortBy || 'popularity') as
+    | 'relevance'
+    | 'popularity'
+    | 'rating'
+    | 'year'
+    | 'title';
   const minRating = Number(params.minRating) || 0;
   const query = String(params.query || '').trim();
 
   const catalog = await getClientLiveExpandedCatalog();
-  let pool: MediaItem[] = [...catalog];
+  let pool: MediaItem[] =
+    category === 'trending_india' ? [...INDIAN_TRENDING_ITEMS, ...catalog] : [...catalog];
+
+  // Deduplicate by id
+  const seenIds = new Set<string>();
+  pool = pool.filter((item) => {
+    if (seenIds.has(item.id)) return false;
+    seenIds.add(item.id);
+    return true;
+  });
 
   // Live TVMaze search enrichment when user queries a specific show
   if (query.length >= 2 && effectiveType !== 'movie') {
@@ -431,6 +487,7 @@ async function resolveClientCatalogue(
             type: 'tv',
             year: show.premiered ? parseInt(show.premiered.slice(0, 4), 10) || 0 : 0,
             seasons: 2,
+            language: 'en',
             genres,
             rating: Number((show.rating?.average || 0).toFixed(1)),
             voteCount: `${15 + (h % 180)}k`,
@@ -463,6 +520,14 @@ async function resolveClientCatalogue(
     pool = pool.filter((item) => item.type === effectiveType);
   }
 
+  if (category === 'trending_india') {
+    pool = pool.filter(
+      (item) =>
+        ['hi', 'te', 'ta', 'ml', 'kn'].includes((item.language || '').toLowerCase()) ||
+        INDIAN_TRENDING_ITEMS.some((ind) => ind.id === item.id)
+    );
+  }
+
   if (query) {
     const normQ = normalizeForSearch(query);
     const qWords = normQ.split(' ').filter(Boolean);
@@ -490,43 +555,48 @@ async function resolveClientCatalogue(
     });
 
     pool = scoredPool.map((entry) => entry.item);
-  } else {
-    // Non-search browse filters & category sorting (identical to server.ts lines 959-998)
+  }
+
+  if (genre && genre !== 'All') {
+    const selectedGenreList = genre
+      .split(',')
+      .map((g) => g.trim().toLowerCase())
+      .filter((g) => g && g !== 'all');
+    if (selectedGenreList.length > 0) {
+      pool = pool.filter((item) =>
+        selectedGenreList.every((reqG) =>
+          item.genres.some((itemG) => itemG.toLowerCase() === reqG)
+        )
+      );
+    }
+  }
+
+  if (mood && mood !== 'all' && mood !== 'All') {
+    pool = pool.filter((item) =>
+      item.moods.some((m) => m.toLowerCase() === mood.toLowerCase())
+    );
+  }
+
+  if (yearFilter && yearFilter !== 'All' && yearFilter !== 'all') {
+    pool = pool.filter((item) => matchesClientYearFilter(item.year, yearFilter));
+  }
+
+  if (languageFilter && languageFilter !== 'all') {
+    pool = pool.filter(
+      (item) => (item.language || 'en').toLowerCase() === languageFilter
+    );
+  }
+
+  if (minRating > 0) {
+    pool = pool.filter((item) => item.rating >= minRating);
+  }
+
+  if (!query || sortBy !== 'relevance') {
     if (category === 'top_rated_movies' || category === 'top_rated_tv') {
       pool.sort((a, b) => b.rating - a.rating);
     } else if (category === 'upcoming_movies') {
       pool.sort((a, b) => b.year - a.year || b.rating - a.rating);
-    }
-
-    if (genre && genre !== 'All') {
-      const selectedGenreList = genre
-        .split(',')
-        .map((g) => g.trim().toLowerCase())
-        .filter((g) => g && g !== 'all');
-      if (selectedGenreList.length > 0) {
-        pool = pool.filter((item) =>
-          selectedGenreList.every((reqG) =>
-            item.genres.some((itemG) => itemG.toLowerCase() === reqG)
-          )
-        );
-      }
-    }
-
-    if (mood && mood !== 'all' && mood !== 'All') {
-      pool = pool.filter((item) =>
-        item.moods.some((m) => m.toLowerCase() === mood.toLowerCase())
-      );
-    }
-
-    if (minRating > 0) {
-      pool = pool.filter((item) => item.rating >= minRating);
-    }
-
-    if (
-      category !== 'top_rated_movies' &&
-      category !== 'top_rated_tv' &&
-      category !== 'upcoming_movies'
-    ) {
+    } else if (category !== 'trending_india') {
       pool.sort((a, b) => {
         if (sortBy === 'rating') return b.rating - a.rating;
         if (sortBy === 'year') return b.year - a.year || b.rating - a.rating;
@@ -534,6 +604,18 @@ async function resolveClientCatalogue(
         return (a.popularityRank || 999) - (b.popularityRank || 999);
       });
     }
+  }
+
+  if (category === 'top_10_movies' || category === 'top_10_tv') {
+    const top10 = pool.slice(0, 10).map((it, idx) => ({ ...it, trendingRank: idx + 1 }));
+    return {
+      items: top10,
+      page: 1,
+      totalPages: 1,
+      totalResults: top10.length,
+      tmdbConfigured: false,
+      provider: 'live_open_catalog',
+    };
   }
 
   const PAGE_SIZE = 20;
@@ -562,6 +644,10 @@ export async function fetchCatalogue(
   if (params.type) searchParams.set('type', params.type);
   if (params.genre) searchParams.set('genre', params.genre);
   if (params.mood) searchParams.set('mood', params.mood);
+  if (params.year && params.year !== 'All') searchParams.set('year', params.year);
+  if (params.language && params.language !== 'all') {
+    searchParams.set('language', params.language);
+  }
   if (params.sortBy) searchParams.set('sortBy', params.sortBy);
   if (params.minRating && params.minRating > 0) {
     searchParams.set('minRating', String(params.minRating));

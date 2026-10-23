@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback, useRef } from 'react';
 import type { User } from '@supabase/supabase-js';
 import {
   TabView,
+  HomeHubMode,
   MediaItem,
   WatchlistEntry,
   WatchStatus,
@@ -10,6 +11,7 @@ import {
   UserProfile,
 } from './types';
 import { MEDIA_ITEMS } from './data/mediaData';
+import { EXTRA_ANCHOR_ITEMS } from './data/franchiseData';
 import { CatalogueCategory } from './services/mediaApi';
 import {
   ensureSupabaseClient,
@@ -141,6 +143,7 @@ export default function App() {
   const [currentTab, setCurrentTab] = useState<TabView>(() =>
     isUrlAdminRoute() ? 'admin' : 'home'
   );
+  const [homeHubMode, setHomeHubMode] = useState<HomeHubMode>('all');
   const [isAuthInitializing, setIsAuthInitializing] = useState<boolean>(true);
   const [adminAccessState, setAdminAccessState] =
     useState<AdminAccessState>('loading');
@@ -152,8 +155,11 @@ export default function App() {
   const lastLoadedCloudUserIdRef = useRef<string | null>(null);
   const activeAuthUserIdRef = useRef<string | null>(null);
 
-  const navigateToTab = useCallback((tab: TabView) => {
+  const navigateToTab = useCallback((tab: TabView, hubMode?: HomeHubMode) => {
     setCurrentTab(tab);
+    if (hubMode) {
+      setHomeHubMode(hubMode);
+    }
     if (typeof window !== 'undefined') {
       const base = (import.meta.env.BASE_URL || '/').replace(/\/+$/, '');
       const currentPath = window.location.pathname.replace(/\/+$/, '');
@@ -187,6 +193,7 @@ export default function App() {
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
   const [authModalMode, setAuthModalMode] = useState<'signin' | 'signup'>('signin');
   const [discoverInitialMood, setDiscoverInitialMood] = useState('all');
+  const [discoverInitialGenre, setDiscoverInitialGenre] = useState('All');
   const [discoverInitialCategory, setDiscoverInitialCategory] =
     useState<CatalogueCategory>('discover');
   const [estimatorInitialMedia, setEstimatorInitialMedia] = useState<MediaItem | null>(
@@ -197,7 +204,13 @@ export default function App() {
   >(undefined);
 
   // Dynamic registry of all loaded media items across pages so Watchlist, Profile & Roulette have full access
-  const [knownMedia, setKnownMedia] = useState<MediaItem[]>(MEDIA_ITEMS);
+  const [knownMedia, setKnownMedia] = useState<MediaItem[]>(() => {
+    const map = new Map<string, MediaItem>();
+    for (const item of [...MEDIA_ITEMS, ...EXTRA_ANCHOR_ITEMS]) {
+      if (!map.has(item.id)) map.set(item.id, item);
+    }
+    return Array.from(map.values());
+  });
 
   const handleRegisterMedia = useCallback((newItems: MediaItem[]) => {
     setKnownMedia((prev) => {
@@ -1162,6 +1175,7 @@ export default function App() {
 
   const handleExploreMood = (moodId: string) => {
     setDiscoverInitialMood(moodId);
+    setDiscoverInitialGenre('All');
     setDiscoverInitialCategory('discover');
     setCurrentTab('discover');
     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -1169,6 +1183,15 @@ export default function App() {
 
   const handleExploreCategory = (category: CatalogueCategory) => {
     setDiscoverInitialCategory(category);
+    setDiscoverInitialMood('all');
+    setDiscoverInitialGenre('All');
+    setCurrentTab('discover');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const handleExploreGenre = (genre: string) => {
+    setDiscoverInitialGenre(genre);
+    setDiscoverInitialCategory('discover');
     setDiscoverInitialMood('all');
     setCurrentTab('discover');
     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -1203,12 +1226,13 @@ export default function App() {
         });
 
   return (
-    <div className="min-h-screen bg-[#090a0f] text-slate-100 flex flex-col font-['Plus_Jakarta_Sans']">
-      {/* 3-Zone Navigation Top Bar */}
+    <div className="min-h-screen bg-[#0A0D12] text-slate-100 flex flex-col font-['Plus_Jakarta_Sans'] pb-16 md:pb-0">
+      {/* Responsive OTT Navigation */}
       <Navbar
         currentTab={currentTab}
-        onTabChange={(tab) => {
-          navigateToTab(tab);
+        homeHubMode={homeHubMode}
+        onTabChange={(tab, hubMode) => {
+          navigateToTab(tab, hubMode);
           window.scrollTo({ top: 0, behavior: 'smooth' });
         }}
         watchlistCount={activeWatchlist.length}
@@ -1222,11 +1246,17 @@ export default function App() {
         onSignOut={handleSignOut}
       />
 
-      {/* Main View Area */}
-      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 pt-6 sm:pt-8">
+      {/* Main View Area (1440px Fluid OTT Container) */}
+      <main className="flex-1 max-w-[1440px] w-full mx-auto px-4 sm:px-6 lg:px-8 pt-4 sm:pt-6">
         {currentTab === 'home' && (
           <HomeView
             initialItems={MEDIA_ITEMS}
+            allMedia={knownMedia}
+            hubMode={homeHubMode}
+            watchlist={activeWatchlist}
+            watchedEpisodes={activeWatchedEpisodes}
+            watchHistory={effectiveWatchHistory}
+            userProfile={userProfile}
             isInWatchlist={isInWatchlist}
             getWatchlistStatus={getWatchlistStatus}
             onToggleWatchlist={handleToggleWatchlist}
@@ -1237,7 +1267,8 @@ export default function App() {
             onPlayTrailer={(media) => setTrailerMedia(media)}
             onExploreMood={handleExploreMood}
             onExploreCategory={handleExploreCategory}
-            onNavigateTab={(tab) => setCurrentTab(tab)}
+            onExploreGenre={handleExploreGenre}
+            onNavigateTab={(tab) => navigateToTab(tab)}
             onRegisterMedia={handleRegisterMedia}
           />
         )}
@@ -1251,8 +1282,14 @@ export default function App() {
             onRemoveFromWatchlist={handleRemoveFromWatchlist}
             getWatchedEpisodesCount={getWatchedEpisodesCount}
             onSelectMedia={(media) => setSelectedMedia(media)}
+            onPlayTrailer={(media) => setTrailerMedia(media)}
+            onOpenEstimator={() => {
+              navigateToTab('estimator');
+              window.scrollTo({ top: 0, behavior: 'smooth' });
+            }}
             initialMood={discoverInitialMood}
             initialCategory={discoverInitialCategory}
+            initialGenre={discoverInitialGenre}
             onRegisterMedia={handleRegisterMedia}
           />
         )}
@@ -1399,18 +1436,45 @@ export default function App() {
         initialMode={authModalMode}
       />
 
-      {/* Clean, Tasteful Footer adhering to anti-slop rules */}
-      <footer className="border-t border-white/5 bg-[#07080c] mt-auto">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-slate-500">
+      {/* Clean OTT Footer */}
+      <footer className="border-t border-white/[0.06] bg-[#07090E] mt-auto">
+        <div className="max-w-[1440px] mx-auto px-4 sm:px-6 lg:px-8 py-8 flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-slate-500">
           <div className="flex items-center gap-2">
             <div className="w-5 h-5 rounded bg-amber-500/20 text-amber-400 flex items-center justify-center">
               <Film className="w-3 h-3 stroke-[2.5]" />
             </div>
-            <span className="font-['Outfit'] font-semibold text-slate-300">CineMax</span>
-            <span>· Cinema & Television Discovery</span>
+            <span className="font-['Plus_Jakarta_Sans'] font-bold text-slate-300">CineMax</span>
+            <span>· Cinema &amp; Television Discovery</span>
           </div>
 
-          <div className="flex items-center gap-6">
+          <div className="flex flex-wrap items-center justify-center gap-5 sm:gap-6">
+            <button
+              onClick={() => {
+                navigateToTab('home', 'all');
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+              }}
+              className="hover:text-slate-300 transition-colors"
+            >
+              Home
+            </button>
+            <button
+              onClick={() => {
+                navigateToTab('home', 'movies');
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+              }}
+              className="hover:text-slate-300 transition-colors"
+            >
+              Movies
+            </button>
+            <button
+              onClick={() => {
+                navigateToTab('home', 'series');
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+              }}
+              className="hover:text-slate-300 transition-colors"
+            >
+              Series
+            </button>
             <button
               onClick={() => {
                 navigateToTab('discover');
@@ -1436,22 +1500,13 @@ export default function App() {
               }}
               className="hover:text-slate-300 transition-colors"
             >
-              Quality &amp; Size
-            </button>
-            <button
-              onClick={() => {
-                navigateToTab('profile');
-                window.scrollTo({ top: 0, behavior: 'smooth' });
-              }}
-              className="hover:text-slate-300 transition-colors"
-            >
-              Cinephile Profile
+              Quality &amp; File Size
             </button>
             <button
               onClick={() => setIsSurpriseOpen(true)}
               className="text-amber-400 hover:text-amber-300 transition-colors"
             >
-              ReelRoulette
+              Surprise Me
             </button>
           </div>
 

@@ -5,6 +5,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { createServer as createViteServer } from 'vite';
 import { MEDIA_ITEMS } from './src/data/mediaData.ts';
+import { EXTRA_ANCHOR_ITEMS, INDIAN_TRENDING_ITEMS } from './src/data/franchiseData.ts';
 import type {
   MediaItem,
   CastMember,
@@ -360,6 +361,7 @@ function mapTmdbItemToMediaItem(raw: any, forcedType?: 'movie' | 'tv', indexOffs
     themeColor: palette.themeColor,
     posterUrl,
     backdropUrl,
+    language: raw.original_language ? String(raw.original_language).toLowerCase() : 'en',
     posterVisual: {
       bgFrom: palette.bgFrom,
       bgTo: palette.bgTo,
@@ -367,6 +369,36 @@ function mapTmdbItemToMediaItem(raw: any, forcedType?: 'movie' | 'tv', indexOffs
       iconType: palette.iconType,
     },
   };
+}
+
+function matchesYearFilter(itemYear: number, yearFilter: string): boolean {
+  if (!yearFilter || yearFilter === 'All' || yearFilter === 'all') return true;
+  if (!itemYear || itemYear <= 0) return false;
+  if (yearFilter === '2025-2026') return itemYear >= 2025 && itemYear <= 2026;
+  if (yearFilter === '2024') return itemYear === 2024;
+  if (yearFilter === '2020-2023') return itemYear >= 2020 && itemYear <= 2023;
+  if (yearFilter === '2010-2019') return itemYear >= 2010 && itemYear <= 2019;
+  if (yearFilter === '2000-2009') return itemYear >= 2000 && itemYear <= 2009;
+  if (yearFilter === 'classic') return itemYear < 2000;
+  const exactYear = parseInt(yearFilter, 10);
+  if (Number.isFinite(exactYear) && exactYear > 1900) return itemYear === exactYear;
+  return true;
+}
+
+function buildTmdbYearBounds(
+  targetType: 'movie' | 'tv',
+  yearFilter: string
+): Record<string, string | undefined> {
+  if (!yearFilter || yearFilter === 'All' || yearFilter === 'all') return {};
+  const gteKey = targetType === 'tv' ? 'first_air_date.gte' : 'primary_release_date.gte';
+  const lteKey = targetType === 'tv' ? 'first_air_date.lte' : 'primary_release_date.lte';
+  if (yearFilter === '2025-2026') return { [gteKey]: '2025-01-01', [lteKey]: '2026-12-31' };
+  if (yearFilter === '2024') return { [gteKey]: '2024-01-01', [lteKey]: '2024-12-31' };
+  if (yearFilter === '2020-2023') return { [gteKey]: '2020-01-01', [lteKey]: '2023-12-31' };
+  if (yearFilter === '2010-2019') return { [gteKey]: '2010-01-01', [lteKey]: '2019-12-31' };
+  if (yearFilter === '2000-2009') return { [gteKey]: '2000-01-01', [lteKey]: '2009-12-31' };
+  if (yearFilter === 'classic') return { [lteKey]: '1999-12-31' };
+  return {};
 }
 
 async function fetchFromTmdb(endpoint: string, params: Record<string, string | number | undefined> = {}) {
@@ -433,9 +465,15 @@ async function getLiveExpandedCatalog(): Promise<MediaItem[]> {
 
   const byTitleKey = new Map<string, MediaItem>();
 
-  // 1. Seed with the 20 rich TMDB-poster anchor titles
-  for (const item of MEDIA_ITEMS) {
-    byTitleKey.set(`${item.type}:${item.title.toLowerCase()}`, item);
+  // 1. Seed with the 20 rich TMDB-poster anchor titles + franchise/regional anchor items
+  for (const item of [...MEDIA_ITEMS, ...EXTRA_ANCHOR_ITEMS]) {
+    const k = `${item.type}:${item.title.toLowerCase()}`;
+    if (!byTitleKey.has(k)) {
+      byTitleKey.set(k, {
+        ...item,
+        language: item.language || 'en',
+      });
+    }
   }
 
   // 2. Fetch live Movies from Apple iTunes Movie RSS genre feeds (All, Action, Drama, Sci-Fi, Thriller, Comedy, Horror)
@@ -457,7 +495,7 @@ async function getLiveExpandedCatalog(): Promise<MediaItem[]> {
     })
   );
 
-  let movieRankCounter = 21;
+  let movieRankCounter = 25;
   for (const res of feedResults) {
     if (res.status !== 'fulfilled' || !Array.isArray(res.value)) continue;
     for (const entry of res.value) {
@@ -496,6 +534,7 @@ async function getLiveExpandedCatalog(): Promise<MediaItem[]> {
         type: 'movie',
         year,
         runtime,
+        language: 'en',
         genres,
         rating: deterministicRating,
         voteCount,
@@ -529,7 +568,7 @@ async function getLiveExpandedCatalog(): Promise<MediaItem[]> {
     fetch('https://api.tvmaze.com/shows?page=1').then((r) => (r.ok ? r.json() : [])),
   ]);
 
-  let tvRankCounter = 21;
+  let tvRankCounter = 25;
   for (const res of tvPages) {
     if (res.status !== 'fulfilled' || !Array.isArray(res.value)) continue;
     // Take top rated / popular shows with valid images
@@ -555,6 +594,18 @@ async function getLiveExpandedCatalog(): Promise<MediaItem[]> {
       const h = hashString(id);
       const palette = PALETTES[h % PALETTES.length];
       const seasons = Math.max(1, Math.min(8, Math.round((show.weight || 85) / 22)));
+      const rawLang = String(show.language || 'English').toLowerCase();
+      const langCode = rawLang.startsWith('ja')
+        ? 'ja'
+        : rawLang.startsWith('ko')
+        ? 'ko'
+        : rawLang.startsWith('es')
+        ? 'es'
+        : rawLang.startsWith('hi')
+        ? 'hi'
+        : rawLang.startsWith('fr')
+        ? 'fr'
+        : 'en';
 
       byTitleKey.set(key, {
         id,
@@ -562,6 +613,7 @@ async function getLiveExpandedCatalog(): Promise<MediaItem[]> {
         type: 'tv',
         year,
         seasons,
+        language: langCode,
         genres,
         rating,
         voteCount: `${40 + (h % 320)}k`,
@@ -667,7 +719,14 @@ async function startServer() {
         : 'all';
     const genre = String(req.query.genre || 'All');
     const mood = String(req.query.mood || 'all');
-    const sortBy = String(req.query.sortBy || 'popularity') as 'popularity' | 'rating' | 'year' | 'title';
+    const yearFilter = String(req.query.year || 'All');
+    const languageFilter = String(req.query.language || 'all').toLowerCase();
+    const sortBy = String(req.query.sortBy || 'popularity') as
+      | 'relevance'
+      | 'popularity'
+      | 'rating'
+      | 'year'
+      | 'title';
     const minRating = parseFloat(String(req.query.minRating || '0')) || 0;
     const query = String(req.query.query || '').trim();
 
@@ -697,6 +756,51 @@ async function startServer() {
           });
         } else if (category === 'trending') {
           data = await fetchFromTmdb('/trending/all/week', { page });
+        } else if (category === 'trending_india') {
+          const [inMovies, inTv] = await Promise.all([
+            fetchFromTmdb('/discover/movie', {
+              page,
+              with_origin_country: 'IN',
+              sort_by: 'popularity.desc',
+              'vote_count.gte': 25,
+            }),
+            fetchFromTmdb('/discover/tv', {
+              page,
+              with_origin_country: 'IN',
+              sort_by: 'popularity.desc',
+              'vote_count.gte': 15,
+            }),
+          ]);
+          const mRes: any[] = (Array.isArray(inMovies?.results) ? inMovies.results : [])
+            .filter((r: any) => r.poster_path || r.backdrop_path)
+            .map((r: any) => ({ ...r, media_type: 'movie' }));
+          const tRes: any[] = (Array.isArray(inTv?.results) ? inTv.results : [])
+            .filter((r: any) => r.poster_path || r.backdrop_path)
+            .map((r: any) => ({ ...r, media_type: 'tv' }));
+          const combined = [...mRes, ...tRes].sort(
+            (a, b) => (b.popularity || 0) - (a.popularity || 0)
+          );
+          const mapped = combined.map((r, idx) =>
+            mapTmdbItemToMediaItem(r, r.media_type, idx + 1)
+          );
+          const finalItems =
+            mapped.length >= 6
+              ? mapped.slice(0, 20)
+              : [...mapped, ...INDIAN_TRENDING_ITEMS].slice(0, 15);
+          return res.json({
+            items: finalItems,
+            page,
+            totalPages: Math.max(inMovies?.total_pages || 1, inTv?.total_pages || 1, 1),
+            totalResults: (inMovies?.total_results || 0) + (inTv?.total_results || 0) || finalItems.length,
+            tmdbConfigured: true,
+            provider: 'tmdb',
+          });
+        } else if (category === 'top_10_movies') {
+          forcedType = 'movie';
+          data = await fetchFromTmdb('/trending/movie/week', { page: 1 });
+        } else if (category === 'top_10_tv') {
+          forcedType = 'tv';
+          data = await fetchFromTmdb('/trending/tv/week', { page: 1 });
         } else if (category === 'popular_movies') {
           forcedType = 'movie';
           data = await fetchFromTmdb('/movie/popular', { page });
@@ -713,9 +817,10 @@ async function startServer() {
           forcedType = 'tv';
           data = await fetchFromTmdb('/tv/top_rated', { page });
         } else {
-          // Helper to build TMDB /discover/{movie|tv} parameters with proper genre intersection (AND via ',')
+          // Helper to build TMDB /discover/{movie|tv} parameters with genre, year, language, rating
           const buildDiscoverParams = (targetType: 'movie' | 'tv') => {
             const sortMap: Record<string, string> = {
+              relevance: 'popularity.desc',
               popularity: 'popularity.desc',
               rating: 'vote_average.desc',
               year: targetType === 'tv' ? 'first_air_date.desc' : 'primary_release_date.desc',
@@ -753,8 +858,11 @@ async function startServer() {
               page,
               sort_by: sortMap[sortBy] || 'popularity.desc',
               with_genres: genreIds.length > 0 ? genreIds.join(',') : undefined,
+              with_original_language:
+                languageFilter && languageFilter !== 'all' ? languageFilter : undefined,
               'vote_average.gte': minRating > 0 ? minRating : undefined,
-              'vote_count.gte': sortBy === 'rating' ? 300 : 50,
+              'vote_count.gte': sortBy === 'rating' ? 300 : 40,
+              ...buildTmdbYearBounds(targetType, yearFilter),
             };
           };
 
@@ -766,10 +874,10 @@ async function startServer() {
 
             const movieResults: any[] = (Array.isArray(movieData?.results) ? movieData.results : [])
               .filter((r: any) => r.poster_path || r.backdrop_path)
-              .slice(0, 10);
+              .slice(0, 12);
             const tvResults: any[] = (Array.isArray(tvData?.results) ? tvData.results : [])
               .filter((r: any) => r.poster_path || r.backdrop_path)
-              .slice(0, 10);
+              .slice(0, 12);
 
             const combinedRaw: Array<{ raw: any; mediaType: 'movie' | 'tv' }> = [
               ...movieResults.map((raw) => ({ raw, mediaType: 'movie' as const })),
@@ -799,9 +907,11 @@ async function startServer() {
               return (b.raw.popularity || 0) - (a.raw.popularity || 0);
             });
 
-            const items = combinedRaw.map((entry, idx) =>
-              mapTmdbItemToMediaItem(entry.raw, entry.mediaType, (page - 1) * 20 + idx + 1)
-            );
+            const items = combinedRaw
+              .slice(0, 20)
+              .map((entry, idx) =>
+                mapTmdbItemToMediaItem(entry.raw, entry.mediaType, (page - 1) * 20 + idx + 1)
+              );
 
             const totalPages = Math.min(
               Math.max(movieData?.total_pages || 1, tvData?.total_pages || 1),
@@ -844,15 +954,60 @@ async function startServer() {
           );
         }
 
-        const items = filteredRaw.map((r, idx) =>
+        let items = filteredRaw.map((r, idx) =>
           mapTmdbItemToMediaItem(r, forcedType, (page - 1) * 20 + idx + 1)
         );
+
+        // Apply post-filters when searching or browsing preset categories
+        if (genre && genre !== 'All') {
+          const selectedGenreList = genre
+            .split(',')
+            .map((g) => g.trim().toLowerCase())
+            .filter((g) => g && g !== 'all');
+          if (selectedGenreList.length > 0) {
+            items = items.filter((item) =>
+              selectedGenreList.every((reqG) =>
+                item.genres.some((itemG) => itemG.toLowerCase() === reqG)
+              )
+            );
+          }
+        }
+        if (yearFilter && yearFilter !== 'All' && yearFilter !== 'all') {
+          items = items.filter((item) => matchesYearFilter(item.year, yearFilter));
+        }
+        if (languageFilter && languageFilter !== 'all') {
+          items = items.filter(
+            (item) => (item.language || 'en').toLowerCase() === languageFilter
+          );
+        }
+        if (minRating > 0) {
+          items = items.filter((item) => item.rating >= minRating);
+        }
+
+        if (query && sortBy !== 'relevance') {
+          items.sort((a, b) => {
+            if (sortBy === 'rating') return b.rating - a.rating;
+            if (sortBy === 'year') return b.year - a.year || b.rating - a.rating;
+            if (sortBy === 'title') return a.title.localeCompare(b.title);
+            return 0;
+          });
+        }
+
+        if (category === 'top_10_movies' || category === 'top_10_tv') {
+          items = items.slice(0, 10).map((it, i) => ({ ...it, trendingRank: i + 1 }));
+        }
 
         return res.json({
           items,
           page: data?.page || page,
-          totalPages: Math.min(data?.total_pages || 1, 500),
-          totalResults: data?.total_results || items.length,
+          totalPages:
+            category === 'top_10_movies' || category === 'top_10_tv'
+              ? 1
+              : Math.min(data?.total_pages || 1, 500),
+          totalResults:
+            category === 'top_10_movies' || category === 'top_10_tv'
+              ? items.length
+              : data?.total_results || items.length,
           tmdbConfigured: true,
           provider: 'tmdb',
         });
@@ -870,7 +1025,15 @@ async function startServer() {
     // ========================================================================
     try {
       const catalog = await getLiveExpandedCatalog();
-      let pool = [...catalog];
+      let pool = category === 'trending_india' ? [...INDIAN_TRENDING_ITEMS, ...catalog] : [...catalog];
+
+      // Deduplicate pool by id
+      const seenIds = new Set<string>();
+      pool = pool.filter((item) => {
+        if (seenIds.has(item.id)) return false;
+        seenIds.add(item.id);
+        return true;
+      });
 
       // If user searches a specific query, also query live TVMaze search endpoint to find any show on earth
       if (query.length >= 2 && effectiveType !== 'movie') {
@@ -903,6 +1066,7 @@ async function startServer() {
                 type: 'tv',
                 year: show.premiered ? parseInt(show.premiered.slice(0, 4), 10) || 0 : 0,
                 seasons: 2,
+                language: 'en',
                 genres,
                 rating: Number((show.rating?.average || 0).toFixed(1)),
                 voteCount: `${15 + (h % 180)}k`,
@@ -935,6 +1099,13 @@ async function startServer() {
         pool = pool.filter((item) => item.type === effectiveType);
       }
 
+      if (category === 'trending_india') {
+        pool = pool.filter((item) =>
+          ['hi', 'te', 'ta', 'ml', 'kn'].includes((item.language || '').toLowerCase()) ||
+          INDIAN_TRENDING_ITEMS.some((ind) => ind.id === item.id)
+        );
+      }
+
       if (query) {
         const normQ = normalizeForSearch(query);
         const qWords = normQ.split(' ').filter(Boolean);
@@ -962,41 +1133,46 @@ async function startServer() {
         });
 
         pool = scoredPool.map((entry) => entry.item);
-      } else {
-        // Non-search browse filters
+      }
+
+      if (genre !== 'All') {
+        const selectedGenreList = genre
+          .split(',')
+          .map((g) => g.trim().toLowerCase())
+          .filter((g) => g && g !== 'all');
+        if (selectedGenreList.length > 0) {
+          pool = pool.filter((item) =>
+            selectedGenreList.every((reqG) =>
+              item.genres.some((itemG) => itemG.toLowerCase() === reqG)
+            )
+          );
+        }
+      }
+
+      if (mood !== 'all') {
+        pool = pool.filter((item) => item.moods.includes(mood));
+      }
+
+      if (yearFilter && yearFilter !== 'All' && yearFilter !== 'all') {
+        pool = pool.filter((item) => matchesYearFilter(item.year, yearFilter));
+      }
+
+      if (languageFilter && languageFilter !== 'all') {
+        pool = pool.filter(
+          (item) => (item.language || 'en').toLowerCase() === languageFilter
+        );
+      }
+
+      if (minRating > 0) {
+        pool = pool.filter((item) => item.rating >= minRating);
+      }
+
+      if (!query || sortBy !== 'relevance') {
         if (category === 'top_rated_movies' || category === 'top_rated_tv') {
           pool.sort((a, b) => b.rating - a.rating);
         } else if (category === 'upcoming_movies') {
           pool.sort((a, b) => b.year - a.year || b.rating - a.rating);
-        }
-
-        if (genre !== 'All') {
-          const selectedGenreList = genre
-            .split(',')
-            .map((g) => g.trim().toLowerCase())
-            .filter((g) => g && g !== 'all');
-          if (selectedGenreList.length > 0) {
-            pool = pool.filter((item) =>
-              selectedGenreList.every((reqG) =>
-                item.genres.some((itemG) => itemG.toLowerCase() === reqG)
-              )
-            );
-          }
-        }
-
-        if (mood !== 'all') {
-          pool = pool.filter((item) => item.moods.includes(mood));
-        }
-
-        if (minRating > 0) {
-          pool = pool.filter((item) => item.rating >= minRating);
-        }
-
-        if (
-          category !== 'top_rated_movies' &&
-          category !== 'top_rated_tv' &&
-          category !== 'upcoming_movies'
-        ) {
+        } else if (category !== 'trending_india') {
           pool.sort((a, b) => {
             if (sortBy === 'rating') return b.rating - a.rating;
             if (sortBy === 'year') return b.year - a.year || b.rating - a.rating;
@@ -1004,6 +1180,18 @@ async function startServer() {
             return (a.popularityRank || 999) - (b.popularityRank || 999);
           });
         }
+      }
+
+      if (category === 'top_10_movies' || category === 'top_10_tv') {
+        const top10 = pool.slice(0, 10).map((it, idx) => ({ ...it, trendingRank: idx + 1 }));
+        return res.json({
+          items: top10,
+          page: 1,
+          totalPages: 1,
+          totalResults: top10.length,
+          tmdbConfigured: false,
+          provider: 'live_open_catalog',
+        });
       }
 
       const PAGE_SIZE = 20;

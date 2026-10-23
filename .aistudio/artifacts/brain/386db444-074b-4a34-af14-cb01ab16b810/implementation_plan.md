@@ -1,113 +1,100 @@
-# Real TMDB Trailer Fetching & Embedded YouTube Player
+# CineMax Premium OTT Redesign Plan
 
-Replaces the simulated animation in CineMax's Trailer Modal with a real YouTube embedded player powered by official TMDB `/movie/{id}/videos` and `/tv/{id}/videos` metadata, complete with numeric TMDB ID resolution, real YouTube thumbnail previews, a multi-trailer switcher, embed-restriction error handling, and an honest "Trailer unavailable" state with a "Search on YouTube" fallback.
-
-## User Review & Critical Decisions
-
-> [!IMPORTANT]
-> The following design and architectural decisions incorporate your confirmed preferences from our clarification step:
-
-- **Confirmed Decision 1 — Real Thumbnail Preview Before Playback**: When the Trailer Modal opens and a valid TMDB YouTube trailer is resolved, the modal first displays the real YouTube trailer thumbnail (`maxresdefault` with `hqdefault` fallback), official video title, and release metadata. Clicking **Play Official Trailer** launches and autoplays the real embedded YouTube player.
-- **Confirmed Decision 2 — Top-Ranked Trailer with Alternate Switcher**: Videos returned by TMDB are ranked by official status, type (`Trailer` over `Teaser`), language (`en`), and publication date. When multiple suitable trailers or teasers exist, a switcher bar below the player lets users switch between them.
-- **Confirmed Decision 3 — Dual Server Proxy & Client `VITE_TMDB_API_KEY` Support**: Trailer metadata requests check the server proxy (`/api/trailer/:type/:id`) first and seamlessly support direct client-side TMDB `/videos` resolution on GitHub Pages when `VITE_TMDB_API_KEY` is configured, while caching results in memory to prevent duplicate requests.
+## 1. Overview & Aesthetic Direction
+Redesign CineMax into a cohesive, dark-cinematic OTT discovery experience (`#0A0D12` obsidian canvas, `#121721` elevated surfaces, `#F59E0B` amber accents, Plus Jakarta Sans + Inter + JetBrains Mono typography) inspired by the usability patterns of Netflix, Prime Video, and JioHotstar while preserving all existing features, routes, and security rules.
 
 ---
 
-## 1. Overview & Problem Diagnosis
+## 2. Information Architecture & Responsive Navigation (`Navbar.tsx` & `App.tsx`)
 
-- **Why the Current Player Was Broken**:
-  - The existing `TrailerModal` component did not fetch video keys or mount an `<iframe>` or `<video>` element. Instead, it rendered a static backdrop image with an animated CSS waveform and a `setInterval` loop that incremented a fake `progress` state from `0%` to `100%` over a hardcoded `2:14` duration.
-- **What This Fix Delivers**:
-  - **Accurate TMDB Numeric ID Resolution**: Resolves the numeric TMDB ID and media type (`movie` or `tv`) before calling TMDB's `/videos` endpoint—extracting numeric IDs directly from `tmdb-*` items, mapping seed slugs via the canonical TMDB ID table, and resolving TVMaze (`tvmaze-tv-*`) or Apple iTunes (`live-movie-*`) catalog items via external IDs (`imdb_id` / `thetvdb_id`) or title + release-year search so slugs are never passed where a numeric TMDB ID is required.
-  - **Real YouTube IFrame Player**: Uses the official YouTube embed player (`youtube-nocookie.com/embed/<key>?enablejsapi=1&playsinline=1&rel=0`) with the YouTube IFrame Player API to support native play, pause, timeline scrubbing, volume, captions, fullscreen, and real-time embed error detection (`onError` codes `2`, `5`, `100`, `101`, `150`).
-  - **Honest Fallback Behavior**: When no playable trailer is returned by TMDB (or when embedding is restricted by the publisher), no fake player or fake progress bar is shown. Instead, the modal displays a clear **Trailer unavailable** state with a **Search on YouTube** action (or **Watch on YouTube** if a valid video key exists but disallows embedding).
+### Desktop Navigation (`md` and up)
+- Sticky, compact top navigation bar (`h-16`, `max-w-[1440px]` centered container) with:
+  - **CineMax** brand logo
+  - **Primary hubs**: `Home`, `Movies` (Home OTT hub filtered to Movies), `Series` (Home OTT hub filtered to Series), `Discover`, `Watchlist`, `Quality & File Size`
+  - **Utility & Account**: Compact inline `Search` trigger/input, `Surprise Me` action, `Profile / Account` controls, and `Admin` (shown only when `adminAccessStatus === 'allowed'` or cached for the verified admin user ID).
 
----
-
-## 2. User Experience & Visual Design
-
-- **Key User Flows**:
-  1. **Loading State**: Opening the modal displays a clean skeleton loader (`Fetching official trailer metadata...`) inside the 16:9 viewport frame.
-  2. **Thumbnail Preview State**: Once resolved, the 16:9 frame displays the real YouTube trailer thumbnail (`https://i.ytimg.com/vi/<key>/maxresdefault.jpg` with automatic fallback to `hqdefault.jpg`), the official TMDB video name (e.g., *"Official Trailer"*), video type, and a central **Play Trailer** button.
-  3. **Active Embedded Playback**: Clicking Play mounts the real YouTube player with full native playback controls (play/pause, seek bar, volume, quality, fullscreen) and a direct **Watch on YouTube** link in the footer bar.
-  4. **Multi-Trailer Switcher**: If TMDB returns multiple official trailers or teasers, a horizontal selector strip below the video canvas allows switching active videos with a single click.
-  5. **Unavailable / Restricted Fallback**: If no trailer is found, the 16:9 frame shows **Trailer unavailable** with an explanation and a clearly labelled **Search on YouTube** button (`https://www.youtube.com/results?search_query=<Title>+<Year>+Official+Trailer`). If a video owner blocks third-party embedding, the player catches the YouTube API error and offers a direct **Watch on YouTube** button.
-  6. **Clean Modal Close**: Clicking the close button, clicking the backdrop, or pressing `Escape` immediately unmounts the modal and destroys the YouTube iframe instance so audio stops immediately.
-- **Visual Identity & Theme**:
-  - Preserves CineMax's obsidian dark modal frame (`#090a0f` / `#0d0e14`), subtle hairline borders (`border-white/10`), `Outfit` display headers, `Plus Jakarta Sans` UI controls, and `JetBrains Mono` (`tabular-nums`) metadata.
+### Mobile Navigation (`< md`)
+- **Compact Top Bar**: CineMax logo, quick Search input/trigger, Surprise Me button, and Account/Profile avatar button (plus Admin badge only for verified admins).
+- **Fixed Bottom Navigation Bar**: `Home`, `Discover`, `Watchlist`, and `Profile` (opens account/auth drawer or modal) with `pb-[env(safe-area-inset-bottom)]` and sufficient bottom page padding (`pb-24 md:pb-12`) so content is never obscured.
+- **Quality & File Size Access**: Prominently accessible via a compact banner/shortcut inside `Discover` and a quick-access pill in the mobile top bar/tools menu.
 
 ---
 
-## 3. Key Product Decisions & Trade-Offs
+## 3. Home Page OTT Hierarchy (`HomeView.tsx`, `HeroSpotlight.tsx`, `MediaCarouselRow.tsx`, `FranchiseModal.tsx`)
 
-- **Deterministic TMDB Video Ranking Algorithm**:
-  - *Chosen Approach*: Filter TMDB `/videos` results strictly to `site === 'YouTube'` with valid 11-character video keys (`/^[A-Za-z0-9_-]{11}$/`). Score candidates by:
-    1. Official flag (`official === true`: `+100`)
-    2. Video type (`Trailer`: `+80`, `Teaser`: `+40`, `Clip`/`Featurette`: `+10`)
-    3. Title match (`"Official Trailer"` / `"Main Trailer"`: `+35`, penalizing `"Recap"` / `"Commentary"`)
-    4. Language (`iso_639_1 === 'en'`: `+20`)
-    5. Recency (`published_at` timestamp tie-breaker)
-  - *Why*: Guarantees that official theatrical/series trailers are prioritized over teasers, featurettes, or foreign-language clips.
-- **YouTube IFrame API + Standard Embed Hybrid**:
-  - *Chosen Approach*: Render a real `<iframe>` pointed at `https://www.youtube-nocookie.com/embed/<key>?autoplay=1&playsinline=1&rel=0&modestbranding=1&enablejsapi=1` and bind the YouTube IFrame API `YT.Player` listener to detect `onError` events (`101`/`150` embedding disabled by owner, `100` video removed).
-  - *Why*: Gives users genuine native YouTube playback controls across desktop and mobile while programmatically catching unembeddable videos so users are never stuck on a broken iframe screen.
+When on `Home` (or the `Movies` / `Series` hub tabs), sections render in this exact hierarchy using real API/TMDB and curated fallback datasets, with cross-row deduplication so the same title does not repeat endlessly:
+
+1. **Featured Cinematic Hero (`HeroSpotlight.tsx`)**
+   - Wide 16:9 / 21:9 backdrop artwork with multi-stop bottom and left vignette gradients (`from-[#0A0D12] via-[#0A0D12]/80 to-transparent`).
+   - Displays title, release year, content format badge (`MOVIE` / `SERIES`), runtime or seasons count, IMDb/TMDB rating, language, and genre metadata.
+   - Primary actions: **Watch Trailer** (opens real YouTube trailer modal) and **View Details**.
+   - Secondary action: **Add to Watchlist** (or current watchlist status badge).
+   - Safe featured-title rotation (`8s` interval paused on hover/focus) with compact indicator pills and previous/next controls. Compact height on mobile (`min-h-[380px] sm:min-h-[440px] lg:min-h-[540px]`) so the first content row peeks above the fold.
+
+2. **Continue Watching**
+   - Rendered **only** when the user has genuine viewing progress (`status === 'watching'` or non-empty `watchedEpisodes`). Hidden completely when empty—never populated with dummy progress bars.
+
+3. **Recommended For You**
+   - Clearly labeled personalized recommendations based on the user's `favoriteGenres`, watchlist items, and high-rated history (with a clear subtitle indicating which genres/titles power the row, or a "Popular picks for new viewers" subtitle when no history exists yet).
+
+4. **Trending in India**
+   - Dedicated dataset using TMDB India region discovery/trending (`region=IN` / Indian language & regional popularity) with verified fallback titles.
+
+5. **Top 10 Movies & Top 10 Series**
+   - Independently sourced movie and series datasets rendered with oversized typographic `#1`–`#10` rank numerals alongside each `2:3` poster card.
+
+6. **Popular Movies** (shown in `Home` and `Movies` hub)
+7. **Popular Series** (shown in `Home` and `Series` hub)
+8. **Top Rated Movies** (shown in `Home` and `Movies` hub)
+9. **Top Rated Series** (shown in `Home` and `Series` hub)
+10. **New & Upcoming** (recent and upcoming releases sorted by release date)
+11. **Browse by Genre** (interactive genre pills that dynamically load a genre carousel or jump to Discover)
+12. **Franchise Collections / Watch Order**
+    - Curated multi-film/series franchises (e.g., Marvel Infinity Saga, Dune, The Dark Knight, Spider-Verse, John Wick, Avatar, Harry Potter, MonsterVerse, Lord of the Rings) backed by real catalogue entries.
+    - Selecting a franchise opens the **Franchise Watch-Order Modal** (`FranchiseModal.tsx`) showing chronological/release order, overall completion progress (`X of Y watched`), and direct `Watch Trailer`, `View Details`, and `Watchlist` toggles for each installment.
 
 ---
 
-## 4. Technical Architecture & Data Strategy *(Technical Reference)*
+## 4. Content Carousels & Portrait Title Cards (`MediaCarouselRow.tsx` & `MediaCard.tsx`)
 
-### Architecture & Resolution Flow Diagram
+- **Portrait `2:3` Cards**:
+  - Desktop (`1440px` container): `5–7` cards visible per row (`w-[175px] sm:w-[190px] lg:w-[205px]`).
+  - Mobile (`360px–430px`): `2.3–3` cards visible per row (`w-[140px] sm:w-[160px]`) with horizontal peek and `snap-x snap-mandatory` touch scrolling.
+- **Horizontal Carousel Controls**:
+  - Smooth native horizontal touch scrolling + keyboard arrow navigation + hover-revealed left/right chevron buttons on desktop.
+- **Clean Unboxed Metadata**:
+  - Poster image with subtle top-right rating badge and status indicator.
+  - Below poster: single-line/two-line title + compact unboxed metadata line (`2024 · 2h 46m · ★ 8.5` or `2022 · 2 Seasons · ★ 8.7`).
+  - Desktop hover/focus reveals quick actions (`Watch Trailer`, `Details`, `Watchlist +`); mobile provides direct tap for Details and a clean visible Watchlist/Trailer action button without requiring hover.
 
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                        User Clicks "Watch Trailer"                          │
-│                  Opens TrailerModal(media: MediaItem)                       │
-└─────────────────────────────────────┬───────────────────────────────────────┘
-                                      │
-                                      ▼
-┌─────────────────────────────────────────────────────────────────────────────┐
-│             Trailer Resolution Service (In-Memory Cached)                   │
-│                                                                             │
-│  1. Identify Numeric TMDB ID & Media Type ('movie' | 'tv'):                 │
-│     • tmdb-movie-123 / tmdb-tv-456 ──► Direct numeric ID (123 / 456)        │
-│     • Seed slug (e.g. dune-part-two) ► Canonical TMDB ID map                │
-│     • tvmaze-tv-* / live-movie-*   ──► Resolve via TVMaze IMDB ID (/find)   │
-│                                        or TMDB /search/{movie|tv}           │
-│                                                                             │
-│  2. Fetch TMDB /movie/{id}/videos or /tv/{id}/videos:                       │
-│     • Path A: Server Proxy (/api/trailer/:type/:id)                         │
-│     • Path B: Direct TMDB v3/v4 API (when VITE_TMDB_API_KEY is configured)  │
-│     • Path C: Verified TMDB video metadata for built-in seed catalog        │
-│                                                                             │
-│  3. Filter & Rank Official YouTube Videos:                                  │
-│     • site === 'YouTube' & valid 11-char key                                │
-│     • Rank: Official + Type (Trailer > Teaser) + Language + Published Date  │
-└───────────────┬─────────────────────────────────────────────┬───────────────┘
-                │                                             │
-     [ Videos Found (>= 1) ]                       [ No Suitable Trailer ]
-                │                                             │
-                ▼                                             ▼
-┌───────────────────────────────────────┐   ┌─────────────────────────────────┐
-│  Stage 1: Real Thumbnail Preview      │   │  "Trailer Unavailable" View     │
-│  • YouTube maxresdefault/hqdefault    │   │  • Honest status message        │
-│  • Official title & badge             │   │  • "Search on YouTube" button   │
-│  • Click Play ──► Mounts real         │   │    (clearly labelled as search) │
-│    YouTube Embed IFrame Player        │   └─────────────────────────────────┘
-│  • Multi-Trailer Switcher strip       │
-│  • On Embed Error (101/150) ──►       │
-│    Shows "Watch on YouTube" fallback  │
-└───────────────────────────────────────┘
-```
+---
 
-### Interactive Component & State Mapping
+## 5. Discover Workspace (`DiscoverView.tsx`, `server.ts`, `mediaApi.ts`)
 
-1. **Numeric TMDB ID & Video Resolution (`fetchMediaTrailers`)**:
-   - Returns `{ status: 'ok' | 'unavailable' | 'error', tmdbId: number | null, videos: TrailerVideoItem[], primaryVideo: TrailerVideoItem | null, youtubeSearchUrl: string, errorMessage?: string }`.
-   - Caches responses in an in-memory `Map<string, TrailerLookupResult>` keyed by `${media.type}:${media.id}` to eliminate duplicate requests when reopening a title's trailer.
-2. **Trailer Modal Lifecycle (`TrailerModal`)**:
-   - **`loading`**: Displayed while `fetchMediaTrailers(media)` is in flight.
-   - **`preview`**: Shows the real YouTube thumbnail for `activeVideo.key`, video title, type (`Official Trailer` / `Teaser`), and a prominent Play button.
-   - **`playing`**: Mounts the YouTube `<iframe>` player with `autoplay=1` and attaches the YouTube IFrame API `onError` callback.
-   - **`embed_restricted`**: Triggered if YouTube emits error `100`, `101`, or `150`, explaining that the publisher disabled external embedding and providing a direct **Watch on YouTube** link (`https://www.youtube.com/watch?v=<key>`).
-   - **`unavailable`**: Rendered when `videos.length === 0`, showing **Trailer unavailable** and a **Search on YouTube** button.
-   - **Cleanup on Close / Video Switch**: Unmounts the `<iframe>` and calls `player.destroy()` when the modal closes or when the user switches to a different trailer in the switcher bar.
+- **Compact Inline Filter Bar**:
+  - **Search input** with `250ms` debounce and clear button.
+  - **Format segmented toggle**: `All`, `Movies`, `Series`.
+  - **Genre dropdown**: All genres (`Action`, `Sci-Fi`, `Drama`, `Thriller`, `Animation`, `Crime`, `Comedy`, `Fantasy`, `Horror`, `Romance`, `Mystery`, `Adventure`).
+  - **Release Year dropdown**: `All Years`, `2025–2026`, `2024`, `2020–2023`, `2010–2019`, `2000–2009`, `Classic (<2000)`.
+  - **Language dropdown**: `All Languages`, `English`, `Hindi`, `Korean`, `Japanese`, `Spanish`, `Tamil`, `Telugu`, `French`.
+  - **Minimum Rating dropdown**: `Any Rating`, `7.0+`, `7.5+`, `8.0+`, `8.5+`.
+  - **Sort By dropdown**: `Relevance` (auto-selected when a search query is active), `Popularity`, `Highest Rated`, `Release Year (Newest)`, `Title (A–Z)`.
+- **Active Filter Chips & Shortcut**:
+  - Dismissible chips for every active filter + `Clear All` action + total results counter.
+  - Prominent **Quality & File Size Estimator** shortcut card/button right in the Discover header.
+- **End-to-End Backend & Static Filtering**:
+  - Update `/api/catalogue` in `server.ts` and `resolveClientCatalogue()` in `src/services/mediaApi.ts` so `year`, `language`, `genre`, `minRating`, `type`, `search`, and `sortBy` work seamlessly with both live TMDB API discovery and the static GitHub Pages catalogue fallback.
+
+---
+
+## 6. Preserved Features & Verification Plan
+- **Preserved Functionality**:
+  - Supabase Auth, session persistence, and profile avatar upload/removal (`ProfileModal.tsx`).
+  - Verified Admin Dashboard (`/admin` and `/CineMax/admin`) with server-side Supabase Edge Function authorization.
+  - Watchlist management across all 5 statuses (`watchlist`, `watching`, `completed`, `on_hold`, `dropped`), TV episode tracker, and Viewing Journal.
+  - Real YouTube Trailer Modal (`TrailerModal.tsx`) with official trailer ranking and verified fallback keys.
+  - Quality & File Size Estimator (`QualityGuide.tsx`) and Surprise Me modal (`SurpriseMeModal.tsx`).
+- **Verification**:
+  - Run `lint_applet` and `compile_applet` (`npm run build`).
+  - Test API endpoints for Home categories, Trending in India, Top 10 Movies/Series, and multi-filter Discover queries.
+  - Verify responsive layouts across `360px`, `390px`, `768px`, `1024px`, and `1440px` viewports and confirm `/CineMax/` GitHub Pages asset paths.

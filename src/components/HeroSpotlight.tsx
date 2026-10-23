@@ -1,10 +1,20 @@
 import React, { useState, useEffect } from 'react';
-import { MediaItem } from '../types';
+import { HomeHubMode, MediaItem } from '../types';
 import { MediaPoster } from './MediaPoster';
-import { Play, Bookmark, Check, Info, Star, ChevronLeft, ChevronRight } from 'lucide-react';
+import {
+  Play,
+  Bookmark,
+  Check,
+  Info,
+  Star,
+  ChevronLeft,
+  ChevronRight,
+  Flame,
+} from 'lucide-react';
 
 interface HeroSpotlightProps {
   featuredItems: MediaItem[];
+  hubMode?: HomeHubMode;
   isInWatchlist: (id: string) => boolean;
   onToggleWatchlist: (id: string) => void;
   onSelectMedia: (media: MediaItem) => void;
@@ -13,122 +23,186 @@ interface HeroSpotlightProps {
 
 export const HeroSpotlight: React.FC<HeroSpotlightProps> = ({
   featuredItems,
+  hubMode = 'all',
   isInWatchlist,
   onToggleWatchlist,
   onSelectMedia,
   onPlayTrailer,
 }) => {
   const [currentIndex, setCurrentIndex] = useState(0);
+  const [isPaused, setIsPaused] = useState(false);
 
-  // Auto-advance spotlight every 8 seconds if not interacted
+  // Reset index if featured items change (e.g. switching between All / Movies / Series)
   useEffect(() => {
-    if (featuredItems.length <= 1) return;
+    setCurrentIndex(0);
+  }, [hubMode, featuredItems.length]);
+
+  // Auto-advance spotlight every 8 seconds unless paused on hover/focus
+  useEffect(() => {
+    if (featuredItems.length <= 1 || isPaused) return;
     const timer = setInterval(() => {
       setCurrentIndex((prev) => (prev + 1) % featuredItems.length);
     }, 8000);
     return () => clearInterval(timer);
-  }, [featuredItems.length]);
+  }, [featuredItems.length, isPaused]);
 
   if (!featuredItems || featuredItems.length === 0) return null;
 
-  const current = featuredItems[currentIndex];
+  const safeIndex = currentIndex % featuredItems.length;
+  const current = featuredItems[safeIndex];
   const inWatchlist = isInWatchlist(current.id);
 
+  const hubKicker =
+    hubMode === 'movies'
+      ? 'Featured Cinema Spotlight'
+      : hubMode === 'series'
+      ? 'Featured Series Spotlight'
+      : 'Featured Spotlight';
+
   return (
-    <div className="relative w-full overflow-hidden rounded-2xl border border-white/10 bg-slate-950 shadow-2xl mb-12">
-      {/* Backdrop visual layer with real TMDB backdrop image and filmic glow */}
+    <div
+      onMouseEnter={() => setIsPaused(true)}
+      onMouseLeave={() => setIsPaused(false)}
+      className="relative w-full overflow-hidden rounded-2xl border border-white/10 bg-[#0A0D12] shadow-2xl"
+    >
+      {/* Wide Cinematic Backdrop with Multi-Stop Vignette Gradients */}
       <MediaPoster
         media={current}
         aspect="backdrop"
         priority={true}
-        className="absolute inset-0 w-full h-full min-h-[500px]"
+        className="absolute inset-0 w-full h-full min-h-[360px] sm:min-h-[430px] lg:min-h-[510px]"
       />
+      <div className="absolute inset-0 bg-gradient-to-t from-[#0A0D12] via-[#0A0D12]/55 to-transparent" />
+      <div className="absolute inset-0 bg-gradient-to-r from-[#0A0D12] via-[#0A0D12]/80 to-transparent" />
 
-      {/* Hero Content Container */}
-      <div className="relative z-10 max-w-7xl mx-auto px-6 py-10 lg:py-14 flex flex-col justify-between min-h-[460px] lg:min-h-[520px]">
-        {/* Top Kicker & Category */}
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wider text-amber-400">
-            <span className="w-2 h-2 rounded-full bg-amber-400" />
-            <span>Featured Spotlight</span>
-            <span aria-hidden="true" className="text-white/30">/</span>
-            <span className="text-white/70">{current.type === 'movie' ? 'Cinematic Feature' : 'Premier Series'}</span>
-          </div>
-
-          {/* Quick Spotlight Switcher controls */}
-          <div className="flex items-center gap-1.5 bg-black/50 backdrop-blur-md p-1 rounded-lg border border-white/10">
-            <button
-              onClick={() => setCurrentIndex((prev) => (prev - 1 + featuredItems.length) % featuredItems.length)}
-              className="p-1.5 text-white/70 hover:text-white hover:bg-white/10 rounded transition-colors"
-              aria-label="Previous spotlight"
-            >
-              <ChevronLeft className="w-4 h-4" />
-            </button>
-            <span className="text-xs font-mono text-white/60 px-1 tabular-nums">
-              {currentIndex + 1} / {featuredItems.length}
+      {/* Hero Foreground Content */}
+      <div className="relative z-10 px-5 sm:px-8 lg:px-10 py-6 sm:py-9 lg:py-12 flex flex-col justify-between min-h-[360px] sm:min-h-[430px] lg:min-h-[510px]">
+        {/* Top Kicker & Carousel Controls */}
+        <div className="flex items-center justify-between gap-4">
+          <div className="flex items-center gap-2 text-[11px] sm:text-xs font-semibold uppercase tracking-wider text-amber-400">
+            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-amber-500/15 border border-amber-500/30 text-amber-300">
+              <Flame className="w-3 h-3 fill-amber-400 text-amber-400" />
+              <span>{hubKicker}</span>
             </span>
-            <button
-              onClick={() => setCurrentIndex((prev) => (prev + 1) % featuredItems.length)}
-              className="p-1.5 text-white/70 hover:text-white hover:bg-white/10 rounded transition-colors"
-              aria-label="Next spotlight"
-            >
-              <ChevronRight className="w-4 h-4" />
-            </button>
+            <span className="hidden sm:inline text-white/30">/</span>
+            <span className="hidden sm:inline text-slate-300">
+              {current.type === 'movie' ? 'Theatrical Feature' : 'Original Series'}
+            </span>
           </div>
+
+          {/* Rotation Controls */}
+          {featuredItems.length > 1 && (
+            <div className="flex items-center gap-1 bg-black/55 backdrop-blur-md p-1 rounded-lg border border-white/10">
+              <button
+                type="button"
+                onClick={() =>
+                  setCurrentIndex(
+                    (prev) => (prev - 1 + featuredItems.length) % featuredItems.length
+                  )
+                }
+                className="p-1 text-white/75 hover:text-white hover:bg-white/10 rounded transition-colors"
+                aria-label="Previous featured title"
+              >
+                <ChevronLeft className="w-4 h-4" />
+              </button>
+              <span className="text-[11px] font-mono text-white/70 px-1.5 tabular-nums">
+                {safeIndex + 1} / {featuredItems.length}
+              </span>
+              <button
+                type="button"
+                onClick={() =>
+                  setCurrentIndex((prev) => (prev + 1) % featuredItems.length)
+                }
+                className="p-1 text-white/75 hover:text-white hover:bg-white/10 rounded transition-colors"
+                aria-label="Next featured title"
+              >
+                <ChevronRight className="w-4 h-4" />
+              </button>
+            </div>
+          )}
         </div>
 
-        {/* Center Two-Column Split: Left Info + Right Featured Poster */}
-        <div className="flex flex-col md:flex-row md:items-end justify-between gap-8 mt-6 lg:mt-8">
-          {/* Left Typographic Info */}
-          <div className="max-w-2xl">
-            {/* Metadata: Unboxed text with subtle typographic separators */}
-            <div className="flex flex-wrap items-center gap-2 text-xs text-slate-300 font-medium mb-3">
-              <span className="font-semibold text-white">{current.year}</span>
-              <span aria-hidden="true" className="text-slate-500">·</span>
-              <span>{current.type === 'movie' ? current.runtime : `${current.seasons} Seasons`}</span>
-              <span aria-hidden="true" className="text-slate-500">·</span>
-              <span>{current.contentRating}</span>
-              <span aria-hidden="true" className="text-slate-500">·</span>
+        {/* Main Hero Split: Left Metadata & Actions + Right Poster Preview on Desktop */}
+        <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 lg:gap-10 mt-6 sm:mt-8">
+          <div className="max-w-2xl space-y-2.5 sm:space-y-3">
+            {/* Unboxed Metadata Line */}
+            <div className="flex flex-wrap items-center gap-2 text-xs text-slate-300 font-medium">
+              <span className="px-1.5 py-0.5 rounded bg-white/10 text-white font-mono text-[10px] font-bold uppercase">
+                {current.type === 'movie' ? 'Movie' : 'Series'}
+              </span>
+              <span className="font-semibold text-white tabular-nums">{current.year}</span>
+              <span aria-hidden="true" className="text-slate-500">
+                ·
+              </span>
+              <span>
+                {current.type === 'movie'
+                  ? current.runtime || '2h 15m'
+                  : `${current.seasons || 1} ${
+                      (current.seasons || 1) === 1 ? 'Season' : 'Seasons'
+                    }`}
+              </span>
+              <span aria-hidden="true" className="text-slate-500">
+                ·
+              </span>
+              <span className="font-mono text-slate-300">{current.contentRating}</span>
+              <span aria-hidden="true" className="text-slate-500">
+                ·
+              </span>
               <div className="flex items-center gap-1 text-amber-400 font-mono">
                 <Star className="w-3.5 h-3.5 fill-amber-400 text-amber-400" />
-                <span className="tabular-nums font-semibold">{current.rating.toFixed(1)}</span>
-                <span className="text-slate-400 font-normal text-[11px]">({current.voteCount})</span>
+                <span className="tabular-nums font-bold">{current.rating.toFixed(1)}</span>
+                <span className="text-slate-400 font-normal text-[11px]">
+                  ({current.voteCount})
+                </span>
               </div>
-              <span aria-hidden="true" className="text-slate-500">·</span>
-              <span className="text-amber-300/90">{current.genres.join(', ')}</span>
+              <span aria-hidden="true" className="hidden sm:inline text-slate-500">
+                ·
+              </span>
+              <span className="text-amber-300/90 font-medium">
+                {current.genres.slice(0, 3).join(' • ')}
+              </span>
             </div>
 
-            {/* Title */}
-            <h1 className="font-['Outfit'] text-3xl sm:text-4xl lg:text-5xl font-extrabold text-white tracking-tight leading-tight text-balance">
+            {/* Hero Display Title */}
+            <h1 className="font-['Plus_Jakarta_Sans'] text-2xl sm:text-4xl lg:text-5xl font-extrabold text-white tracking-tight leading-[1.08] text-balance">
               {current.title}
             </h1>
 
-            {/* Tagline */}
-            <p className="mt-2 text-sm sm:text-base text-amber-200/80 font-medium italic">
-              "{current.tagline}"
-            </p>
-
-            {/* Synopsis */}
-            <p className="mt-3 text-sm text-slate-300/90 leading-relaxed line-clamp-3 max-w-xl">
+            {/* Overview / Synopsis */}
+            <p className="text-xs sm:text-sm text-slate-300/95 leading-relaxed line-clamp-2 sm:line-clamp-3 max-w-xl">
               {current.synopsis}
             </p>
 
-            {/* Interactive Action Buttons */}
-            <div className="mt-6 flex flex-wrap items-center gap-3">
+            {/* Primary & Secondary Actions */}
+            <div className="pt-2 flex flex-wrap items-center gap-2.5 sm:gap-3">
+              {/* Primary Action 1: Watch Trailer */}
               <button
+                type="button"
                 onClick={() => onPlayTrailer(current)}
-                className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-white text-slate-950 font-semibold text-sm hover:bg-slate-200 shadow-lg shadow-white/10 transition-all hover:scale-[1.02] active:scale-[0.98]"
+                className="flex items-center gap-2 px-4 sm:px-5 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs sm:text-sm shadow-lg shadow-amber-500/20 transition-all hover:scale-[1.02] active:scale-[0.98]"
               >
                 <Play className="w-4 h-4 fill-slate-950" />
-                <span>Watch Preview</span>
+                <span>Watch Trailer</span>
               </button>
 
+              {/* Primary Action 2: View Details */}
               <button
+                type="button"
+                onClick={() => onSelectMedia(current)}
+                className="flex items-center gap-2 px-4 sm:px-5 py-2.5 rounded-xl bg-white/15 hover:bg-white/25 text-white font-semibold text-xs sm:text-sm border border-white/15 backdrop-blur-md transition-all"
+              >
+                <Info className="w-4 h-4" />
+                <span>View Details</span>
+              </button>
+
+              {/* Secondary Action: Add to Watchlist */}
+              <button
+                type="button"
                 onClick={() => onToggleWatchlist(current.id)}
-                className={`flex items-center gap-2 px-4 py-2.5 rounded-xl font-semibold text-sm border transition-all ${
+                className={`flex items-center gap-2 px-3.5 sm:px-4 py-2.5 rounded-xl font-semibold text-xs sm:text-sm border transition-all ${
                   inWatchlist
-                    ? 'bg-amber-500 text-slate-950 border-amber-400 shadow-md shadow-amber-500/20'
-                    : 'bg-white/10 hover:bg-white/20 text-white border-white/15 backdrop-blur-sm'
+                    ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+                    : 'bg-black/50 hover:bg-white/10 text-slate-200 border-white/15 backdrop-blur-sm'
                 }`}
               >
                 {inWatchlist ? (
@@ -143,58 +217,52 @@ export const HeroSpotlight: React.FC<HeroSpotlightProps> = ({
                   </>
                 )}
               </button>
-
-              <button
-                onClick={() => onSelectMedia(current)}
-                className="flex items-center gap-1.5 px-4 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 text-slate-300 hover:text-white border border-white/10 text-sm font-medium transition-colors backdrop-blur-sm"
-              >
-                <Info className="w-4 h-4" />
-                <span>Details & Cast</span>
-              </button>
             </div>
           </div>
 
-          {/* Right Column: Featured Official Poster Card (Desktop/Tablet) */}
+          {/* Right Column: Official Portrait Poster Card on Tablet/Desktop */}
           <div
             onClick={() => onSelectMedia(current)}
-            className="hidden md:block w-40 lg:w-48 shrink-0 group cursor-pointer rounded-xl overflow-hidden shadow-2xl border-2 border-white/15 hover:border-amber-400/60 transition-all transform hover:-translate-y-1"
+            className="hidden md:block w-36 lg:w-44 aspect-[2/3] shrink-0 group cursor-pointer rounded-xl overflow-hidden shadow-2xl border border-white/20 hover:border-amber-400/60 transition-all transform hover:-translate-y-1"
             title={`View ${current.title} details`}
           >
             <MediaPoster media={current} aspect="poster" priority={true} />
           </div>
         </div>
 
-        {/* Bottom thumbnail bar for quick navigation between featured titles */}
-        <div className="mt-8 pt-4 border-t border-white/10 flex items-center justify-between">
-          <div className="flex items-center gap-3 overflow-x-auto pb-1 max-w-full">
-            {featuredItems.map((item, idx) => (
-              <button
-                key={item.id}
-                onClick={() => setCurrentIndex(idx)}
-                className={`flex items-center gap-2.5 px-2.5 py-1.5 rounded-lg text-left transition-all shrink-0 ${
-                  idx === currentIndex
-                    ? 'bg-white/15 border border-amber-400/50 text-white shadow-sm'
-                    : 'bg-black/40 border border-white/5 text-slate-400 hover:text-white hover:bg-white/10'
-                }`}
-              >
-                <div className="w-6 h-8 rounded overflow-hidden shrink-0 border border-white/10">
-                  <MediaPoster media={item} aspect="poster" priority={true} />
-                </div>
-                <span className="text-xs font-semibold truncate max-w-[120px] sm:max-w-[160px]">
-                  {item.title}
-                </span>
-                <span className="text-[10px] font-mono text-slate-400">
-                  {item.year}
-                </span>
-              </button>
-            ))}
-          </div>
+        {/* Bottom Indicator Strip */}
+        {featuredItems.length > 1 && (
+          <div className="mt-6 pt-3.5 border-t border-white/10 flex items-center justify-between gap-4">
+            <div className="flex items-center gap-2 overflow-x-auto pb-0.5 max-w-full [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+              {featuredItems.map((item, idx) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() => setCurrentIndex(idx)}
+                  className={`flex items-center gap-2 px-2.5 py-1 rounded-lg text-left transition-all shrink-0 ${
+                    idx === safeIndex
+                      ? 'bg-amber-500/20 border border-amber-400/50 text-white'
+                      : 'bg-black/40 border border-white/[0.06] text-slate-400 hover:text-white hover:bg-white/10'
+                  }`}
+                >
+                  <span
+                    className={`w-1.5 h-1.5 rounded-full ${
+                      idx === safeIndex ? 'bg-amber-400' : 'bg-slate-600'
+                    }`}
+                  />
+                  <span className="text-xs font-semibold truncate max-w-[110px] sm:max-w-[150px]">
+                    {item.title}
+                  </span>
+                </button>
+              ))}
+            </div>
 
-          <div className="hidden sm:flex items-center gap-2 text-xs text-slate-400 shrink-0 ml-4">
-            <span>Directed by</span>
-            <span className="text-white font-medium">{current.director}</span>
+            <div className="hidden sm:flex items-center gap-1.5 text-xs text-slate-400 shrink-0">
+              <span>Creator / Director:</span>
+              <span className="text-slate-200 font-medium">{current.director}</span>
+            </div>
           </div>
-        </div>
+        )}
       </div>
     </div>
   );

@@ -16,6 +16,7 @@ import {
   XCircle,
   Trash2,
   Eye,
+  Info,
 } from 'lucide-react';
 
 interface MediaCardProps {
@@ -28,7 +29,9 @@ interface MediaCardProps {
   watchedEpisodesCount?: number;
   totalEpisodesCount?: number;
   onClick: (media: MediaItem) => void;
+  onPlayTrailer?: (media: MediaItem) => void;
   rankBadge?: number;
+  compact?: boolean;
 }
 
 export const MediaCard: React.FC<MediaCardProps> = ({
@@ -41,7 +44,9 @@ export const MediaCard: React.FC<MediaCardProps> = ({
   watchedEpisodesCount = 0,
   totalEpisodesCount = 0,
   onClick,
+  onPlayTrailer,
   rankBadge,
+  compact = false,
 }) => {
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
@@ -76,7 +81,6 @@ export const MediaCard: React.FC<MediaCardProps> = ({
   const handleChecklistButtonClick = (e: React.MouseEvent) => {
     e.stopPropagation();
     if (!isInWatchlist) {
-      // Quick-add as Want to Watch AND open status menu on click
       if (onUpdateStatus) {
         onUpdateStatus(media.id, 'plan_to_watch', media);
       } else {
@@ -126,7 +130,7 @@ export const MediaCard: React.FC<MediaCardProps> = ({
 
   const getButtonAppearance = () => {
     if (!isInWatchlist) {
-      return 'bg-black/65 text-white/75 border-white/15 hover:text-white hover:bg-black/85 hover:border-amber-400/50';
+      return 'bg-black/70 text-white/80 border-white/15 hover:text-white hover:bg-black/90 hover:border-amber-400/50';
     }
     switch (watchlistStatus) {
       case 'completed':
@@ -143,10 +147,21 @@ export const MediaCard: React.FC<MediaCardProps> = ({
     }
   };
 
+  const durationOrSeasonText =
+    media.type === 'movie'
+      ? media.runtime || 'Film'
+      : watchedEpisodesCount > 0
+      ? effectiveTotalEpisodes > 0
+        ? `${watchedEpisodesCount}/${effectiveTotalEpisodes} eps`
+        : `${watchedEpisodesCount} eps`
+      : media.seasons
+      ? `${media.seasons} ${media.seasons === 1 ? 'Season' : 'Seasons'}`
+      : 'Series';
+
   return (
     <div
       onClick={() => onClick(media)}
-      className="group relative flex flex-col cursor-pointer transition-all duration-300 transform-gpu hover:-translate-y-1.5 focus:outline-none"
+      className="group relative flex flex-col cursor-pointer transition-all duration-200 transform-gpu hover:-translate-y-1 focus:outline-none"
       role="button"
       tabIndex={0}
       onKeyDown={(e) => {
@@ -156,48 +171,48 @@ export const MediaCard: React.FC<MediaCardProps> = ({
         }
       }}
     >
-      {/* Poster Container */}
-      <div className="relative overflow-hidden rounded-xl border border-white/10 bg-slate-900 shadow-lg group-hover:border-amber-400/40 group-hover:shadow-amber-500/10 group-hover:shadow-2xl transition-all">
-        {/* Optional Rank Number for Trending/Top Rated strips */}
+      {/* Portrait 2:3 Poster Surface */}
+      <div className="relative aspect-[2/3] w-full overflow-hidden rounded-xl border border-white/[0.08] bg-[#121721] shadow-md group-hover:border-amber-400/45 group-hover:shadow-xl group-hover:shadow-black/60 transition-all">
+        {/* Optional Rank Number Badge */}
         {rankBadge && (
-          <div className="absolute top-2 left-2 z-20 w-7 h-7 rounded-md bg-black/80 backdrop-blur-md border border-white/20 flex items-center justify-center text-xs font-mono font-bold text-amber-400 shadow-md">
+          <div className="absolute top-2 left-2 z-20 px-2 py-0.5 rounded-md bg-black/80 backdrop-blur-md border border-amber-400/30 flex items-center justify-center text-[11px] font-mono font-bold text-amber-400 shadow-md">
             #{rankBadge}
           </div>
         )}
 
-        {/* Watchlist Checklist Quick Action & Status Menu Trigger */}
+        {/* Watchlist Quick Action & Status Menu Trigger */}
         <div ref={menuRef} className="absolute top-2 right-2 z-30">
           <button
             type="button"
             onClick={handleChecklistButtonClick}
             aria-label={
               isInWatchlist
-                ? `Checklist status: ${WATCH_STATUS_LABELS[watchlistStatus]}. Click to change status`
-                : 'Add to checklist and choose status'
+                ? `Watchlist status: ${WATCH_STATUS_LABELS[watchlistStatus]}. Click to change`
+                : 'Add to Watchlist'
             }
             aria-expanded={menuOpen}
-            className={`p-2 rounded-lg backdrop-blur-md border transition-all flex items-center gap-1 ${getButtonAppearance()}`}
+            className={`p-1.5 sm:p-2 rounded-lg backdrop-blur-md border transition-all flex items-center justify-center ${getButtonAppearance()}`}
             title={
               isInWatchlist
                 ? `${WATCH_STATUS_LABELS[watchlistStatus]} (Click to change)`
-                : 'Quick-add to Checklist'
+                : 'Add to Watchlist'
             }
           >
             {isInWatchlist ? (
-              renderStatusIcon(watchlistStatus)
+              renderStatusIcon(watchlistStatus, 'w-3.5 h-3.5')
             ) : (
               <Bookmark className="w-3.5 h-3.5" />
             )}
           </button>
 
-          {/* Quick Status Popover Menu */}
+          {/* Status Popover Menu */}
           {menuOpen && (
             <div
               onClick={(e) => e.stopPropagation()}
-              className="absolute right-0 mt-1.5 w-44 rounded-xl bg-[#0e1017]/95 backdrop-blur-xl border border-white/15 shadow-2xl p-1.5 z-40 animate-in fade-in zoom-in-95 duration-150"
+              className="absolute right-0 mt-1.5 w-44 rounded-xl bg-[#0E121A]/95 backdrop-blur-xl border border-white/15 shadow-2xl p-1.5 z-40"
             >
               <div className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-slate-400 border-b border-white/5 mb-1">
-                Checklist Status
+                Watchlist Status
               </div>
               {WATCH_STATUS_ORDER.map((st) => {
                 const active = isInWatchlist && watchlistStatus === st;
@@ -229,7 +244,7 @@ export const MediaCard: React.FC<MediaCardProps> = ({
                     className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs text-red-300 hover:bg-red-500/15 hover:text-red-200 transition-colors whitespace-nowrap"
                   >
                     <Trash2 className="w-3.5 h-3.5" />
-                    <span>Remove from Checklist</span>
+                    <span>Remove</span>
                   </button>
                 </div>
               )}
@@ -237,64 +252,82 @@ export const MediaCard: React.FC<MediaCardProps> = ({
           )}
         </div>
 
-        {/* Actual Poster Artwork */}
-        <MediaPoster media={media} aspect="poster" />
+        {/* Poster Artwork */}
+        <MediaPoster media={media} aspect="poster" className="w-full h-full" />
 
-        {/* Subtle Bottom Progress Bar for TV Shows with Watched Episodes */}
-        {media.type === 'tv' && watchedEpisodesCount > 0 && (
-          <div className="absolute bottom-0 inset-x-0 z-20 h-1 bg-black/70">
+        {/* Progress Bar for TV Shows or Watching Status */}
+        {(tvProgressPct > 0 || watchlistStatus === 'watching') && (
+          <div className="absolute bottom-0 inset-x-0 z-20 h-1 bg-black/80">
             <div
               className="h-full bg-amber-400 transition-all duration-300"
-              style={{ width: `${tvProgressPct > 0 ? tvProgressPct : 15}%` }}
+              style={{ width: `${tvProgressPct > 0 ? tvProgressPct : 25}%` }}
             />
           </div>
         )}
 
-        {/* Hover Quick Preview Reveal */}
-        <div className="absolute inset-0 z-10 bg-gradient-to-t from-black via-black/40 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex flex-col justify-end p-4 pointer-events-none">
-          <div className="flex items-center gap-1.5 text-xs text-amber-300 font-medium mb-1">
-            <Play className="w-3 h-3 fill-amber-300" />
-            <span>View Details & Checklist</span>
+        {/* Desktop Restrained Hover Quick-Action Overlay */}
+        <div className="hidden md:flex absolute inset-0 z-10 bg-gradient-to-t from-[#0A0D12] via-[#0A0D12]/50 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-200 flex-col justify-end p-3 pointer-events-none">
+          <div className="flex items-center gap-1.5 pointer-events-auto">
+            {onPlayTrailer && (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onPlayTrailer(media);
+                }}
+                className="flex-1 flex items-center justify-center gap-1 py-1.5 px-2 rounded-lg bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-[11px] shadow-md transition-colors"
+                title={`Watch ${media.title} trailer`}
+              >
+                <Play className="w-3 h-3 fill-slate-950" />
+                <span>Trailer</span>
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onClick(media);
+              }}
+              className={`${
+                onPlayTrailer ? 'px-2.5' : 'flex-1 px-2.5'
+              } flex items-center justify-center gap-1 py-1.5 rounded-lg bg-white/15 hover:bg-white/25 text-white font-semibold text-[11px] backdrop-blur-md border border-white/15 transition-colors`}
+              title="View Details"
+            >
+              <Info className="w-3 h-3" />
+              {!onPlayTrailer && <span>Details</span>}
+            </button>
           </div>
-          <p className="text-[11px] text-slate-300 line-clamp-2 leading-relaxed">
-            {media.synopsis}
-          </p>
         </div>
       </div>
 
-      {/* Card Content & Metadata - Clean unboxed text with typographic separators */}
-      <div className="mt-2.5 px-0.5">
-        <div className="flex items-center justify-between gap-2 text-xs text-slate-400">
-          <div className="flex items-center gap-1.5 truncate">
-            <span className="tabular-nums">{media.year > 0 ? media.year : 'TBA'}</span>
-            <span aria-hidden="true" className="text-slate-600">·</span>
-            <span>
-              {media.type === 'movie'
-                ? 'Film'
-                : watchedEpisodesCount > 0
-                ? effectiveTotalEpisodes > 0
-                  ? `${watchedEpisodesCount}/${effectiveTotalEpisodes} eps`
-                  : `${watchedEpisodesCount} eps`
-                : media.seasons
-                ? `${media.seasons} ${media.seasons === 1 ? 'Season' : 'Seasons'}`
-                : 'TV Series'}
+      {/* Unboxed Clean Card Metadata */}
+      <div className="mt-2 px-0.5">
+        <h3
+          className={`font-semibold text-white tracking-tight group-hover:text-amber-400 transition-colors line-clamp-1 ${
+            compact ? 'text-xs sm:text-sm' : 'text-sm'
+          }`}
+        >
+          {media.title}
+        </h3>
+
+        <div className="mt-0.5 flex items-center justify-between gap-1.5 text-[11px] text-slate-400">
+          <div className="flex items-center gap-1 truncate">
+            <span className="tabular-nums font-medium text-slate-300">
+              {media.year > 0 ? media.year : 'TBA'}
             </span>
-            <span aria-hidden="true" className="text-slate-600">·</span>
-            <span className="truncate">
-              {isInWatchlist ? WATCH_STATUS_LABELS[watchlistStatus] : media.genres[0]}
+            <span aria-hidden="true" className="text-slate-600">
+              ·
             </span>
+            <span className="truncate">{durationOrSeasonText}</span>
           </div>
-          <div className="flex items-center gap-1 text-amber-400/90 font-mono font-medium shrink-0">
-            <Star className="w-3 h-3 fill-amber-400 text-amber-400" />
-            <span className="tabular-nums text-xs">
+
+          <div className="flex items-center gap-0.5 text-amber-400 font-mono font-semibold shrink-0">
+            <Star className="w-2.5 h-2.5 fill-amber-400 text-amber-400" />
+            <span className="tabular-nums text-[11px]">
               {media.rating > 0 ? media.rating.toFixed(1) : 'NR'}
             </span>
           </div>
         </div>
-
-        <h3 className="mt-1 text-sm font-semibold text-white tracking-tight group-hover:text-amber-400 transition-colors line-clamp-1">
-          {media.title}
-        </h3>
       </div>
     </div>
   );

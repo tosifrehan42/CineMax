@@ -93,6 +93,7 @@ export interface MediaItem {
   themeColor: string; // Hex color for subtle ambient glow
   posterUrl: string;
   backdropUrl: string;
+  language?: string; // ISO 639-1 code e.g. 'en', 'hi', 'ko', 'ja'
   posterVisual: {
     bgFrom: string;
     bgTo: string;
@@ -101,6 +102,19 @@ export interface MediaItem {
     silhouetteSvg?: string;
   };
 }
+
+export interface FranchiseCollection {
+  id: string;
+  title: string;
+  subtitle: string;
+  description: string;
+  watchOrderNote: string;
+  accentColor: string;
+  backdropUrl: string;
+  items: MediaItem[];
+}
+
+export type HomeHubMode = 'all' | 'movies' | 'series';
 
 export interface WatchlistEntry {
   id?: string;
@@ -159,5 +173,8 @@ export interface FilterOptions {
   type: 'all' | 'movie' | 'tv';
   genre: string;
   mood: string;
-  sortBy: 'popularity' | 'rating' | 'year' | 'title';
+  year?: string;
+  language?: string;
+  sortBy: 'relevance' | 'popularity' | 'rating' | 'year' | 'title';
 }
+
