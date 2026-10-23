@@ -50,7 +50,13 @@ function isUrlAdminRoute(): boolean {
   if (typeof window === 'undefined') return false;
   const pathname = window.location.pathname.replace(/\/+$/, '');
   const hash = window.location.hash.replace(/^#/, '').replace(/\/+$/, '');
-  return pathname.endsWith('/admin') || hash === '/admin' || hash === 'admin';
+  const searchParams = new URLSearchParams(window.location.search);
+  return (
+    pathname.endsWith('/admin') ||
+    hash === '/admin' ||
+    hash === 'admin' ||
+    searchParams.get('tab') === 'admin'
+  );
 }
 
 // Starter default local watchlist for guest browser sessions
@@ -1232,7 +1238,7 @@ export default function App() {
           <div className="flex items-center gap-6">
             <button
               onClick={() => {
-                setCurrentTab('discover');
+                navigateToTab('discover');
                 window.scrollTo({ top: 0, behavior: 'smooth' });
               }}
               className="hover:text-slate-300 transition-colors"
@@ -1241,7 +1247,7 @@ export default function App() {
             </button>
             <button
               onClick={() => {
-                setCurrentTab('watchlist');
+                navigateToTab('watchlist');
                 window.scrollTo({ top: 0, behavior: 'smooth' });
               }}
               className="hover:text-slate-300 transition-colors"
@@ -1250,7 +1256,7 @@ export default function App() {
             </button>
             <button
               onClick={() => {
-                setCurrentTab('estimator');
+                navigateToTab('estimator');
                 window.scrollTo({ top: 0, behavior: 'smooth' });
               }}
               className="hover:text-slate-300 transition-colors"
@@ -1259,7 +1265,7 @@ export default function App() {
             </button>
             <button
               onClick={() => {
-                setCurrentTab('profile');
+                navigateToTab('profile');
                 window.scrollTo({ top: 0, behavior: 'smooth' });
               }}
               className="hover:text-slate-300 transition-colors"
