@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { MediaItem } from '../types';
+import { MediaItem, WatchStatus } from '../types';
 import { HeroSpotlight } from './HeroSpotlight';
 import { MediaCard } from './MediaCard';
 import { MOODS } from '../data/mediaData';
@@ -20,7 +20,11 @@ import {
 interface HomeViewProps {
   initialItems: MediaItem[];
   isInWatchlist: (id: string) => boolean;
+  getWatchlistStatus?: (id: string) => WatchStatus | undefined;
   onToggleWatchlist: (id: string, media?: MediaItem) => void;
+  onUpdateStatus?: (id: string, status: WatchStatus, media?: MediaItem) => void;
+  onRemoveFromWatchlist?: (id: string) => void;
+  getWatchedEpisodesCount?: (id: string) => number;
   onSelectMedia: (media: MediaItem) => void;
   onPlayTrailer: (media: MediaItem) => void;
   onExploreMood: (moodId: string) => void;
@@ -40,7 +44,11 @@ interface SectionState {
 export const HomeView: React.FC<HomeViewProps> = ({
   initialItems,
   isInWatchlist,
+  getWatchlistStatus,
   onToggleWatchlist,
+  onUpdateStatus,
+  onRemoveFromWatchlist,
+  getWatchedEpisodesCount,
   onSelectMedia,
   onPlayTrailer,
   onExploreMood,
@@ -329,7 +337,13 @@ export const HomeView: React.FC<HomeViewProps> = ({
               media={item}
               rankBadge={idx + 1}
               isInWatchlist={isInWatchlist(item.id)}
+              watchlistStatus={getWatchlistStatus?.(item.id)}
               onToggleWatchlist={(id) => onToggleWatchlist(id, item)}
+              onUpdateStatus={
+                onUpdateStatus ? (id, status) => onUpdateStatus(id, status, item) : undefined
+              }
+              onRemoveFromWatchlist={onRemoveFromWatchlist}
+              watchedEpisodesCount={getWatchedEpisodesCount?.(item.id)}
               onClick={onSelectMedia}
             />
           ))}
@@ -382,7 +396,13 @@ export const HomeView: React.FC<HomeViewProps> = ({
               key={item.id}
               media={item}
               isInWatchlist={isInWatchlist(item.id)}
+              watchlistStatus={getWatchlistStatus?.(item.id)}
               onToggleWatchlist={(id) => onToggleWatchlist(id, item)}
+              onUpdateStatus={
+                onUpdateStatus ? (id, status) => onUpdateStatus(id, status, item) : undefined
+              }
+              onRemoveFromWatchlist={onRemoveFromWatchlist}
+              watchedEpisodesCount={getWatchedEpisodesCount?.(item.id)}
               onClick={onSelectMedia}
             />
           ))}
@@ -435,7 +455,13 @@ export const HomeView: React.FC<HomeViewProps> = ({
               key={item.id}
               media={item}
               isInWatchlist={isInWatchlist(item.id)}
+              watchlistStatus={getWatchlistStatus?.(item.id)}
               onToggleWatchlist={(id) => onToggleWatchlist(id, item)}
+              onUpdateStatus={
+                onUpdateStatus ? (id, status) => onUpdateStatus(id, status, item) : undefined
+              }
+              onRemoveFromWatchlist={onRemoveFromWatchlist}
+              watchedEpisodesCount={getWatchedEpisodesCount?.(item.id)}
               onClick={onSelectMedia}
             />
           ))}
@@ -488,7 +514,13 @@ export const HomeView: React.FC<HomeViewProps> = ({
               key={item.id}
               media={item}
               isInWatchlist={isInWatchlist(item.id)}
+              watchlistStatus={getWatchlistStatus?.(item.id)}
               onToggleWatchlist={(id) => onToggleWatchlist(id, item)}
+              onUpdateStatus={
+                onUpdateStatus ? (id, status) => onUpdateStatus(id, status, item) : undefined
+              }
+              onRemoveFromWatchlist={onRemoveFromWatchlist}
+              watchedEpisodesCount={getWatchedEpisodesCount?.(item.id)}
               onClick={onSelectMedia}
             />
           ))}
@@ -542,7 +574,13 @@ export const HomeView: React.FC<HomeViewProps> = ({
               media={item}
               rankBadge={idx + 1}
               isInWatchlist={isInWatchlist(item.id)}
+              watchlistStatus={getWatchlistStatus?.(item.id)}
               onToggleWatchlist={(id) => onToggleWatchlist(id, item)}
+              onUpdateStatus={
+                onUpdateStatus ? (id, status) => onUpdateStatus(id, status, item) : undefined
+              }
+              onRemoveFromWatchlist={onRemoveFromWatchlist}
+              watchedEpisodesCount={getWatchedEpisodesCount?.(item.id)}
               onClick={onSelectMedia}
             />
           ))}

@@ -1,10 +1,11 @@
 import 'dotenv/config';
 import express from 'express';
+import http from 'http';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { createServer as createViteServer } from 'vite';
 import { MEDIA_ITEMS } from './src/data/mediaData.ts';
-import type { MediaItem, CastMember } from './src/types/index.ts';
+import type { MediaItem, CastMember, SeasonSummary, EpisodeInfo } from './src/types/index.ts';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -292,6 +293,30 @@ function mapTmdbItemToMediaItem(raw: any, forcedType?: 'movie' | 'tv', indexOffs
     ? `${TMDB_IMAGE_W1280}${raw.backdrop_path}`
     : posterUrl;
 
+  const seasonsList: SeasonSummary[] | undefined =
+    mediaType === 'tv' && Array.isArray(raw.seasons)
+      ? raw.seasons
+          .filter(
+            (s: any) =>
+              typeof s.season_number === 'number' &&
+              s.season_number >= 1 &&
+              Number(s.episode_count || 0) > 0
+          )
+          .map((s: any) => ({
+            seasonNumber: s.season_number,
+            name: s.name || `Season ${s.season_number}`,
+            episodeCount: Number(s.episode_count || 0),
+            airDate: s.air_date || undefined,
+          }))
+      : undefined;
+
+  const computedTotalEpisodes =
+    seasonsList && seasonsList.length > 0
+      ? seasonsList.reduce((acc, s) => acc + s.episodeCount, 0)
+      : typeof raw.number_of_episodes === 'number' && raw.number_of_episodes > 0
+      ? raw.number_of_episodes
+      : undefined;
+
   return {
     id,
     title,
@@ -306,7 +331,11 @@ function mapTmdbItemToMediaItem(raw: any, forcedType?: 'movie' | 'tv', indexOffs
     seasons:
       mediaType === 'tv' && typeof raw.number_of_seasons === 'number' && raw.number_of_seasons > 0
         ? raw.number_of_seasons
+        : seasonsList && seasonsList.length > 0
+        ? seasonsList.length
         : undefined,
+    totalEpisodes: computedTotalEpisodes,
+    seasonsList,
     genres,
     rating,
     voteCount: formatVoteCount(raw.vote_count || 0),
@@ -559,14 +588,59 @@ async function getLiveExpandedCatalog(): Promise<MediaItem[]> {
 
 async function startServer() {
   const app = express();
+  const httpServer = http.createServer(app);
   app.use(express.json());
 
-  // 1. Health & TMDB Configuration Status Endpoint
+  // 1. Health, TMDB & Public Supabase Configuration Status Endpoint
   app.get('/api/status', (_req, res) => {
     const tmdbConfigured = Boolean(getTmdbKey());
+    const rawSupabaseUrl = (
+      process.env.VITE_SUPABASE_URL ||
+      process.env.SUPABASE_URL ||
+      ''
+    ).trim();
+    const rawSupabaseAnonKey = (
+      process.env.VITE_SUPABASE_ANON_KEY ||
+      process.env.SUPABASE_ANON_KEY ||
+      ''
+    ).trim();
+
+    // Security guard: ensure a secret or service_role key is NEVER returned as an anon key
+    let isServiceRole = rawSupabaseAnonKey.startsWith('sb_secret_');
+    if (!isServiceRole && rawSupabaseAnonKey.split('.').length === 3) {
+      try {
+        const payloadJson = Buffer.from(rawSupabaseAnonKey.split('.')[1], 'base64').toString('utf8');
+        const payload = JSON.parse(payloadJson);
+        if (payload?.role === 'service_role') {
+          isServiceRole = true;
+        }
+      } catch {
+        // Ignore malformed JWT segment
+      }
+    }
+
+    let validSupabaseUrl = '';
+    if (rawSupabaseUrl.startsWith('https://') || rawSupabaseUrl.startsWith('http://')) {
+      try {
+        validSupabaseUrl = new URL(rawSupabaseUrl).origin;
+      } catch {
+        validSupabaseUrl = rawSupabaseUrl
+          .replace(/\/(rest|auth|realtime|storage)\/v1\/?.*$/i, '')
+          .replace(/\/+$/, '');
+      }
+    }
+    const validSupabaseAnonKey =
+      !isServiceRole && rawSupabaseAnonKey.length > 20 ? rawSupabaseAnonKey : '';
+
     res.json({
       tmdbConfigured,
       provider: tmdbConfigured ? 'tmdb' : 'live_open_catalog',
+      supabaseConfigured: Boolean(validSupabaseUrl && validSupabaseAnonKey),
+      supabaseSecurityWarning: isServiceRole
+        ? 'A secret/service_role key was detected in SUPABASE_ANON_KEY. Refusing to expose it to the client.'
+        : undefined,
+      supabaseUrl: validSupabaseUrl || undefined,
+      supabaseAnonKey: validSupabaseAnonKey || undefined,
     });
   });
 
@@ -1041,20 +1115,64 @@ async function startServer() {
     }
 
     const enriched = { ...found };
-    if (id.startsWith('tvmaze-tv-') && enriched.cast.length === 0) {
+    if (id.startsWith('tvmaze-tv-')) {
       const showId = id.replace('tvmaze-tv-', '');
       try {
-        const castRes = await fetch(`https://api.tvmaze.com/shows/${showId}/cast`);
-        if (castRes.ok) {
-          const castData = await castRes.json();
+        const [castRes, epRes] = await Promise.allSettled([
+          enriched.cast.length === 0
+            ? fetch(`https://api.tvmaze.com/shows/${showId}/cast`)
+            : Promise.resolve(null),
+          fetch(`https://api.tvmaze.com/shows/${showId}/episodes`),
+        ]);
+
+        if (castRes.status === 'fulfilled' && castRes.value && castRes.value.ok) {
+          const castData = await castRes.value.json();
           enriched.cast = (castData || []).slice(0, 5).map((c: any) => ({
             name: c.person?.name || 'Actor',
             role: c.character?.name || 'Series Regular',
           }));
         }
+
+        if (epRes.status === 'fulfilled' && epRes.value && epRes.value.ok) {
+          const epData = await epRes.value.json();
+          if (Array.isArray(epData) && epData.length > 0) {
+            const seasonMap = new Map<number, { count: number; airDate?: string }>();
+            for (const ep of epData) {
+              const sNum = Number(ep?.season || 0);
+              if (sNum < 1) continue;
+              const prev = seasonMap.get(sNum) || { count: 0, airDate: ep?.airdate };
+              prev.count += 1;
+              seasonMap.set(sNum, prev);
+            }
+            const sList: SeasonSummary[] = Array.from(seasonMap.entries())
+              .sort((a, b) => a[0] - b[0])
+              .map(([sNum, info]) => ({
+                seasonNumber: sNum,
+                name: `Season ${sNum}`,
+                episodeCount: info.count,
+                airDate: info.airDate,
+              }));
+            if (sList.length > 0) {
+              enriched.seasonsList = sList;
+              enriched.seasons = sList.length;
+              enriched.totalEpisodes = sList.reduce((acc, s) => acc + s.episodeCount, 0);
+            }
+          }
+        }
       } catch {
         // Ignore optional enrichment failure
       }
+    }
+
+    if (enriched.type === 'tv' && (!enriched.seasonsList || enriched.seasonsList.length === 0)) {
+      const numSeasons = Math.max(1, enriched.seasons || 1);
+      const fallbackSeasons: SeasonSummary[] = Array.from({ length: numSeasons }, (_, i) => ({
+        seasonNumber: i + 1,
+        name: `Season ${i + 1}`,
+        episodeCount: 8,
+      }));
+      enriched.seasonsList = fallbackSeasons;
+      enriched.totalEpisodes = fallbackSeasons.reduce((acc, s) => acc + s.episodeCount, 0);
     }
 
     const similar = catalog
@@ -1069,23 +1187,116 @@ async function startServer() {
     return res.json({ item: enriched, similar });
   });
 
+  // 4. TV Series Season Episodes Endpoint (/api/tv/:id/season/:seasonNumber)
+  app.get('/api/tv/:id/season/:seasonNumber', async (req, res) => {
+    const { id } = req.params;
+    const seasonNumber = Math.max(1, parseInt(String(req.params.seasonNumber || '1'), 10) || 1);
+    const tmdbKey = getTmdbKey();
+    const seedMatch = SEED_TO_TMDB_ID[id];
+
+    // Path A: Official TMDB /tv/{id}/season/{season_number}
+    if (tmdbKey && (id.startsWith('tmdb-tv-') || (seedMatch && seedMatch.mediaType === 'tv'))) {
+      try {
+        const rawTmdbId = seedMatch ? seedMatch.tmdbId : id.replace('tmdb-tv-', '');
+        const seasonData = await fetchFromTmdb(`/tv/${rawTmdbId}/season/${seasonNumber}`);
+        const rawEpisodes: any[] = Array.isArray(seasonData?.episodes) ? seasonData.episodes : [];
+
+        const episodes: EpisodeInfo[] = rawEpisodes.map((ep: any, idx: number) => ({
+          episodeNumber: Number(ep.episode_number) || idx + 1,
+          seasonNumber,
+          name: ep.name || `Episode ${idx + 1}`,
+          airDate: ep.air_date || undefined,
+          runtime: typeof ep.runtime === 'number' && ep.runtime > 0 ? ep.runtime : undefined,
+          overview: ep.overview || undefined,
+          stillUrl: ep.still_path ? `${TMDB_IMAGE_W500}${ep.still_path}` : undefined,
+        }));
+
+        return res.json({
+          seasonNumber,
+          name: seasonData?.name || `Season ${seasonNumber}`,
+          episodes,
+        });
+      } catch {
+        // Fall through to open catalog / seed fallback if season call fails
+      }
+    }
+
+    // Path B: TVMaze Season Episodes for tvmaze-tv-*
+    if (id.startsWith('tvmaze-tv-')) {
+      const showId = id.replace('tvmaze-tv-', '');
+      try {
+        const epRes = await fetch(`https://api.tvmaze.com/shows/${showId}/episodes`);
+        if (epRes.ok) {
+          const allEps = await epRes.json();
+          if (Array.isArray(allEps)) {
+            const seasonEps = allEps.filter((e: any) => Number(e?.season) === seasonNumber);
+            if (seasonEps.length > 0) {
+              const episodes: EpisodeInfo[] = seasonEps.map((ep: any, idx: number) => ({
+                episodeNumber: Number(ep.number) || idx + 1,
+                seasonNumber,
+                name: ep.name || `Episode ${idx + 1}`,
+                airDate: ep.airdate || undefined,
+                runtime: typeof ep.runtime === 'number' && ep.runtime > 0 ? ep.runtime : 50,
+                overview: stripHtml(ep.summary || ''),
+                stillUrl: ep.image?.medium || ep.image?.original || undefined,
+              }));
+              return res.json({
+                seasonNumber,
+                name: `Season ${seasonNumber}`,
+                episodes,
+              });
+            }
+          }
+        }
+      } catch {
+        // Fall through to deterministic fallback
+      }
+    }
+
+    // Path C: Seed or Open Catalog Fallback
+    const catalog = await getLiveExpandedCatalog();
+    const found = catalog.find((m) => m.id === id) || MEDIA_ITEMS.find((m) => m.id === id);
+    const matchingSeason = found?.seasonsList?.find((s) => s.seasonNumber === seasonNumber);
+    const epCount = matchingSeason?.episodeCount || 8;
+    const baseYear = found?.year || 2024;
+
+    const episodes: EpisodeInfo[] = Array.from({ length: epCount }, (_, idx) => ({
+      episodeNumber: idx + 1,
+      seasonNumber,
+      name: `Chapter ${idx + 1}`,
+      airDate: matchingSeason?.airDate || `${baseYear}-01-${String((idx % 28) + 1).padStart(2, '0')}`,
+      runtime: 52,
+    }));
+
+    return res.json({
+      seasonNumber,
+      name: matchingSeason?.name || `Season ${seasonNumber}`,
+      episodes,
+    });
+  });
+
   // Mount Vite dev server middleware or static production build
   if (process.env.NODE_ENV !== 'production') {
     const vite = await createViteServer({
-      server: { middlewareMode: true },
+      server: {
+        middlewareMode: true,
+        ws: { server: httpServer },
+      },
       appType: 'spa',
     });
     app.use(vite.middlewares);
   } else {
     const distPath = path.join(__dirname, 'dist');
+    app.use('/CineMax', express.static(distPath));
     app.use(express.static(distPath));
-    app.get('*', (_req, res) => {
+    app.get('*', (req, res) => {
+      // If requesting subpath /CineMax or any subroute, send index.html
       res.sendFile(path.join(distPath, 'index.html'));
     });
   }
 
-  app.listen(PORT, '0.0.0.0', () => {
-    console.log(`ReelMind server running on http://0.0.0.0:${PORT}`);
+  httpServer.listen(PORT, '0.0.0.0', () => {
+    console.log(`CineMax server running on http://0.0.0.0:${PORT}`);
   });
 }
 

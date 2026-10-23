@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { MediaItem } from '../types';
+import { MediaItem, WatchStatus } from '../types';
 import { MOODS, GENRES } from '../data/mediaData';
 import { MediaCard } from './MediaCard';
 import { CatalogueCategory, fetchCatalogue } from '../services/mediaApi';
@@ -17,7 +17,11 @@ import {
 
 interface DiscoverViewProps {
   isInWatchlist: (id: string) => boolean;
+  getWatchlistStatus?: (id: string) => WatchStatus | undefined;
   onToggleWatchlist: (id: string, media?: MediaItem) => void;
+  onUpdateStatus?: (id: string, status: WatchStatus, media?: MediaItem) => void;
+  onRemoveFromWatchlist?: (id: string) => void;
+  getWatchedEpisodesCount?: (id: string) => number;
   onSelectMedia: (media: MediaItem) => void;
   initialMood?: string;
   initialCategory?: CatalogueCategory;
@@ -36,7 +40,11 @@ const CATEGORY_TABS: Array<{ id: CatalogueCategory; label: string }> = [
 
 export const DiscoverView: React.FC<DiscoverViewProps> = ({
   isInWatchlist,
+  getWatchlistStatus,
   onToggleWatchlist,
+  onUpdateStatus,
+  onRemoveFromWatchlist,
+  getWatchedEpisodesCount,
   onSelectMedia,
   initialMood = 'all',
   initialCategory = 'discover',
@@ -488,7 +496,13 @@ export const DiscoverView: React.FC<DiscoverViewProps> = ({
                 key={item.id}
                 media={item}
                 isInWatchlist={isInWatchlist(item.id)}
+                watchlistStatus={getWatchlistStatus?.(item.id)}
                 onToggleWatchlist={(id) => onToggleWatchlist(id, item)}
+                onUpdateStatus={
+                  onUpdateStatus ? (id, status) => onUpdateStatus(id, status, item) : undefined
+                }
+                onRemoveFromWatchlist={onRemoveFromWatchlist}
+                watchedEpisodesCount={getWatchedEpisodesCount?.(item.id)}
                 onClick={onSelectMedia}
               />
             ))}

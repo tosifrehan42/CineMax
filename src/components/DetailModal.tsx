@@ -1,7 +1,15 @@
-import React, { useState, useEffect } from 'react';
-import { MediaItem, WatchStatus } from '../types';
+import React, { useState, useEffect, useMemo } from 'react';
+import {
+  EpisodeInfo,
+  MediaItem,
+  SeasonSummary,
+  WatchedEpisodeEntry,
+  WatchStatus,
+  WATCH_STATUS_LABELS,
+  WATCH_STATUS_ORDER,
+} from '../types';
 import { MediaPoster } from './MediaPoster';
-import { fetchTitleDetails } from '../services/mediaApi';
+import { fetchTitleDetails, fetchTvSeasonEpisodes } from '../services/mediaApi';
 import {
   X,
   Star,
@@ -10,48 +18,93 @@ import {
   Check,
   Share2,
   Edit3,
+  Heart,
+  Calendar,
+  Tv,
+  CheckSquare,
+  Square,
+  Loader2,
+  Trash2,
 } from 'lucide-react';
 
 interface DetailModalProps {
   media: MediaItem | null;
   onClose: () => void;
   isInWatchlist: boolean;
+  isFavourite?: boolean;
   watchlistStatus?: WatchStatus;
   personalRating?: number;
   personalNotes?: string;
+  watchedAtDate?: string;
+  watchedEpisodes?: WatchedEpisodeEntry[];
   onToggleWatchlist: (mediaId: string, media?: MediaItem) => void;
+  onToggleFavourite?: (mediaId: string, media?: MediaItem) => void;
   onUpdateWatchlistDetails: (
     mediaId: string,
     status: WatchStatus,
     rating?: number,
     notes?: string,
-    media?: MediaItem
+    media?: MediaItem,
+    watchedAt?: string
+  ) => void;
+  onToggleEpisodeWatched?: (
+    media: MediaItem,
+    seasonNumber: number,
+    episodeNumber: number,
+    watched: boolean,
+    totalKnownEpisodes: number
+  ) => void;
+  onToggleSeasonWatched?: (
+    media: MediaItem,
+    seasonNumber: number,
+    episodeNumbers: number[],
+    watched: boolean,
+    totalKnownEpisodes: number
   ) => void;
   onPlayTrailer: (media: MediaItem) => void;
   allMedia: MediaItem[];
   onSelectSimilar: (media: MediaItem) => void;
+  onRemoveFromWatchlist?: (mediaId: string) => void;
+  onRegisterMedia?: (items: MediaItem[]) => void;
 }
 
 export const DetailModal: React.FC<DetailModalProps> = ({
   media,
   onClose,
   isInWatchlist,
+  isFavourite = false,
   watchlistStatus = 'plan_to_watch',
   personalRating = 0,
   personalNotes = '',
+  watchedAtDate,
+  watchedEpisodes = [],
   onToggleWatchlist,
+  onToggleFavourite,
   onUpdateWatchlistDetails,
+  onToggleEpisodeWatched,
+  onToggleSeasonWatched,
   onPlayTrailer,
   allMedia,
   onSelectSimilar,
+  onRegisterMedia,
 }) => {
   const [enrichedMedia, setEnrichedMedia] = useState<MediaItem | null>(media);
   const [apiSimilar, setApiSimilar] = useState<MediaItem[]>([]);
   const [currentStatus, setCurrentStatus] = useState<WatchStatus>(watchlistStatus);
   const [currentRating, setCurrentRating] = useState<number>(personalRating);
   const [notes, setNotes] = useState<string>(personalNotes);
+  const [watchedDate, setWatchedDate] = useState<string>(
+    watchedAtDate
+      ? watchedAtDate.split('T')[0]
+      : new Date().toISOString().split('T')[0]
+  );
   const [isEditingNotes, setIsEditingNotes] = useState(false);
   const [copiedLink, setCopiedLink] = useState(false);
+
+  // TV Season & Episode state
+  const [selectedSeason, setSelectedSeason] = useState<number>(1);
+  const [seasonEpisodes, setSeasonEpisodes] = useState<EpisodeInfo[]>([]);
+  const [isLoadingEpisodes, setIsLoadingEpisodes] = useState<boolean>(false);
 
   useEffect(() => {
     setEnrichedMedia(media);
@@ -59,15 +112,25 @@ export const DetailModal: React.FC<DetailModalProps> = ({
     setCurrentStatus(watchlistStatus);
     setCurrentRating(personalRating || 0);
     setNotes(personalNotes || '');
+    setSelectedSeason(1);
+    setWatchedDate(
+      watchedAtDate
+        ? watchedAtDate.split('T')[0]
+        : new Date().toISOString().split('T')[0]
+    );
 
     if (!media) return;
     let active = true;
     fetchTitleDetails(media)
       .then((res) => {
         if (!active) return;
-        if (res.item) setEnrichedMedia(res.item);
+        if (res.item) {
+          setEnrichedMedia(res.item);
+          onRegisterMedia?.([res.item]);
+        }
         if (Array.isArray(res.similar) && res.similar.length > 0) {
           setApiSimilar(res.similar);
+          onRegisterMedia?.(res.similar);
         }
       })
       .catch(() => {
@@ -76,7 +139,81 @@ export const DetailModal: React.FC<DetailModalProps> = ({
     return () => {
       active = false;
     };
-  }, [media, watchlistStatus, personalRating, personalNotes]);
+  }, [media, onRegisterMedia]);
+
+  // Keep status/rating/notes synced when updated externally (e.g., via episode auto-status)
+  useEffect(() => {
+    setCurrentStatus(watchlistStatus);
+  }, [watchlistStatus]);
+
+  useEffect(() => {
+    setCurrentRating(personalRating || 0);
+  }, [personalRating]);
+
+  useEffect(() => {
+    setNotes(personalNotes || '');
+  }, [personalNotes]);
+
+  const activeMedia = enrichedMedia || media;
+
+  // Compute seasons list for TV shows
+  const seasonsList: SeasonSummary[] = useMemo(() => {
+    if (!activeMedia || activeMedia.type !== 'tv') return [];
+    if (activeMedia.seasonsList && activeMedia.seasonsList.length > 0) {
+      return activeMedia.seasonsList;
+    }
+    const count = Math.max(1, activeMedia.seasons || 1);
+    return Array.from({ length: count }, (_, idx) => ({
+      seasonNumber: idx + 1,
+      name: `Season ${idx + 1}`,
+      episodeCount: 8,
+    }));
+  }, [activeMedia]);
+
+  const totalKnownEpisodes = useMemo(() => {
+    if (!activeMedia || activeMedia.type !== 'tv') return 0;
+    if (activeMedia.totalEpisodes && activeMedia.totalEpisodes > 0) {
+      return activeMedia.totalEpisodes;
+    }
+    return seasonsList.reduce((acc, s) => acc + s.episodeCount, 0);
+  }, [activeMedia, seasonsList]);
+
+  // Load episodes when TV show or selectedSeason changes
+  useEffect(() => {
+    if (!activeMedia || activeMedia.type !== 'tv') {
+      setSeasonEpisodes([]);
+      return;
+    }
+    const controller = new AbortController();
+    setIsLoadingEpisodes(true);
+    fetchTvSeasonEpisodes(activeMedia.id, selectedSeason, controller.signal)
+      .then((res) => {
+        if (!controller.signal.aborted) {
+          setSeasonEpisodes(res.episodes || []);
+        }
+      })
+      .catch(() => {
+        if (!controller.signal.aborted) {
+          const fallbackCount =
+            seasonsList.find((s) => s.seasonNumber === selectedSeason)?.episodeCount || 8;
+          setSeasonEpisodes(
+            Array.from({ length: fallbackCount }, (_, idx) => ({
+              episodeNumber: idx + 1,
+              seasonNumber: selectedSeason,
+              name: `Episode ${idx + 1}`,
+              runtime: 50,
+            }))
+          );
+        }
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) {
+          setIsLoadingEpisodes(false);
+        }
+      });
+
+    return () => controller.abort();
+  }, [activeMedia?.id, activeMedia?.type, selectedSeason, seasonsList]);
 
   // Handle ESC key to close when modal is open
   useEffect(() => {
@@ -88,8 +225,39 @@ export const DetailModal: React.FC<DetailModalProps> = ({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [media, onClose]);
 
-  const activeMedia = enrichedMedia || media;
   if (!activeMedia) return null;
+
+  const mediaWatchedEpisodes = watchedEpisodes.filter(
+    (ep) => ep.mediaId === activeMedia.id
+  );
+  const watchedSet = new Set(
+    mediaWatchedEpisodes.map((ep) => `${ep.seasonNumber}:${ep.episodeNumber}`)
+  );
+  const totalWatchedCount = mediaWatchedEpisodes.length;
+  const effectiveTotalEpisodes = Math.max(totalKnownEpisodes, totalWatchedCount);
+  const overallProgressPct =
+    effectiveTotalEpisodes > 0
+      ? Math.min(100, Math.round((totalWatchedCount / effectiveTotalEpisodes) * 100))
+      : 0;
+
+  const currentSeasonWatchedCount = mediaWatchedEpisodes.filter(
+    (ep) => ep.seasonNumber === selectedSeason
+  ).length;
+  const currentSeasonEpisodeNumbers =
+    seasonEpisodes.length > 0
+      ? seasonEpisodes.map((ep) => ep.episodeNumber)
+      : Array.from(
+          {
+            length:
+              seasonsList.find((s) => s.seasonNumber === selectedSeason)?.episodeCount || 8,
+          },
+          (_, i) => i + 1
+        );
+  const isEntireSeasonWatched =
+    currentSeasonEpisodeNumbers.length > 0 &&
+    currentSeasonEpisodeNumbers.every((epNum) =>
+      watchedSet.has(`${selectedSeason}:${epNum}`)
+    );
 
   // Find similar titles from API or shared genres/moods
   const similarItems =
@@ -106,27 +274,53 @@ export const DetailModal: React.FC<DetailModalProps> = ({
 
   const handleStatusChange = (status: WatchStatus) => {
     setCurrentStatus(status);
-    if (!isInWatchlist) {
-      onToggleWatchlist(activeMedia.id, activeMedia);
-    }
-    onUpdateWatchlistDetails(activeMedia.id, status, currentRating, notes, activeMedia);
+    onUpdateWatchlistDetails(
+      activeMedia.id,
+      status,
+      currentRating,
+      notes,
+      activeMedia,
+      status === 'completed' ? watchedDate : undefined
+    );
   };
 
   const handleRatingClick = (starValue: number) => {
     const newRating = currentRating === starValue ? 0 : starValue;
     setCurrentRating(newRating);
-    if (!isInWatchlist) {
-      onToggleWatchlist(activeMedia.id, activeMedia);
+    onUpdateWatchlistDetails(
+      activeMedia.id,
+      currentStatus,
+      newRating,
+      notes,
+      activeMedia,
+      currentStatus === 'completed' ? watchedDate : undefined
+    );
+  };
+
+  const handleWatchedDateChange = (newDate: string) => {
+    setWatchedDate(newDate);
+    if (currentStatus === 'completed') {
+      onUpdateWatchlistDetails(
+        activeMedia.id,
+        'completed',
+        currentRating,
+        notes,
+        activeMedia,
+        newDate
+      );
     }
-    onUpdateWatchlistDetails(activeMedia.id, currentStatus, newRating, notes, activeMedia);
   };
 
   const handleSaveNotes = () => {
     setIsEditingNotes(false);
-    if (!isInWatchlist) {
-      onToggleWatchlist(activeMedia.id, activeMedia);
-    }
-    onUpdateWatchlistDetails(activeMedia.id, currentStatus, currentRating, notes, activeMedia);
+    onUpdateWatchlistDetails(
+      activeMedia.id,
+      currentStatus,
+      currentRating,
+      notes,
+      activeMedia,
+      currentStatus === 'completed' ? watchedDate : undefined
+    );
   };
 
   const handleShare = () => {
@@ -212,26 +406,45 @@ export const DetailModal: React.FC<DetailModalProps> = ({
                   <span>Play Teaser Preview</span>
                 </button>
 
-                <button
-                  onClick={() => onToggleWatchlist(activeMedia.id, activeMedia)}
-                  className={`w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl font-semibold text-sm border transition-all ${
-                    isInWatchlist
-                      ? 'bg-amber-500/20 text-amber-300 border-amber-500/40 hover:bg-amber-500/30'
-                      : 'bg-white/5 hover:bg-white/10 text-white border-white/10'
-                  }`}
-                >
-                  {isInWatchlist ? (
-                    <>
-                      <Check className="w-4 h-4 stroke-[2.5]" />
-                      <span>Saved to Watchlist</span>
-                    </>
-                  ) : (
-                    <>
-                      <Bookmark className="w-4 h-4" />
-                      <span>Add to Watchlist</span>
-                    </>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => onToggleWatchlist(activeMedia.id, activeMedia)}
+                    className={`flex-1 flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl font-semibold text-xs sm:text-sm border transition-all whitespace-nowrap ${
+                      isInWatchlist
+                        ? 'bg-amber-500/20 text-amber-300 border-amber-500/40 hover:bg-amber-500/30'
+                        : 'bg-white/5 hover:bg-white/10 text-white border-white/10'
+                    }`}
+                  >
+                    {isInWatchlist ? (
+                      <>
+                        <Check className="w-4 h-4 stroke-[2.5]" />
+                        <span>In Checklist ({WATCH_STATUS_LABELS[currentStatus]})</span>
+                      </>
+                    ) : (
+                      <>
+                        <Bookmark className="w-4 h-4" />
+                        <span>Add to Checklist</span>
+                      </>
+                    )}
+                  </button>
+
+                  {onToggleFavourite && (
+                    <button
+                      onClick={() => onToggleFavourite(activeMedia.id, activeMedia)}
+                      aria-label={isFavourite ? 'Remove from favourites' : 'Add to favourites'}
+                      title={isFavourite ? 'In Favourites' : 'Mark as Favourite'}
+                      className={`px-3.5 py-2.5 rounded-xl border transition-all flex items-center justify-center ${
+                        isFavourite
+                          ? 'bg-rose-500/20 text-rose-400 border-rose-500/40 hover:bg-rose-500/30'
+                          : 'bg-white/5 hover:bg-white/10 text-slate-300 border-white/10'
+                      }`}
+                    >
+                      <Heart
+                        className={`w-4 h-4 ${isFavourite ? 'fill-rose-400 text-rose-400' : ''}`}
+                      />
+                    </button>
                   )}
-                </button>
+                </div>
               </div>
 
               {/* Streaming Platforms / Where to Watch */}
@@ -258,14 +471,22 @@ export const DetailModal: React.FC<DetailModalProps> = ({
               <div className="flex flex-wrap items-center gap-3 text-xs text-slate-400 pb-4 border-b border-white/5">
                 <div className="flex items-center gap-1 text-amber-400 font-mono">
                   <Star className="w-4 h-4 fill-amber-400 text-amber-400" />
-                  <span className="font-bold text-sm text-white tabular-nums">{activeMedia.rating.toFixed(1)}</span>
-                  <span className="text-slate-400 text-xs">/ 10 ({activeMedia.voteCount} reviews)</span>
+                  <span className="font-bold text-sm text-white tabular-nums">
+                    {activeMedia.rating.toFixed(1)}
+                  </span>
+                  <span className="text-slate-400 text-xs">
+                    / 10 ({activeMedia.voteCount} reviews)
+                  </span>
                 </div>
                 <span aria-hidden="true" className="text-slate-600">·</span>
                 <span>
                   {activeMedia.type === 'movie'
                     ? activeMedia.runtime || '2h 10m'
-                    : `${activeMedia.seasons || 1} Seasons`}
+                    : `${seasonsList.length || activeMedia.seasons || 1} ${
+                        (seasonsList.length || activeMedia.seasons || 1) === 1
+                          ? 'Season'
+                          : 'Seasons'
+                      }${effectiveTotalEpisodes > 0 ? ` · ${effectiveTotalEpisodes} Episodes` : ''}`}
                 </span>
                 <span aria-hidden="true" className="text-slate-600">·</span>
                 <span>{activeMedia.genres.join(' / ')}</span>
@@ -335,61 +556,99 @@ export const DetailModal: React.FC<DetailModalProps> = ({
                 </div>
               </div>
 
-              {/* Personal Cinephile Tracker & Journal */}
-              <div className="mt-6 p-4 rounded-xl bg-slate-900/60 border border-white/5 space-y-3">
-                <div className="flex items-center justify-between">
+              {/* Personal Cinephile Checklist, Watch Status & Journal */}
+              <div className="mt-6 p-4 rounded-xl bg-slate-900/60 border border-white/5 space-y-3.5">
+                <div className="flex items-center justify-between gap-2">
                   <h4 className="text-xs uppercase tracking-wider text-slate-300 font-semibold flex items-center gap-1.5">
                     <Edit3 className="w-3.5 h-3.5 text-amber-400" />
-                    <span>My Log & Status</span>
+                    <span>My Checklist Status, Rating & Watch Log</span>
                   </h4>
-                  {isInWatchlist && (
-                    <span className="text-[11px] text-amber-400/80 font-medium">
-                      Saved in your library
+                  {isInWatchlist ? (
+                    <div className="flex items-center gap-2">
+                      <span className="text-[11px] text-amber-400/90 font-medium">
+                        {WATCH_STATUS_LABELS[currentStatus]}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => onToggleWatchlist(activeMedia.id, activeMedia)}
+                        className="text-[11px] text-slate-400 hover:text-red-300 flex items-center gap-1 transition-colors"
+                        title="Remove from Checklist"
+                      >
+                        <Trash2 className="w-3 h-3" />
+                        <span>Remove</span>
+                      </button>
+                    </div>
+                  ) : (
+                    <span className="text-[11px] text-slate-500">
+                      Select any status to add to your checklist
                     </span>
                   )}
                 </div>
 
-                {/* Status Selector */}
-                <div className="flex items-center gap-1.5 p-1 bg-black/40 rounded-lg border border-white/5">
-                  <button
-                    onClick={() => handleStatusChange('plan_to_watch')}
-                    className={`flex-1 py-1.5 px-2 text-xs font-medium rounded transition-colors whitespace-nowrap ${
-                      currentStatus === 'plan_to_watch'
-                        ? 'bg-white/15 text-white shadow-sm'
-                        : 'text-slate-400 hover:text-white'
-                    }`}
-                  >
-                    Want to Watch
-                  </button>
-                  <button
-                    onClick={() => handleStatusChange('watching')}
-                    className={`flex-1 py-1.5 px-2 text-xs font-medium rounded transition-colors whitespace-nowrap ${
-                      currentStatus === 'watching'
-                        ? 'bg-white/15 text-white shadow-sm'
-                        : 'text-slate-400 hover:text-white'
-                    }`}
-                  >
-                    Watching
-                  </button>
-                  <button
-                    onClick={() => handleStatusChange('completed')}
-                    className={`flex-1 py-1.5 px-2 text-xs font-medium rounded transition-colors whitespace-nowrap ${
-                      currentStatus === 'completed'
-                        ? 'bg-amber-500/20 text-amber-300 border border-amber-500/30'
-                        : 'text-slate-400 hover:text-white'
-                    }`}
-                  >
-                    Completed
-                  </button>
+                {/* 5-Stage Status Selector */}
+                <div className="grid grid-cols-2 sm:grid-cols-5 gap-1.5 p-1 bg-black/40 rounded-lg border border-white/5">
+                  {WATCH_STATUS_ORDER.map((st) => {
+                    const isActive = isInWatchlist && currentStatus === st;
+                    let activeStyle = 'bg-white/15 text-white border border-white/20 shadow-sm';
+                    if (st === 'completed') {
+                      activeStyle =
+                        'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 font-semibold';
+                    } else if (st === 'watching') {
+                      activeStyle =
+                        'bg-sky-500/20 text-sky-300 border border-sky-500/40 font-semibold';
+                    } else if (st === 'on_hold') {
+                      activeStyle =
+                        'bg-amber-500/20 text-amber-300 border border-amber-500/40 font-semibold';
+                    } else if (st === 'dropped') {
+                      activeStyle =
+                        'bg-rose-500/20 text-rose-300 border border-rose-500/40 font-semibold';
+                    } else if (st === 'plan_to_watch') {
+                      activeStyle =
+                        'bg-amber-500 text-slate-950 font-bold shadow-sm';
+                    }
+
+                    return (
+                      <button
+                        key={st}
+                        type="button"
+                        onClick={() => handleStatusChange(st)}
+                        className={`py-1.5 px-2 text-xs font-medium rounded-md transition-all whitespace-nowrap ${
+                          isActive
+                            ? activeStyle
+                            : 'text-slate-400 hover:text-white hover:bg-white/5'
+                        }`}
+                      >
+                        {WATCH_STATUS_LABELS[st]}
+                      </button>
+                    );
+                  })}
                 </div>
 
+                {/* Watched Date Selector (when Completed) */}
+                {isInWatchlist && currentStatus === 'completed' && (
+                  <div className="flex items-center justify-between pt-1 text-xs">
+                    <span className="text-slate-400 flex items-center gap-1.5">
+                      <Calendar className="w-3.5 h-3.5 text-amber-400" />
+                      <span>Date Watched:</span>
+                    </span>
+                    <input
+                      type="date"
+                      value={watchedDate}
+                      max={new Date().toISOString().split('T')[0]}
+                      onChange={(e) => handleWatchedDateChange(e.target.value)}
+                      className="bg-black/50 border border-white/10 rounded-lg px-2.5 py-1 text-xs font-mono text-white focus:outline-none focus:border-amber-400 tabular-nums"
+                    />
+                  </div>
+                )}
+
                 {/* Personal 10-Star Rating */}
-                <div className="flex items-center justify-between pt-1">
+                <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
                   <span className="text-xs text-slate-400">My Rating:</span>
                   <div className="flex items-center gap-1">
                     {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((star) => (
                       <button
                         key={star}
+                        type="button"
                         onClick={() => handleRatingClick(star)}
                         className="p-0.5 hover:scale-125 transition-transform"
                         title={`Rate ${star}/10`}
@@ -421,12 +680,14 @@ export const DetailModal: React.FC<DetailModalProps> = ({
                       />
                       <div className="flex justify-end gap-2">
                         <button
+                          type="button"
                           onClick={() => setIsEditingNotes(false)}
                           className="px-3 py-1 text-xs text-slate-400 hover:text-white"
                         >
                           Cancel
                         </button>
                         <button
+                          type="button"
                           onClick={handleSaveNotes}
                           className="px-3 py-1 text-xs font-semibold bg-amber-500 text-black rounded hover:bg-amber-400"
                         >
@@ -454,6 +715,190 @@ export const DetailModal: React.FC<DetailModalProps> = ({
             </div>
           </div>
 
+          {/* TV Series Episode Progress & Checklist Section */}
+          {activeMedia.type === 'tv' && (
+            <div className="pt-6 border-t border-white/5 space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div>
+                  <h3 className="font-['Outfit'] text-base font-bold text-white tracking-tight flex items-center gap-2">
+                    <Tv className="w-4 h-4 text-amber-400" />
+                    <span>Series Episode Progress & Checklist</span>
+                  </h3>
+                  <p className="text-xs text-slate-400 mt-0.5">
+                    Track watched episodes by season. Watching an episode sets status to Watching; completing all episodes marks the series Completed.
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-3 shrink-0 bg-slate-900/80 border border-white/10 px-3.5 py-2 rounded-xl">
+                  <div className="text-right">
+                    <div className="text-xs font-mono font-bold text-white tabular-nums">
+                      {totalWatchedCount} / {effectiveTotalEpisodes || '?'} Episodes Watched
+                    </div>
+                    <div className="text-[11px] font-mono text-amber-400 tabular-nums">
+                      {overallProgressPct}% Series Complete
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Overall Series Progress Bar */}
+              <div className="w-full h-2 bg-slate-900 rounded-full overflow-hidden border border-white/5">
+                <div
+                  className="h-full bg-gradient-to-r from-amber-500 to-emerald-400 transition-all duration-300"
+                  style={{ width: `${overallProgressPct}%` }}
+                />
+              </div>
+
+              {/* Season Selector Tabs + Batch Season Toggle */}
+              <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
+                <div className="flex items-center gap-1.5 overflow-x-auto pb-1 max-w-full">
+                  {seasonsList.map((s) => {
+                    const sWatched = mediaWatchedEpisodes.filter(
+                      (ep) => ep.seasonNumber === s.seasonNumber
+                    ).length;
+                    const isSelected = selectedSeason === s.seasonNumber;
+                    return (
+                      <button
+                        key={s.seasonNumber}
+                        type="button"
+                        onClick={() => setSelectedSeason(s.seasonNumber)}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors whitespace-nowrap flex items-center gap-1.5 ${
+                          isSelected
+                            ? 'bg-amber-500 text-slate-950 font-bold'
+                            : 'bg-slate-900/90 text-slate-300 hover:text-white border border-white/5'
+                        }`}
+                      >
+                        <span>Season {s.seasonNumber}</span>
+                        <span
+                          className={`font-mono text-[11px] tabular-nums ${
+                            isSelected ? 'text-slate-900' : 'text-slate-400'
+                          }`}
+                        >
+                          ({sWatched}/{s.episodeCount})
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {onToggleSeasonWatched && (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      onToggleSeasonWatched(
+                        activeMedia,
+                        selectedSeason,
+                        currentSeasonEpisodeNumbers,
+                        !isEntireSeasonWatched,
+                        effectiveTotalEpisodes
+                      )
+                    }
+                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition-colors flex items-center gap-1.5 whitespace-nowrap ${
+                      isEntireSeasonWatched
+                        ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30 hover:bg-emerald-500/25'
+                        : 'bg-white/5 text-slate-200 border-white/10 hover:bg-white/10'
+                    }`}
+                  >
+                    {isEntireSeasonWatched ? (
+                      <>
+                        <CheckSquare className="w-3.5 h-3.5 text-emerald-400" />
+                        <span>Season {selectedSeason} Completed (Unmark All)</span>
+                      </>
+                    ) : (
+                      <>
+                        <Square className="w-3.5 h-3.5 text-amber-400" />
+                        <span>
+                          Mark All Season {selectedSeason} Watched ({currentSeasonWatchedCount}/
+                          {currentSeasonEpisodeNumbers.length})
+                        </span>
+                      </>
+                    )}
+                  </button>
+                )}
+              </div>
+
+              {/* Episodes Checklist Grid */}
+              {isLoadingEpisodes ? (
+                <div className="py-10 text-center rounded-xl bg-slate-900/40 border border-white/5 space-y-2">
+                  <Loader2 className="w-5 h-5 mx-auto text-amber-400 animate-spin" />
+                  <p className="text-xs text-slate-400">
+                    Loading Season {selectedSeason} episodes...
+                  </p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 max-h-72 overflow-y-auto pr-1">
+                  {seasonEpisodes.map((ep) => {
+                    const isWatched = watchedSet.has(
+                      `${selectedSeason}:${ep.episodeNumber}`
+                    );
+                    return (
+                      <button
+                        key={`${selectedSeason}-${ep.episodeNumber}`}
+                        type="button"
+                        onClick={() =>
+                          onToggleEpisodeWatched?.(
+                            activeMedia,
+                            selectedSeason,
+                            ep.episodeNumber,
+                            !isWatched,
+                            effectiveTotalEpisodes
+                          )
+                        }
+                        className={`flex items-center justify-between gap-3 p-2.5 rounded-xl border text-left transition-all ${
+                          isWatched
+                            ? 'bg-emerald-500/10 border-emerald-500/30 text-white'
+                            : 'bg-slate-900/50 border-white/5 text-slate-300 hover:border-white/15 hover:bg-slate-900'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          <div
+                            className={`w-5 h-5 rounded-md flex items-center justify-center shrink-0 border transition-colors ${
+                              isWatched
+                                ? 'bg-emerald-500 border-emerald-400 text-slate-950'
+                                : 'bg-black/40 border-white/20 text-transparent'
+                            }`}
+                          >
+                            <Check className="w-3.5 h-3.5 stroke-[3]" />
+                          </div>
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-1.5 text-xs">
+                              <span className="font-mono font-bold text-amber-400 tabular-nums shrink-0">
+                                S{String(selectedSeason).padStart(2, '0')}E
+                                {String(ep.episodeNumber).padStart(2, '0')}
+                              </span>
+                              <span
+                                className={`font-medium truncate ${
+                                  isWatched ? 'line-through text-slate-300' : 'text-white'
+                                }`}
+                              >
+                                {ep.name}
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-2 text-[11px] text-slate-400 font-mono tabular-nums mt-0.5">
+                              {ep.airDate && <span>{ep.airDate}</span>}
+                              {ep.airDate && ep.runtime && <span>·</span>}
+                              {ep.runtime && <span>{ep.runtime}m</span>}
+                            </div>
+                          </div>
+                        </div>
+
+                        <span
+                          className={`text-[10px] font-semibold px-2 py-0.5 rounded shrink-0 ${
+                            isWatched
+                              ? 'text-emerald-300 bg-emerald-500/15'
+                              : 'text-slate-500'
+                          }`}
+                        >
+                          {isWatched ? 'Watched' : 'Mark'}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Similar Recommendations Section */}
           {similarItems.length > 0 && (
             <div className="pt-6 border-t border-white/5">
@@ -476,8 +921,10 @@ export const DetailModal: React.FC<DetailModalProps> = ({
                         {item.title}
                       </div>
                       <div className="flex items-center justify-between text-[11px] text-slate-400 mt-0.5">
-                        <span>{item.year}</span>
-                        <span className="text-amber-400/90 font-mono">★ {item.rating.toFixed(1)}</span>
+                        <span className="tabular-nums">{item.year}</span>
+                        <span className="text-amber-400/90 font-mono tabular-nums">
+                          ★ {item.rating.toFixed(1)}
+                        </span>
                       </div>
                     </div>
                   </div>

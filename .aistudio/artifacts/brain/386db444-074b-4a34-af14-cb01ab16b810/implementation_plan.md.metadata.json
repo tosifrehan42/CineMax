@@ -1,0 +1,6 @@
+{
+  "summary":  "Root-cause analysis and architectural remediation plan to fix the blank white screen on CineMax's GitHub Pages deployment (https://tosifrehan42.github.io/CineMax/), add resilient startup error boundaries, configure the GitHub Actions deployment workflow, and enable hybrid backend + client-side catalogue/episode resolution.",
+  "updatedAt":  "2026-10-23T06:15:54.259764251Z",
+  "requestFeedback":  true,
+  "userFacing":  true
+}

@@ -1,5 +1,5 @@
 {
-  "name": "ReelMind",
+  "name": "CineMax",
   "description": "A modern, premium movie and TV show discovery web app with cinematic dark aesthetic, mood-based exploration, and personal watchlists.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]

@@ -1,43 +1,246 @@
-import React from 'react';
-import { MediaItem, WatchlistEntry } from '../types';
-import { MediaPoster } from './MediaPoster';
+import React, { useState } from 'react';
 import {
-  User,
+  MediaItem,
+  UserProfile,
+  WatchHistoryEntry,
+  WatchlistEntry,
+} from '../types';
+import { MediaPoster } from './MediaPoster';
+import { parseRuntimeMinutes, SUPABASE_SCHEMA_SQL } from '../services/supabaseClient';
+import {
   Star,
   Film,
-  Tv,
   Clock,
   Award,
   Sparkles,
-  Sliders,
   Heart,
   ChevronRight,
   BookOpen,
+  Edit3,
+  Calendar,
+  Trash2,
+  LogIn,
+  LogOut,
+  AlertCircle,
+  RefreshCw,
+  Loader2,
+  Check,
+  Copy,
+  X,
+  Flame,
 } from 'lucide-react';
 
 interface ProfileViewProps {
   watchlist: WatchlistEntry[];
+  watchHistory?: WatchHistoryEntry[];
+  userProfile?: UserProfile | null;
+  userEmail?: string | null;
+  isAuthenticated?: boolean;
+  isLoading?: boolean;
+  error?: string | null;
+  schemaMissing?: boolean;
+  onRetry?: () => void;
+  onOpenAuthModal?: (mode?: 'signin' | 'signup') => void;
+  onSignOut?: () => void;
+  onUpdateProfile?: (updates: {
+    displayName: string;
+    username?: string | null;
+    bio?: string;
+    favoriteGenres?: string[];
+  }) => Promise<{ error: string | null }>;
+  onDeleteHistoryEntry?: (mediaId: string) => void;
   allMedia: MediaItem[];
   onSelectMedia: (media: MediaItem) => void;
   onNavigateTab: (tab: 'discover' | 'watchlist') => void;
 }
 
+const AVAILABLE_GENRES = [
+  'Sci-Fi',
+  'Drama',
+  'Thriller',
+  'Crime',
+  'Mystery',
+  'Action',
+  'Fantasy',
+  'Animation',
+  'History',
+  'Comedy',
+  'Horror',
+  'Romance',
+];
+
 export const ProfileView: React.FC<ProfileViewProps> = ({
   watchlist,
+  watchHistory = [],
+  userProfile,
+  userEmail,
+  isAuthenticated = false,
+  isLoading = false,
+  error = null,
+  schemaMissing = false,
+  onRetry,
+  onOpenAuthModal,
+  onSignOut,
+  onUpdateProfile,
+  onDeleteHistoryEntry,
   allMedia,
   onSelectMedia,
   onNavigateTab,
 }) => {
-  // Compute user statistics
-  const watchedEntries = watchlist.filter((e) => e.status === 'completed');
-  const watchedMedia = watchedEntries
-    .map((e) => allMedia.find((m) => m.id === e.mediaId) || e.mediaSnapshot)
-    .filter((m): m is MediaItem => m !== undefined);
+  const [isEditingProfile, setIsEditingProfile] = useState(false);
+  const [editDisplayName, setEditDisplayName] = useState('');
+  const [editUsername, setEditUsername] = useState('');
+  const [editBio, setEditBio] = useState('');
+  const [editGenres, setEditGenres] = useState<string[]>([]);
+  const [savingProfile, setSavingProfile] = useState(false);
+  const [profileFormError, setProfileFormError] = useState<string | null>(null);
+  const [copiedSql, setCopiedSql] = useState(false);
 
-  // Genre breakdown from watched or saved items
+  const openEditModal = () => {
+    setEditDisplayName(
+      userProfile?.displayName || userEmail?.split('@')[0] || 'Cinema Enthusiast'
+    );
+    setEditUsername(userProfile?.username || '');
+    setEditBio(userProfile?.bio || '');
+    setEditGenres(userProfile?.favoriteGenres || []);
+    setProfileFormError(null);
+    setIsEditingProfile(true);
+  };
+
+  const handleSaveProfile = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!onUpdateProfile) return;
+    setSavingProfile(true);
+    setProfileFormError(null);
+    const res = await onUpdateProfile({
+      displayName: editDisplayName,
+      username: editUsername || null,
+      bio: editBio,
+      favoriteGenres: editGenres,
+    });
+    setSavingProfile(false);
+    if (res.error) {
+      setProfileFormError(res.error);
+    } else {
+      setIsEditingProfile(false);
+    }
+  };
+
+  const toggleEditGenre = (genre: string) => {
+    setEditGenres((prev) =>
+      prev.includes(genre) ? prev.filter((g) => g !== genre) : [...prev, genre]
+    );
+  };
+
+  const handleCopySql = () => {
+    navigator.clipboard?.writeText(SUPABASE_SCHEMA_SQL);
+    setCopiedSql(true);
+    setTimeout(() => setCopiedSql(false), 2500);
+  };
+
+  // Merge watched history items with completed watchlist items for comprehensive real stats
+  const historyWithMedia = watchHistory
+    .map((h) => {
+      const media = allMedia.find((m) => m.id === h.mediaId) || h.mediaSnapshot;
+      return {
+        mediaId: h.mediaId,
+        watchedAt: h.watchedAt,
+        personalRating: h.personalRating,
+        reviewNotes: h.reviewNotes,
+        runtimeMinutes: h.runtimeMinutes || parseRuntimeMinutes(media),
+        media,
+      };
+    })
+    .filter(
+      (
+        item
+      ): item is {
+        mediaId: string;
+        watchedAt: string;
+        personalRating: number | undefined;
+        reviewNotes: string | undefined;
+        runtimeMinutes: number;
+        media: MediaItem;
+      } => item.media !== undefined
+    );
+
+  // Also include completed watchlist items that might not be in watchHistory (e.g. local guest mode)
+  const historyMediaIds = new Set(historyWithMedia.map((h) => h.mediaId));
+  const completedWatchlistFallback = watchlist
+    .filter((w) => w.status === 'completed' && !historyMediaIds.has(w.mediaId))
+    .map((w) => {
+      const media = allMedia.find((m) => m.id === w.mediaId) || w.mediaSnapshot;
+      return {
+        mediaId: w.mediaId,
+        watchedAt: w.updatedAt || w.addedAt,
+        personalRating: w.personalRating,
+        reviewNotes: w.personalNotes,
+        runtimeMinutes: parseRuntimeMinutes(media),
+        media,
+      };
+    })
+    .filter(
+      (
+        item
+      ): item is {
+        mediaId: string;
+        watchedAt: string;
+        personalRating: number | undefined;
+        reviewNotes: string | undefined;
+        runtimeMinutes: number;
+        media: MediaItem;
+      } => item.media !== undefined
+    );
+
+  const combinedJournal = [...historyWithMedia, ...completedWatchlistFallback].sort(
+    (a, b) => new Date(b.watchedAt).getTime() - new Date(a.watchedAt).getTime()
+  );
+
+  // Real statistics calculation (Zero fake fallback numbers)
+  const completedCount = combinedJournal.length;
+  const totalMinutesWatched = combinedJournal.reduce(
+    (sum, item) => sum + (item.runtimeMinutes || parseRuntimeMinutes(item.media)),
+    0
+  );
+  const totalHoursWatched = (totalMinutesWatched / 60).toFixed(1).replace(/\.0$/, '');
+
+  const favouritesCount = watchlist.filter((w) => w.isFavourite).length;
+
+  // All rated entries across watchlist & history
+  const ratingsMap = new Map<string, number>();
+  watchlist.forEach((w) => {
+    if (w.personalRating && w.personalRating > 0) {
+      ratingsMap.set(w.mediaId, w.personalRating);
+    }
+  });
+  combinedJournal.forEach((j) => {
+    if (j.personalRating && j.personalRating > 0) {
+      ratingsMap.set(j.mediaId, j.personalRating);
+    }
+  });
+  const ratingValues = Array.from(ratingsMap.values());
+  const avgPersonalRating =
+    ratingValues.length > 0
+      ? (ratingValues.reduce((a, b) => a + b, 0) / ratingValues.length).toFixed(1)
+      : null;
+
+  // Compute real active streak (distinct days logged in watch history)
+  const distinctWatchDays = new Set(
+    combinedJournal
+      .map((j) => (j.watchedAt ? String(j.watchedAt).split('T')[0] : ''))
+      .filter(Boolean)
+  ).size;
+
+  // Compute authentic Genre Taste DNA strictly from user's watched or saved titles (no fake fallback)
+  const userMediaPool: MediaItem[] =
+    combinedJournal.length > 0
+      ? combinedJournal.map((j) => j.media)
+      : watchlist
+          .map((w) => allMedia.find((m) => m.id === w.mediaId) || w.mediaSnapshot)
+          .filter((m): m is MediaItem => m !== undefined);
+
   const genreCounts: Record<string, number> = {};
-  const baseItems = watchedMedia.length > 0 ? watchedMedia : allMedia.slice(0, 6);
-  baseItems.forEach((m) => {
+  userMediaPool.forEach((m) => {
     m.genres.forEach((g) => {
       genreCounts[g] = (genreCounts[g] || 0) + 1;
     });
@@ -46,211 +249,568 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
   const sortedGenres = Object.entries(genreCounts)
     .sort((a, b) => b[1] - a[1])
     .slice(0, 5);
+  const totalGenreMentions = userMediaPool.length || 1;
 
-  const maxGenreVal = sortedGenres.length > 0 ? sortedGenres[0][1] : 1;
+  // Compute real Director / Auteur Affinity from user's watched & saved titles
+  const directorMap = new Map<string, { count: number; titles: string[] }>();
+  userMediaPool.forEach((m) => {
+    const dir = (m.director || '').trim();
+    if (!dir || dir === 'Acclaimed Director' || dir.includes('Production')) return;
+    const existing = directorMap.get(dir) || { count: 0, titles: [] };
+    existing.count += 1;
+    if (!existing.titles.includes(m.title)) {
+      existing.titles.push(m.title);
+    }
+    directorMap.set(dir, existing);
+  });
+  const topDirectors = Array.from(directorMap.entries())
+    .sort((a, b) => b[1].count - a[1].count)
+    .slice(0, 4);
 
-  // Personal ratings
-  const ratedEntries = watchlist
-    .filter((e) => e.personalRating && e.personalRating > 0)
-    .map((e) => ({
-      entry: e,
-      media: allMedia.find((m) => m.id === e.mediaId) || e.mediaSnapshot,
-    }))
-    .filter((item): item is { entry: WatchlistEntry; media: MediaItem } => item.media !== undefined);
+  const displayName = isAuthenticated
+    ? userProfile?.displayName || userEmail?.split('@')[0] || 'Cinema Enthusiast'
+    : 'Guest Cinephile (Local Session)';
+
+  const initials = displayName
+    .split(' ')
+    .map((p) => p[0])
+    .join('')
+    .toUpperCase()
+    .slice(0, 2);
+
+  const memberSince = userProfile?.createdAt
+    ? new Date(userProfile.createdAt).toLocaleDateString('en-US', {
+        month: 'long',
+        year: 'numeric',
+      })
+    : null;
+
+  const cinephileTier =
+    completedCount >= 20
+      ? 'Auteur Archivist'
+      : completedCount >= 5
+      ? 'Curator Cinephile'
+      : completedCount >= 1
+      ? 'Active Viewer'
+      : 'New Member';
 
   return (
-    <div className="space-y-10 pb-16">
-      {/* Profile Header Hero */}
-      <div className="relative overflow-hidden rounded-2xl border border-white/10 bg-gradient-to-r from-slate-900 via-slate-900/80 to-[#12141f] p-6 sm:p-8 shadow-xl">
-        <div className="relative z-10 flex flex-col sm:flex-row items-center sm:items-start gap-6 text-center sm:text-left">
-          {/* Avatar container */}
-          <div className="relative w-24 h-24 rounded-2xl bg-gradient-to-br from-amber-400 to-amber-600 p-0.5 shadow-xl shadow-amber-500/20 shrink-0">
-            <div className="w-full h-full rounded-2xl bg-[#090a0f] flex items-center justify-center overflow-hidden">
-              <span className="font-['Outfit'] text-3xl font-extrabold text-amber-400">
-                RM
-              </span>
-            </div>
-            <div className="absolute -bottom-1 -right-1 p-1 bg-amber-400 rounded-full text-slate-950">
-              <Award className="w-4 h-4 stroke-[2.5]" />
-            </div>
-          </div>
-
-          {/* User Identity Details */}
-          <div className="flex-1">
-            <div className="flex flex-wrap items-center justify-center sm:justify-start gap-2">
-              <h1 className="font-['Outfit'] text-2xl sm:text-3xl font-bold text-white tracking-tight">
-                Rehan Toshif
-              </h1>
-              <span className="text-xs px-2.5 py-0.5 rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30 font-medium">
-                Level 4 Cinephile
-              </span>
-            </div>
-            <p className="text-xs text-slate-400 mt-1">
-              Curator & Story Analyst · Member since October 2024
-            </p>
-            <p className="text-sm text-slate-300 mt-3 max-w-xl leading-relaxed">
-              Drawn to non-linear narratives, existential science fiction, and high-contrast neo-noir cinematography.
-            </p>
-
-            {/* Quick Badges / Micro Stats */}
-            <div className="mt-4 flex flex-wrap items-center justify-center sm:justify-start gap-4 text-xs text-slate-400">
-              <span className="flex items-center gap-1.5">
-                <Film className="w-3.5 h-3.5 text-amber-400" />
-                <strong className="text-white font-mono">{watchedMedia.length}</strong> Completed
-              </span>
-              <span aria-hidden="true" className="text-slate-600">·</span>
-              <span className="flex items-center gap-1.5">
-                <Clock className="w-3.5 h-3.5 text-sky-400" />
-                <strong className="text-white font-mono">148h</strong> Screen Time
-              </span>
-              <span aria-hidden="true" className="text-slate-600">·</span>
-              <span className="flex items-center gap-1.5">
-                <Star className="w-3.5 h-3.5 text-yellow-400" />
-                <strong className="text-white font-mono">{ratedEntries.length}</strong> Titles Reviewed
-              </span>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Two-Column Grid: Taste DNA & Preferred Directors */}
-      <div className="grid grid-cols-1 md:grid-cols-12 gap-8">
-        {/* Left: Genre & Taste DNA */}
-        <div className="md:col-span-7 space-y-6">
-          <div className="p-6 rounded-2xl bg-slate-900/60 border border-white/5 space-y-4">
-            <div className="flex items-center justify-between">
-              <h2 className="font-['Outfit'] text-base font-bold text-white flex items-center gap-2">
-                <Sparkles className="w-4 h-4 text-amber-400" />
-                <span>Cinematic Taste DNA</span>
-              </h2>
-              <span className="text-xs text-slate-400">Calculated from viewing history</span>
-            </div>
-
-            <div className="space-y-3.5 pt-2">
-              {sortedGenres.map(([genre, count]) => {
-                const percentage = Math.round((count / maxGenreVal) * 100);
-                return (
-                  <div key={genre} className="space-y-1">
-                    <div className="flex items-center justify-between text-xs">
-                      <span className="text-white font-medium">{genre}</span>
-                      <span className="text-slate-400 font-mono">{count} titles ({percentage}%)</span>
-                    </div>
-                    <div className="w-full h-2 bg-black/40 rounded-full overflow-hidden">
-                      <div
-                        className="h-full bg-gradient-to-r from-amber-500 to-amber-300 rounded-full transition-all duration-500"
-                        style={{ width: `${percentage}%` }}
-                      />
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          </div>
-
-          {/* Preferred Directors */}
-          <div className="p-6 rounded-2xl bg-slate-900/60 border border-white/5 space-y-4">
+    <div className="space-y-8 pb-16">
+      {/* Signed-Out Callout Banner */}
+      {!isAuthenticated && (
+        <div className="p-5 rounded-2xl bg-slate-900/80 border border-amber-500/30 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div className="space-y-1">
             <h2 className="font-['Outfit'] text-base font-bold text-white flex items-center gap-2">
-              <Heart className="w-4 h-4 text-red-400" />
-              <span>Auteur Affinity</span>
+              <LogIn className="w-4 h-4 text-amber-400" />
+              <span>Sign In for Persistent Profile & Viewing Journal</span>
             </h2>
-            <div className="grid grid-cols-2 gap-3 pt-1">
-              {[
-                { name: 'Denis Villeneuve', works: 'Dune, Blade Runner 2049, Arrival', match: '98% match' },
-                { name: 'Christopher Nolan', works: 'Oppenheimer, Interstellar, Inception', match: '96% match' },
-                { name: 'David Fincher', works: 'Mindhunter, Seven, Fight Club', match: '92% match' },
-                { name: 'Hayao Miyazaki', works: 'Spirited Away, Princess Mononoke', match: '89% match' },
-              ].map((dir) => (
-                <div
-                  key={dir.name}
-                  className="p-3 rounded-xl bg-black/30 border border-white/5 space-y-1"
-                >
-                  <div className="text-xs font-semibold text-white">{dir.name}</div>
-                  <div className="text-[11px] text-slate-400 line-clamp-1">{dir.works}</div>
-                  <div className="text-[10px] font-mono text-amber-400/90 pt-0.5">{dir.match}</div>
-                </div>
-              ))}
-            </div>
+            <p className="text-xs text-slate-300 max-w-2xl leading-relaxed">
+              Sign in with your Supabase account to customize your cinephile profile, record dated entries in your Viewing Journal, and sync statistics across devices.
+            </p>
+          </div>
+          <div className="flex items-center gap-2.5 shrink-0">
+            <button
+              onClick={() => onOpenAuthModal?.('signin')}
+              className="px-4 py-2 rounded-xl bg-gradient-to-r from-amber-400 to-amber-500 hover:from-amber-300 hover:to-amber-400 text-slate-950 font-bold text-xs whitespace-nowrap shadow-md shadow-amber-500/20"
+            >
+              Sign In
+            </button>
+            <button
+              onClick={() => onOpenAuthModal?.('signup')}
+              className="px-4 py-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-white font-semibold text-xs whitespace-nowrap"
+            >
+              Create Account
+            </button>
           </div>
         </div>
+      )}
 
-        {/* Right: Personal Rating Notebook */}
-        <div className="md:col-span-5 space-y-6">
-          <div className="p-6 rounded-2xl bg-slate-900/60 border border-white/5 space-y-4">
-            <div className="flex items-center justify-between">
-              <h2 className="font-['Outfit'] text-base font-bold text-white flex items-center gap-2">
-                <BookOpen className="w-4 h-4 text-amber-400" />
-                <span>My Viewing Journal</span>
-              </h2>
+      {/* Error State Banner */}
+      {error && (
+        <div className="p-4 rounded-2xl bg-red-500/10 border border-red-500/30 text-xs text-red-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="flex items-start gap-2.5">
+            <AlertCircle className="w-4 h-4 text-red-400 shrink-0 mt-0.5" />
+            <div>
+              <p className="font-semibold text-red-300">Profile & History Sync Issue</p>
+              <p className="text-red-200/80 mt-0.5">{error}</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            {schemaMissing && (
               <button
-                onClick={() => onNavigateTab('watchlist')}
-                className="text-xs text-amber-400 hover:text-amber-300 flex items-center gap-0.5 font-medium"
+                onClick={handleCopySql}
+                className="px-3 py-1.5 rounded-lg bg-white/10 hover:bg-white/15 text-white font-medium flex items-center gap-1.5 whitespace-nowrap"
               >
-                <span>View All</span>
-                <ChevronRight className="w-3 h-3" />
+                {copiedSql ? (
+                  <>
+                    <Check className="w-3.5 h-3.5 text-emerald-400" />
+                    <span>SQL Copied</span>
+                  </>
+                ) : (
+                  <>
+                    <Copy className="w-3.5 h-3.5" />
+                    <span>Copy SQL Schema</span>
+                  </>
+                )}
+              </button>
+            )}
+            {onRetry && (
+              <button
+                onClick={onRetry}
+                className="px-3 py-1.5 rounded-lg bg-red-500/20 hover:bg-red-500/30 border border-red-500/40 text-red-200 font-semibold flex items-center gap-1.5 whitespace-nowrap"
+              >
+                <RefreshCw className="w-3.5 h-3.5" />
+                <span>Retry</span>
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Loading Skeleton */}
+      {isLoading ? (
+        <div className="py-20 text-center rounded-2xl border border-white/5 bg-slate-900/30 space-y-3">
+          <Loader2 className="w-8 h-8 mx-auto text-amber-400 animate-spin" />
+          <p className="text-sm font-medium text-slate-300">
+            Loading your persistent profile and viewing history...
+          </p>
+        </div>
+      ) : (
+        <>
+          {/* Profile Header Hero */}
+          <div className="relative overflow-hidden rounded-2xl border border-white/10 bg-gradient-to-r from-slate-900 via-slate-900/80 to-[#12141f] p-6 sm:p-8 shadow-xl">
+            <div className="relative z-10 flex flex-col sm:flex-row items-center sm:items-start justify-between gap-6 text-center sm:text-left">
+              <div className="flex flex-col sm:flex-row items-center sm:items-start gap-6">
+                {/* Avatar container */}
+                <div className="relative w-24 h-24 rounded-2xl bg-gradient-to-br from-amber-400 to-amber-600 p-0.5 shadow-xl shadow-amber-500/20 shrink-0">
+                  <div className="w-full h-full rounded-2xl bg-[#090a0f] flex items-center justify-center overflow-hidden">
+                    <span className="font-['Outfit'] text-3xl font-extrabold text-amber-400">
+                      {initials}
+                    </span>
+                  </div>
+                  <div className="absolute -bottom-1 -right-1 p-1 bg-amber-400 rounded-full text-slate-950">
+                    <Award className="w-4 h-4 stroke-[2.5]" />
+                  </div>
+                </div>
+
+                {/* User Identity Details */}
+                <div className="space-y-1.5">
+                  <div className="flex flex-wrap items-center justify-center sm:justify-start gap-2.5">
+                    <h1 className="font-['Outfit'] text-2xl sm:text-3xl font-bold text-white tracking-tight">
+                      {displayName}
+                    </h1>
+                    <span className="text-xs text-amber-300 font-medium">
+                      · {cinephileTier}
+                    </span>
+                  </div>
+
+                  <p className="text-xs text-slate-400">
+                    {userProfile?.username ? `@${userProfile.username} · ` : ''}
+                    {userEmail ? `${userEmail} · ` : ''}
+                    {memberSince ? `Member since ${memberSince}` : 'Local Browser Profile'}
+                  </p>
+
+                  <p className="text-sm text-slate-300 mt-2 max-w-xl leading-relaxed">
+                    {userProfile?.bio
+                      ? userProfile.bio
+                      : isAuthenticated
+                      ? 'No personal bio added yet. Click Edit Profile to share your favourite genres, directors, and cinema philosophy.'
+                      : 'Browsing in guest mode. Sign in to customize your profile bio and sync your viewing journal across devices.'}
+                  </p>
+
+                  {userProfile?.favoriteGenres && userProfile.favoriteGenres.length > 0 && (
+                    <div className="pt-1 flex flex-wrap items-center justify-center sm:justify-start gap-2 text-xs text-amber-300/90">
+                      <span className="text-slate-400">Preferred Genres:</span>
+                      <span>{userProfile.favoriteGenres.join(' · ')}</span>
+                    </div>
+                  )}
+
+                  {/* Quick Micro Stats */}
+                  <div className="pt-3 flex flex-wrap items-center justify-center sm:justify-start gap-4 text-xs text-slate-400">
+                    <span className="flex items-center gap-1.5">
+                      <Film className="w-3.5 h-3.5 text-amber-400" />
+                      <strong className="text-white font-mono tabular-nums">
+                        {completedCount}
+                      </strong>{' '}
+                      Watched
+                    </span>
+                    <span aria-hidden="true" className="text-slate-600">·</span>
+                    <span className="flex items-center gap-1.5">
+                      <Clock className="w-3.5 h-3.5 text-sky-400" />
+                      <strong className="text-white font-mono tabular-nums">
+                        {totalHoursWatched}h
+                      </strong>{' '}
+                      Screen Time
+                    </span>
+                    <span aria-hidden="true" className="text-slate-600">·</span>
+                    <span className="flex items-center gap-1.5">
+                      <Heart className="w-3.5 h-3.5 text-rose-400" />
+                      <strong className="text-white font-mono tabular-nums">
+                        {favouritesCount}
+                      </strong>{' '}
+                      Favourites
+                    </span>
+                    <span aria-hidden="true" className="text-slate-600">·</span>
+                    <span className="flex items-center gap-1.5">
+                      <Star className="w-3.5 h-3.5 text-yellow-400" />
+                      <strong className="text-white font-mono tabular-nums">
+                        {avgPersonalRating ? `${avgPersonalRating} ★` : '—'}
+                      </strong>{' '}
+                      Avg Rating ({ratingValues.length})
+                    </span>
+                    <span aria-hidden="true" className="text-slate-600">·</span>
+                    <span className="flex items-center gap-1.5">
+                      <Flame className="w-3.5 h-3.5 text-orange-400" />
+                      <strong className="text-white font-mono tabular-nums">
+                        {distinctWatchDays}d
+                      </strong>{' '}
+                      Logged Days
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Profile Actions */}
+              {isAuthenticated && (
+                <div className="flex items-center gap-2 shrink-0">
+                  <button
+                    onClick={openEditModal}
+                    className="px-3.5 py-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-xs font-semibold text-white flex items-center gap-1.5 transition-colors whitespace-nowrap"
+                  >
+                    <Edit3 className="w-3.5 h-3.5 text-amber-400" />
+                    <span>Edit Profile</span>
+                  </button>
+                  {onSignOut && (
+                    <button
+                      onClick={onSignOut}
+                      className="px-3.5 py-2 rounded-xl bg-red-500/10 hover:bg-red-500/20 border border-red-500/20 text-xs font-semibold text-red-300 flex items-center gap-1.5 transition-colors whitespace-nowrap"
+                    >
+                      <LogOut className="w-3.5 h-3.5" />
+                      <span>Sign Out</span>
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Two-Column Grid: Taste DNA & Viewing Journal */}
+          <div className="grid grid-cols-1 md:grid-cols-12 gap-8">
+            {/* Left: Genre & Taste DNA + Auteur Affinity */}
+            <div className="md:col-span-6 space-y-6">
+              <div className="p-6 rounded-2xl bg-slate-900/60 border border-white/5 space-y-4">
+                <div className="flex items-center justify-between">
+                  <h2 className="font-['Outfit'] text-base font-bold text-white flex items-center gap-2">
+                    <Sparkles className="w-4 h-4 text-amber-400" />
+                    <span>Cinematic Taste DNA</span>
+                  </h2>
+                  <span className="text-xs text-slate-400">
+                    {combinedJournal.length > 0
+                      ? 'Based on watched history'
+                      : 'Based on saved watchlist'}
+                  </span>
+                </div>
+
+                {sortedGenres.length === 0 ? (
+                  <div className="py-10 text-center space-y-2">
+                    <p className="text-xs text-slate-400">
+                      No genre data recorded yet.
+                    </p>
+                    <p className="text-[11px] text-slate-500 max-w-sm mx-auto">
+                      Mark titles as Completed or add movies and TV shows to your Watchlist to compute your authentic genre distribution.
+                    </p>
+                    <button
+                      onClick={() => onNavigateTab('discover')}
+                      className="mt-2 px-3.5 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 text-xs text-amber-400 font-medium"
+                    >
+                      Explore Catalogue
+                    </button>
+                  </div>
+                ) : (
+                  <div className="space-y-3.5 pt-2">
+                    {sortedGenres.map(([genre, count]) => {
+                      const percentage = Math.min(
+                        100,
+                        Math.round((count / totalGenreMentions) * 100)
+                      );
+                      return (
+                        <div key={genre} className="space-y-1">
+                          <div className="flex items-center justify-between text-xs">
+                            <span className="text-white font-medium">{genre}</span>
+                            <span className="text-slate-400 font-mono tabular-nums">
+                              {count} {count === 1 ? 'title' : 'titles'} ({percentage}%)
+                            </span>
+                          </div>
+                          <div className="w-full h-2 bg-black/40 rounded-full overflow-hidden">
+                            <div
+                              className="h-full bg-gradient-to-r from-amber-500 to-amber-300 rounded-full transition-all duration-500"
+                              style={{ width: `${percentage}%` }}
+                            />
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              {/* Auteur / Director Affinity (Computed from user's real titles) */}
+              <div className="p-6 rounded-2xl bg-slate-900/60 border border-white/5 space-y-4">
+                <div className="flex items-center justify-between">
+                  <h2 className="font-['Outfit'] text-base font-bold text-white flex items-center gap-2">
+                    <Heart className="w-4 h-4 text-rose-400" />
+                    <span>Director & Creator Affinity</span>
+                  </h2>
+                  <span className="text-xs text-slate-400">From your library</span>
+                </div>
+
+                {topDirectors.length === 0 ? (
+                  <div className="py-6 text-center text-xs text-slate-500">
+                    Add or complete films in your library to see your most-watched directors.
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                    {topDirectors.map(([directorName, info]) => (
+                      <div
+                        key={directorName}
+                        className="p-3 rounded-xl bg-black/30 border border-white/5 space-y-1"
+                      >
+                        <div className="text-xs font-semibold text-white">{directorName}</div>
+                        <div className="text-[11px] text-slate-400 line-clamp-1">
+                          {info.titles.join(', ')}
+                        </div>
+                        <div className="text-[10px] font-mono text-amber-400/90 pt-0.5 tabular-nums">
+                          {info.count} {info.count === 1 ? 'title' : 'titles'} in library
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Right: Dated Viewing Journal (watch_history) */}
+            <div className="md:col-span-6 space-y-6">
+              <div className="p-6 rounded-2xl bg-slate-900/60 border border-white/5 space-y-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h2 className="font-['Outfit'] text-base font-bold text-white flex items-center gap-2">
+                      <BookOpen className="w-4 h-4 text-amber-400" />
+                      <span>Viewing Journal & Watch History</span>
+                    </h2>
+                    <p className="text-[11px] text-slate-400 mt-0.5">
+                      Chronological log of completed titles, watch dates & personal ratings
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => onNavigateTab('watchlist')}
+                    className="text-xs text-amber-400 hover:text-amber-300 flex items-center gap-0.5 font-medium whitespace-nowrap"
+                  >
+                    <span>Manage Library</span>
+                    <ChevronRight className="w-3 h-3" />
+                  </button>
+                </div>
+
+                {combinedJournal.length === 0 ? (
+                  <div className="py-12 text-center text-slate-500 space-y-2">
+                    <Calendar className="w-8 h-8 mx-auto text-slate-600 stroke-1" />
+                    <p className="text-xs text-slate-300 font-medium">
+                      Your Viewing Journal is empty
+                    </p>
+                    <p className="text-[11px] text-slate-500 max-w-xs mx-auto leading-relaxed">
+                      Open any movie or TV series and set its status to Completed to record the watch date, personal rating, and review notes.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-3 pt-1 max-h-[520px] overflow-y-auto pr-1">
+                    {combinedJournal.map((item) => {
+                      const formattedDate = item.watchedAt
+                        ? String(item.watchedAt).split('T')[0]
+                        : 'Logged';
+                      return (
+                        <div
+                          key={`${item.mediaId}-${item.watchedAt}`}
+                          className="p-3 rounded-xl bg-black/30 border border-white/5 hover:border-amber-400/30 transition-all flex gap-3 items-start group"
+                        >
+                          <div
+                            onClick={() => onSelectMedia(item.media)}
+                            className="w-12 h-16 rounded overflow-hidden shrink-0 border border-white/10 cursor-pointer"
+                          >
+                            <MediaPoster media={item.media} aspect="poster" />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center justify-between gap-2 text-xs">
+                              <h4
+                                onClick={() => onSelectMedia(item.media)}
+                                className="font-semibold text-white group-hover:text-amber-400 transition-colors truncate cursor-pointer"
+                              >
+                                {item.media.title}
+                              </h4>
+                              <div className="flex items-center gap-2 shrink-0">
+                                {item.personalRating && item.personalRating > 0 ? (
+                                  <span className="font-mono text-amber-400 font-semibold tabular-nums">
+                                    {item.personalRating}/10 ★
+                                  </span>
+                                ) : null}
+                                {onDeleteHistoryEntry && (
+                                  <button
+                                    onClick={() => onDeleteHistoryEntry(item.mediaId)}
+                                    title="Remove from watch history"
+                                    className="text-slate-500 hover:text-red-400 p-1 rounded transition-colors"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
+                                )}
+                              </div>
+                            </div>
+
+                            <div className="flex items-center gap-2 text-[11px] text-slate-400 mt-0.5 font-mono tabular-nums">
+                              <span className="flex items-center gap-1 text-slate-300">
+                                <Calendar className="w-3 h-3 text-amber-400/80" />
+                                Watched {formattedDate}
+                              </span>
+                              <span>·</span>
+                              <span>{item.media.year}</span>
+                              <span>·</span>
+                              <span>{Math.round(item.runtimeMinutes)}m</span>
+                            </div>
+
+                            {item.reviewNotes && (
+                              <p className="text-[11px] text-slate-300 italic line-clamp-2 mt-1.5">
+                                "{item.reviewNotes}"
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* Edit Profile Modal */}
+      {isEditingProfile && (
+        <div className="fixed inset-0 z-50 overflow-y-auto bg-black/80 backdrop-blur-md flex items-center justify-center p-4 animate-in fade-in duration-200">
+          <div className="fixed inset-0" onClick={() => setIsEditingProfile(false)} />
+          <div className="relative z-10 w-full max-w-lg bg-[#0d0e14] border border-white/10 rounded-2xl shadow-2xl overflow-hidden my-auto">
+            <div className="px-6 py-4 border-b border-white/5 flex items-center justify-between">
+              <h3 className="font-['Outfit'] text-lg font-bold text-white">
+                Edit Cinephile Profile
+              </h3>
+              <button
+                onClick={() => setIsEditingProfile(false)}
+                className="p-1.5 text-slate-400 hover:text-white rounded-lg"
+              >
+                <X className="w-4 h-4" />
               </button>
             </div>
 
-            {ratedEntries.length === 0 ? (
-              <div className="py-8 text-center text-slate-500">
-                <p className="text-xs">No ratings or reflections logged yet.</p>
-                <p className="text-[11px] text-slate-600 mt-1">
-                  Open any title to assign personal stars and notes.
-                </p>
-              </div>
-            ) : (
-              <div className="space-y-3 pt-1">
-                {ratedEntries.slice(0, 4).map(({ entry, media }) => (
-                  <div
-                    key={media.id}
-                    onClick={() => onSelectMedia(media)}
-                    className="p-3 rounded-xl bg-black/30 border border-white/5 hover:border-amber-400/30 transition-all cursor-pointer flex gap-3 items-center"
-                  >
-                    <div className="w-10 h-14 rounded overflow-hidden shrink-0 border border-white/10">
-                      <MediaPoster media={media} aspect="poster" />
-                    </div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center justify-between text-xs">
-                        <h4 className="font-semibold text-white truncate">{media.title}</h4>
-                        <span className="font-mono text-amber-400 shrink-0 ml-2">
-                          {entry.personalRating} / 10 ★
-                        </span>
-                      </div>
-                      {entry.personalNotes ? (
-                        <p className="text-[11px] text-slate-300 italic line-clamp-1 mt-0.5">
-                          "{entry.personalNotes}"
-                        </p>
-                      ) : (
-                        <p className="text-[11px] text-slate-500 mt-0.5">
-                          {media.year} · {media.genres[0]}
-                        </p>
-                      )}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
+            <form onSubmit={handleSaveProfile} className="p-6 space-y-4">
+              {profileFormError && (
+                <div className="p-3 rounded-xl bg-red-500/10 border border-red-500/30 text-xs text-red-300 flex items-start gap-2">
+                  <AlertCircle className="w-4 h-4 text-red-400 shrink-0 mt-0.5" />
+                  <span>{profileFormError}</span>
+                </div>
+              )}
 
-          {/* Quick Preferences Box */}
-          <div className="p-5 rounded-2xl bg-black/40 border border-white/5 text-xs text-slate-400 space-y-2.5">
-            <span className="font-semibold text-white uppercase tracking-wider text-[11px] block">
-              Curation Engine Settings
-            </span>
-            <div className="flex items-center justify-between py-1">
-              <span>Streaming Platform Grounding</span>
-              <span className="text-white font-medium">US & Global</span>
-            </div>
-            <div className="flex items-center justify-between py-1">
-              <span>Spoiler Shield</span>
-              <span className="text-emerald-400 font-medium">Active (Enforced)</span>
-            </div>
-            <div className="flex items-center justify-between py-1">
-              <span>Dark Theme Optical Balance</span>
-              <span className="text-amber-300 font-medium">OLED Obsidian</span>
-            </div>
+              <div className="space-y-1.5">
+                <label className="block text-xs font-medium text-slate-300">
+                  Display Name
+                </label>
+                <input
+                  type="text"
+                  required
+                  maxLength={80}
+                  value={editDisplayName}
+                  onChange={(e) => setEditDisplayName(e.target.value)}
+                  className="w-full px-3.5 py-2 text-sm bg-black/50 border border-white/10 rounded-xl text-white focus:outline-none focus:border-amber-400"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="block text-xs font-medium text-slate-300">
+                  Username (optional, 3–30 alphanumeric/underscore)
+                </label>
+                <input
+                  type="text"
+                  maxLength={30}
+                  placeholder="cinephile_alex"
+                  value={editUsername}
+                  onChange={(e) => setEditUsername(e.target.value)}
+                  className="w-full px-3.5 py-2 text-sm bg-black/50 border border-white/10 rounded-xl text-white placeholder:text-slate-600 focus:outline-none focus:border-amber-400 font-mono"
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="block text-xs font-medium text-slate-300">
+                  Personal Bio
+                </label>
+                <textarea
+                  rows={3}
+                  maxLength={500}
+                  placeholder="Share your favourite movements, directors, or cinema philosophy..."
+                  value={editBio}
+                  onChange={(e) => setEditBio(e.target.value)}
+                  className="w-full px-3.5 py-2 text-sm bg-black/50 border border-white/10 rounded-xl text-white placeholder:text-slate-600 focus:outline-none focus:border-amber-400 resize-none"
+                />
+              </div>
+
+              <div className="space-y-2">
+                <label className="block text-xs font-medium text-slate-300">
+                  Preferred Genres
+                </label>
+                <div className="flex flex-wrap gap-1.5">
+                  {AVAILABLE_GENRES.map((genre) => {
+                    const active = editGenres.includes(genre);
+                    return (
+                      <button
+                        type="button"
+                        key={genre}
+                        onClick={() => toggleEditGenre(genre)}
+                        className={`px-2.5 py-1 rounded-lg text-xs font-medium border transition-colors ${
+                          active
+                            ? 'bg-amber-500 text-slate-950 border-amber-400 font-semibold'
+                            : 'bg-white/5 text-slate-300 border-white/10 hover:bg-white/10'
+                        }`}
+                      >
+                        {genre}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div className="pt-2 flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={() => setIsEditingProfile(false)}
+                  className="px-4 py-2 rounded-xl text-xs font-medium text-slate-400 hover:text-white"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={savingProfile}
+                  className="px-5 py-2 rounded-xl bg-gradient-to-r from-amber-400 to-amber-500 hover:from-amber-300 hover:to-amber-400 text-slate-950 font-bold text-xs flex items-center gap-1.5"
+                >
+                  {savingProfile ? (
+                    <>
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      <span>Saving...</span>
+                    </>
+                  ) : (
+                    <span>Save Profile</span>
+                  )}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
-      </div>
+      )}
     </div>
   );
 };
