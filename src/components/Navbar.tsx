@@ -10,6 +10,7 @@ import {
   LogIn,
   LogOut,
   HardDrive,
+  ShieldCheck,
 } from 'lucide-react';
 
 interface NavbarProps {
@@ -19,6 +20,7 @@ interface NavbarProps {
   onOpenSurprise: () => void;
   onQuickSearchClick: () => void;
   isAuthenticated?: boolean;
+  isAdmin?: boolean;
   userProfile?: UserProfile | null;
   userEmail?: string | null;
   onOpenAuthModal?: (mode?: 'signin' | 'signup') => void;
@@ -32,6 +34,7 @@ export const Navbar: React.FC<NavbarProps> = ({
   onOpenSurprise,
   onQuickSearchClick,
   isAuthenticated = false,
+  isAdmin = false,
   userProfile,
   userEmail,
   onOpenAuthModal,
@@ -48,6 +51,16 @@ export const Navbar: React.FC<NavbarProps> = ({
       icon: <HardDrive className="w-4 h-4" />,
     },
     { id: 'profile', label: 'Profile', icon: <User className="w-4 h-4" /> },
+    ...(isAuthenticated && isAdmin
+      ? [
+          {
+            id: 'admin' as TabView,
+            label: 'Admin',
+            mobileLabel: 'Admin',
+            icon: <ShieldCheck className="w-4 h-4" />,
+          },
+        ]
+      : []),
   ];
 
   const [avatarLoadError, setAvatarLoadError] = React.useState(false);
@@ -97,6 +110,9 @@ export const Navbar: React.FC<NavbarProps> = ({
               >
                 {item.id === 'estimator' && (
                   <HardDrive className="w-3.5 h-3.5 text-amber-400" />
+                )}
+                {item.id === 'admin' && (
+                  <ShieldCheck className="w-3.5 h-3.5 text-amber-400" />
                 )}
                 {item.label}
                 {item.id === 'watchlist' && watchlistCount > 0 && (

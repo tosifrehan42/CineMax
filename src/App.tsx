@@ -42,7 +42,16 @@ import { SurpriseMeModal } from './components/SurpriseMeModal';
 import { SearchOverlay } from './components/SearchOverlay';
 import { AuthModal } from './components/AuthModal';
 import { QualityFileSizeEstimator } from './components/QualityFileSizeEstimator';
+import { AdminDashboardView } from './components/AdminDashboardView';
+import { checkAdminAccess } from './services/adminApi';
 import { Film } from 'lucide-react';
+
+function isUrlAdminRoute(): boolean {
+  if (typeof window === 'undefined') return false;
+  const pathname = window.location.pathname.replace(/\/+$/, '');
+  const hash = window.location.hash.replace(/^#/, '').replace(/\/+$/, '');
+  return pathname.endsWith('/admin') || hash === '/admin' || hash === 'admin';
+}
 
 // Starter default local watchlist for guest browser sessions
 const INITIAL_WATCHLIST: WatchlistEntry[] = [
@@ -114,7 +123,39 @@ const INITIAL_WATCHED_EPISODES: WatchedEpisodeEntry[] = [
 ];
 
 export default function App() {
-  const [currentTab, setCurrentTab] = useState<TabView>('home');
+  const [currentTab, setCurrentTab] = useState<TabView>(() =>
+    isUrlAdminRoute() ? 'admin' : 'home'
+  );
+  const [isAdmin, setIsAdmin] = useState(false);
+
+  const navigateToTab = useCallback((tab: TabView) => {
+    setCurrentTab(tab);
+    if (typeof window !== 'undefined') {
+      const base = (import.meta.env.BASE_URL || '/').replace(/\/+$/, '');
+      const currentPath = window.location.pathname.replace(/\/+$/, '');
+      if (tab === 'admin') {
+        const targetPath = `${base}/admin` || '/admin';
+        if (currentPath !== targetPath) {
+          window.history.pushState({ tab: 'admin' }, '', targetPath);
+        }
+      } else if (currentPath.endsWith('/admin') || window.location.hash.includes('admin')) {
+        const homePath = base ? `${base}/` : '/';
+        window.history.pushState({ tab }, '', homePath);
+      }
+    }
+  }, []);
+
+  useEffect(() => {
+    const handlePopState = () => {
+      if (isUrlAdminRoute()) {
+        setCurrentTab('admin');
+      } else {
+        setCurrentTab((prev) => (prev === 'admin' ? 'home' : prev));
+      }
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
   const [selectedMedia, setSelectedMedia] = useState<MediaItem | null>(null);
   const [trailerMedia, setTrailerMedia] = useState<MediaItem | null>(null);
   const [isSurpriseOpen, setIsSurpriseOpen] = useState(false);
@@ -329,6 +370,27 @@ export default function App() {
     };
   }, [loadCloudUserData]);
 
+  // Verify admin access against server-side allowlist whenever authUser changes
+  useEffect(() => {
+    let active = true;
+    if (!authUser) {
+      setIsAdmin(false);
+      return;
+    }
+    checkAdminAccess()
+      .then((res) => {
+        if (!active) return;
+        setIsAdmin(res.status === 200 && Boolean(res.isAdmin));
+      })
+      .catch(() => {
+        if (!active) return;
+        setIsAdmin(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [authUser]);
+
   // Global keyboard shortcut for search (Ctrl+K or Cmd+K)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -366,6 +428,7 @@ export default function App() {
   const handleSignOut = async () => {
     await signOutUser();
     setAuthUser(null);
+    setIsAdmin(false);
     setUserProfile(null);
     setCloudWatchlist([]);
     setWatchHistory([]);
@@ -974,13 +1037,14 @@ export default function App() {
       <Navbar
         currentTab={currentTab}
         onTabChange={(tab) => {
-          setCurrentTab(tab);
+          navigateToTab(tab);
           window.scrollTo({ top: 0, behavior: 'smooth' });
         }}
         watchlistCount={activeWatchlist.length}
         onOpenSurprise={() => setIsSurpriseOpen(true)}
         onQuickSearchClick={() => setIsSearchOpen(true)}
         isAuthenticated={isAuthenticated}
+        isAdmin={isAdmin}
         userProfile={userProfile}
         userEmail={authUser?.email}
         onOpenAuthModal={handleOpenAuthModal}
@@ -1077,7 +1141,17 @@ export default function App() {
             onDeleteHistoryEntry={handleDeleteHistoryEntry}
             allMedia={knownMedia}
             onSelectMedia={(media) => setSelectedMedia(media)}
-            onNavigateTab={(tab) => setCurrentTab(tab)}
+            onNavigateTab={(tab) => navigateToTab(tab)}
+          />
+        )}
+
+        {currentTab === 'admin' && (
+          <AdminDashboardView
+            isAuthenticated={isAuthenticated}
+            currentUserId={authUser?.id || null}
+            currentUserEmail={authUser?.email || null}
+            onOpenAuthModal={handleOpenAuthModal}
+            onExitAdmin={() => navigateToTab('home')}
           />
         )}
       </main>

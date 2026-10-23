@@ -130,7 +130,7 @@ export interface UserProfile {
   updatedAt: string;
 }
 
-export type TabView = 'home' | 'discover' | 'watchlist' | 'estimator' | 'profile';
+export type TabView = 'home' | 'discover' | 'watchlist' | 'estimator' | 'profile' | 'admin';
 
 export interface FilterOptions {
   searchQuery: string;

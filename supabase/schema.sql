@@ -272,3 +272,32 @@ CREATE POLICY "Users can delete own avatar in own folder"
     AND (storage.foldername(name))[1] = auth.uid()::text
   );
 
+-- 8. ADMIN AUDIT LOGS TABLE (Server-Only via RLS)
+CREATE TABLE IF NOT EXISTS public.admin_audit_logs (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  admin_user_id UUID NOT NULL,
+  admin_email TEXT,
+  target_user_id UUID NOT NULL,
+  target_email TEXT,
+  action TEXT NOT NULL CHECK (
+    action IN (
+      'suspend_user',
+      'restore_user',
+      'delete_user',
+      'confirm_email',
+      'send_password_reset'
+    )
+  ),
+  details JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX IF NOT EXISTS idx_admin_audit_logs_created_at
+  ON public.admin_audit_logs (created_at DESC);
+
+CREATE INDEX IF NOT EXISTS idx_admin_audit_logs_target_user
+  ON public.admin_audit_logs (target_user_id, created_at DESC);
+
+ALTER TABLE public.admin_audit_logs ENABLE ROW LEVEL SECURITY;
+
+

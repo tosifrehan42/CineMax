@@ -6,6 +6,7 @@ import { fileURLToPath } from 'url';
 import { createServer as createViteServer } from 'vite';
 import { MEDIA_ITEMS } from './src/data/mediaData.ts';
 import type { MediaItem, CastMember, SeasonSummary, EpisodeInfo } from './src/types/index.ts';
+import { processAdminRequest } from './src/server/adminHandler.ts';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -1273,6 +1274,49 @@ async function startServer() {
       name: matchingSeason?.name || `Season ${seasonNumber}`,
       episodes,
     });
+  });
+
+  // 5. Server-Side Admin API Route (Mirrors `supabase/functions/admin-users`)
+  app.post('/api/admin/users', express.json(), async (req, res) => {
+    const rawSupabaseUrl = (
+      process.env.VITE_SUPABASE_URL ||
+      process.env.SUPABASE_URL ||
+      ''
+    ).trim();
+    const rawSupabaseAnonKey = (
+      process.env.VITE_SUPABASE_ANON_KEY ||
+      process.env.SUPABASE_ANON_KEY ||
+      ''
+    ).trim();
+    const serviceRoleKey = (process.env.SUPABASE_SERVICE_ROLE_KEY || '').trim();
+    const adminUserIdsRaw = (process.env.CINEMAX_ADMIN_USER_ID || '').trim();
+
+    let cleanOrigin = '';
+    if (
+      rawSupabaseUrl.startsWith('https://') ||
+      rawSupabaseUrl.startsWith('http://')
+    ) {
+      try {
+        cleanOrigin = new URL(rawSupabaseUrl).origin;
+      } catch {
+        cleanOrigin = rawSupabaseUrl
+          .replace(/\/(rest|auth|realtime|storage)\/v1\/?.*$/i, '')
+          .replace(/\/+$/, '');
+      }
+    }
+
+    const result = await processAdminRequest({
+      authHeader: req.headers.authorization || '',
+      body: req.body || {},
+      env: {
+        supabaseUrl: cleanOrigin,
+        supabaseAnonKey: rawSupabaseAnonKey,
+        serviceRoleKey,
+        adminUserIdsRaw,
+      },
+    });
+
+    return res.status(result.status).json(result.body);
   });
 
   // Mount Vite dev server middleware or static production build
