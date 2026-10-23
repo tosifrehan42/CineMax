@@ -39,6 +39,7 @@ import { TrailerModal } from './components/TrailerModal';
 import { SurpriseMeModal } from './components/SurpriseMeModal';
 import { SearchOverlay } from './components/SearchOverlay';
 import { AuthModal } from './components/AuthModal';
+import { QualityFileSizeEstimator } from './components/QualityFileSizeEstimator';
 import { Film } from 'lucide-react';
 
 // Starter default local watchlist for guest browser sessions
@@ -121,6 +122,12 @@ export default function App() {
   const [discoverInitialMood, setDiscoverInitialMood] = useState('all');
   const [discoverInitialCategory, setDiscoverInitialCategory] =
     useState<CatalogueCategory>('discover');
+  const [estimatorInitialMedia, setEstimatorInitialMedia] = useState<MediaItem | null>(
+    null
+  );
+  const [estimatorInitialSeason, setEstimatorInitialSeason] = useState<
+    number | undefined
+  >(undefined);
 
   // Dynamic registry of all loaded media items across pages so Watchlist, Profile & Roulette have full access
   const [knownMedia, setKnownMedia] = useState<MediaItem[]>(MEDIA_ITEMS);
@@ -988,6 +995,20 @@ export default function App() {
           />
         )}
 
+        {currentTab === 'estimator' && (
+          <QualityFileSizeEstimator
+            allMedia={knownMedia}
+            initialMedia={estimatorInitialMedia}
+            initialSeasonNumber={estimatorInitialSeason}
+            onClearInitialMedia={() => {
+              setEstimatorInitialMedia(null);
+              setEstimatorInitialSeason(undefined);
+            }}
+            onSelectMediaDetail={(media) => setSelectedMedia(media)}
+            onRegisterMedia={handleRegisterMedia}
+          />
+        )}
+
         {currentTab === 'profile' && (
           <ProfileView
             watchlist={activeWatchlist}
@@ -1035,6 +1056,13 @@ export default function App() {
         allMedia={knownMedia}
         onSelectSimilar={(media) => setSelectedMedia(media)}
         onRegisterMedia={handleRegisterMedia}
+        onOpenEstimator={(media, seasonNum) => {
+          setSelectedMedia(null);
+          setEstimatorInitialMedia(media);
+          setEstimatorInitialSeason(seasonNum);
+          setCurrentTab('estimator');
+          window.scrollTo({ top: 0, behavior: 'smooth' });
+        }}
       />
 
       <TrailerModal
@@ -1094,6 +1122,15 @@ export default function App() {
               className="hover:text-slate-300 transition-colors"
             >
               Watchlist
+            </button>
+            <button
+              onClick={() => {
+                setCurrentTab('estimator');
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+              }}
+              className="hover:text-slate-300 transition-colors"
+            >
+              Quality &amp; Size
             </button>
             <button
               onClick={() => {

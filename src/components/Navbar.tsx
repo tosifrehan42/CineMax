@@ -9,6 +9,7 @@ import {
   Dice5,
   LogIn,
   LogOut,
+  HardDrive,
 } from 'lucide-react';
 
 interface NavbarProps {
@@ -36,10 +37,16 @@ export const Navbar: React.FC<NavbarProps> = ({
   onOpenAuthModal,
   onSignOut,
 }) => {
-  const navItems: { id: TabView; label: string; icon: React.ReactNode }[] = [
+  const navItems: { id: TabView; label: string; mobileLabel?: string; icon: React.ReactNode }[] = [
     { id: 'home', label: 'Home', icon: <Film className="w-4 h-4" /> },
     { id: 'discover', label: 'Discover', icon: <Compass className="w-4 h-4" /> },
     { id: 'watchlist', label: 'Watchlist', icon: <Bookmark className="w-4 h-4" /> },
+    {
+      id: 'estimator',
+      label: 'Quality & File Size',
+      mobileLabel: 'Size Tool',
+      icon: <HardDrive className="w-4 h-4" />,
+    },
     { id: 'profile', label: 'Profile', icon: <User className="w-4 h-4" /> },
   ];
 
@@ -66,8 +73,8 @@ export const Navbar: React.FC<NavbarProps> = ({
           </span>
         </button>
 
-        {/* Zone 2: 4 single-line nav links */}
-        <nav className="hidden md:flex items-center gap-8 text-sm font-medium">
+        {/* Zone 2: Primary nav links */}
+        <nav className="hidden md:flex items-center gap-6 lg:gap-8 text-sm font-medium">
           {navItems.map((item) => {
             const isActive = currentTab === item.id;
             return (
@@ -80,6 +87,9 @@ export const Navbar: React.FC<NavbarProps> = ({
                     : 'text-slate-400 hover:text-slate-200'
                 }`}
               >
+                {item.id === 'estimator' && (
+                  <HardDrive className="w-3.5 h-3.5 text-amber-400" />
+                )}
                 {item.label}
                 {item.id === 'watchlist' && watchlistCount > 0 && (
                   <span className="ml-1 px-1.5 py-0.2 text-[10px] font-mono font-bold rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30 tabular-nums">
@@ -156,7 +166,7 @@ export const Navbar: React.FC<NavbarProps> = ({
             <button
               key={item.id}
               onClick={() => onTabChange(item.id)}
-              className={`flex flex-col items-center gap-1 py-1 px-3 text-xs font-medium transition-colors ${
+              className={`flex flex-col items-center gap-1 py-1 px-2 text-xs font-medium transition-colors ${
                 isActive ? 'text-amber-400' : 'text-slate-400 hover:text-slate-200'
               }`}
             >
@@ -168,7 +178,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                   </span>
                 )}
               </div>
-              <span className="text-[11px]">{item.label}</span>
+              <span className="text-[11px]">{item.mobileLabel || item.label}</span>
             </button>
           );
         })}

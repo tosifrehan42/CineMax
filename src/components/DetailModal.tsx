@@ -25,6 +25,7 @@ import {
   Square,
   Loader2,
   Trash2,
+  HardDrive,
 } from 'lucide-react';
 
 interface DetailModalProps {
@@ -66,6 +67,7 @@ interface DetailModalProps {
   onSelectSimilar: (media: MediaItem) => void;
   onRemoveFromWatchlist?: (mediaId: string) => void;
   onRegisterMedia?: (items: MediaItem[]) => void;
+  onOpenEstimator?: (media: MediaItem, seasonNumber?: number) => void;
 }
 
 export const DetailModal: React.FC<DetailModalProps> = ({
@@ -87,6 +89,7 @@ export const DetailModal: React.FC<DetailModalProps> = ({
   allMedia,
   onSelectSimilar,
   onRegisterMedia,
+  onOpenEstimator,
 }) => {
   const [enrichedMedia, setEnrichedMedia] = useState<MediaItem | null>(media);
   const [apiSimilar, setApiSimilar] = useState<MediaItem[]>([]);
@@ -445,6 +448,22 @@ export const DetailModal: React.FC<DetailModalProps> = ({
                     </button>
                   )}
                 </div>
+
+                {onOpenEstimator && (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      onOpenEstimator(
+                        activeMedia,
+                        activeMedia.type === 'tv' ? selectedSeason : undefined
+                      )
+                    }
+                    className="w-full flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl bg-white/[0.04] hover:bg-amber-500/15 text-slate-200 hover:text-amber-300 border border-white/10 hover:border-amber-500/30 font-semibold text-xs sm:text-sm transition-all"
+                  >
+                    <HardDrive className="w-4 h-4 text-amber-400" />
+                    <span>Estimate Quality &amp; File Size</span>
+                  </button>
+                )}
               </div>
 
               {/* Streaming Platforms / Where to Watch */}

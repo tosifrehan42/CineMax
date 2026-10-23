@@ -1,87 +1,67 @@
-# CineMax — GitHub Pages Parity & Cache-Safe Deployment Plan
+# CineMax — Quality & File Size Estimator Implementation Plan
 
-Ensure `https://tosifrehan42.github.io/CineMax/` behaves identically to the Google AI Studio preview across Trending, Popular Movies, Upcoming Movies, Popular TV, Top Rated, and Discover sections while preventing stale cached builds.
+## 1. Overview & Goals
+Add a dedicated, studio-grade **Quality & File Size Estimator** inside CineMax that lets film and TV enthusiasts accurately estimate storage requirements and bandwidth footprints for **Movies**, **Single TV Episodes**, and **Full TV Seasons** without requiring login or altering any existing catalogue, watchlist, or recommendation features.
 
-## User Review & Critical Decisions
+## 2. Navigation & Feature Access
+- **Top & Mobile Navigation (`Navbar.tsx` & `types/index.ts`)**:
+  - Extend `TabView` to `'home' | 'discover' | 'watchlist' | 'estimator' | 'profile'`.
+  - Add a **"Quality & Size"** (`HardDrive` / `Sliders` icon) navigation tab in the desktop header bar and mobile bottom navigation bar.
+- **Title Detail Quick-Launch (`DetailModal.tsx` & `App.tsx`)**:
+  - Add an **"Estimate Quality & File Size"** action button inside `DetailModal` (under the poster quick-actions column) that closes the modal, switches to the **Quality & Size** tab, and automatically prefills the selected Movie or TV Series (including active season & loaded episode runtime metadata).
+- **Clear Estimation Disclaimer**:
+  - Display a prominent studio notice at the top of the tool explaining that results are bitrate-based estimates and that actual release sizes vary depending on scene complexity, grain, HDR metadata, variable bitrate (VBR) encoding, and audio track count.
 
-> [!IMPORTANT]
-> Comparing the live GitHub Pages deployment (commit `306328b765a5393574f227fab5f87b55b8d8e92b`, bundle `/CineMax/assets/index-CIN9B_09.js`) against the AI Studio preview revealed the exact reason why the live site exhibits old behavior:
-> 1. In the AI Studio preview, `server.ts` serves `/api/catalogue` using the live expanded catalogue (Apple iTunes Movie RSS feeds + TVMaze API + 20 curated anchor titles) and applies category-specific filtering and sorting (`trending`, `popular_movies`, `upcoming_movies`, `popular_tv`, `top_rated_movies`, `top_rated_tv`).
-> 2. On GitHub Pages, `server.ts` cannot run, so `fetchCatalogue()` falls back to `resolveClientCatalogue()` in the frontend—which currently ignores `params.category` and only reads the 20 static seed items, causing every section on the Home page to receive the exact same unfiltered static list.
+## 3. Inputs & Metadata Prefill
+- **Built-in Title Search & Catalogue Picker**:
+  - Search bar inside the estimator that queries both the loaded CineMax catalogue and live TMDB search (`searchMediaCatalogue`), plus quick-select chips for popular movies and series.
+  - Selecting a title fetches full details (`fetchTitleDetails`) and, for TV shows, season episode lists (`fetchTvSeasonEpisodes`) to extract real runtime and episode counts.
+  - **Strict Runtime Rule**: If a selected title or episode does not have confirmed runtime metadata from TMDB/catalogue, the tool **never silently assumes a fallback runtime**—it alerts the user that runtime metadata is unavailable for that title and prompts for manual hours/minutes entry.
+- **Content Scope Selector**:
+  - **Movie**: Hours + Minutes manual or prefilled inputs.
+  - **TV Episode**: Single episode runtime (Minutes, or Hours + Minutes) with season/episode selector when linked to a TV series.
+  - **Full TV Season**: Episode count + Average episode runtime (auto-calculated from actual episode runtimes when a TV season is selected, or manually editable).
+- **Encoding & Release Parameters**:
+  - **Resolution**: `480p`, `720p HD`, `1080p Full HD`, `1440p`, `2160p / 4K`.
+  - **Source / Release Type**: `Streaming / Web-DL`, `Blu-ray encode`, `Blu-ray Remux`, `Compressed WEBRip`, `Custom bitrate`.
+  - **Video Codec**: `H.264 / AVC`, `H.265 / HEVC`, `AV1`, `Other / custom bitrate`.
+  - **Audio Format**:
+    - `AAC stereo` (~192 kbps / 0.192 Mbps)
+    - `AC-3 / E-AC-3` (~384 kbps / 0.384 Mbps)
+    - `E-AC-3 5.1` (~640 kbps / 0.640 Mbps)
+    - `DTS / DTS-HD` (~1,536 kbps / 1.536 Mbps)
+    - `TrueHD / Atmos` (~4,500 kbps / 4.500 Mbps)
+    - `Custom audio bitrate` (editable kbps / Mbps)
+    - `No audio` (`0 Mbps`, for video-only calculations)
+  - **Container / Muxing Overhead**:
+    - Editable percentage input defaulting to **1.5%** (covers MKV/MP4 packet headers, seek tables, and subtitle tracks).
 
-- **Confirmed Decision 1 — Static Client Parity with AI Studio Preview**: Update the client-side static fallback engine so that when `/api/*` is unreachable on GitHub Pages, it executes the exact same live expanded catalogue loader (iTunes Movie RSS + TVMaze API + live search/episode enrichment) and category-specific filtering/sorting (`trending`, `popular_movies`, `upcoming_movies`, `popular_tv`, `top_rated_movies`, `top_rated_tv`) as `server.ts`, without altering `server.ts`, Supabase, or existing components.
-- **Confirmed Decision 2 — Cache-Busting & CI Asset Verification**: Add `Cache-Control: no-cache, no-store, must-revalidate` meta headers and automatic stale service-worker cleanup in `index.html`, and verify in GitHub Actions that every hashed JS/CSS file referenced in `dist/index.html` physically exists in `dist/assets/`.
+## 4. Calculation Engine & Bitrate Matrix (`src/utils/fileSizeCalculator.ts`)
+- **Core Formula**:
+  $$\text{Total Average Bitrate (Mbps)} = (\text{Video Bitrate}_{\text{Mbps}} + \text{Audio Bitrate}_{\text{Mbps}}) \times \left(1 + \frac{\text{Overhead \%}}{100}\right)$$
+  $$\text{File Size (Decimal GB)} = \frac{\text{Total Average Bitrate (Mbps)} \times \text{Runtime (seconds)}}{8,000}$$
+  $$\text{File Size (Decimal MB)} = \text{File Size (Decimal GB)} \times 1,000$$
+- **Realistic Multi-Dimensional Preset Matrix**:
+  - Combines **Resolution × Source Type × Video Codec** to produce realistic `(low, typical, high)` video bitrate ranges in Mbps:
+    - *Compressed WEBRip* & *Streaming / Web-DL* scale appropriately by resolution and codec efficiency (`AV1` ~30% lower than `HEVC`; `HEVC` ~35% lower than `H.264`).
+    - *Blu-ray Encode* uses higher archival bitrates.
+    - *Blu-ray Remux* uses authentic disc bitrates (e.g., `1080p Remux` ~24–36 Mbps; `2160p / 4K Remux` ~50–85 Mbps typical ~64 Mbps).
+  - Users can also override the preset at any time by tweaking the **Editable Video Bitrate (Mbps)** or **Editable Audio Bitrate (kbps)** directly.
 
----
-
-## 1. Overview & Core Concept
-
-- **What It Does**: Eliminates the behavioral discrepancy between the Google AI Studio preview and the static GitHub Pages deployment while hardening the deployment pipeline against stale HTML or service-worker caches.
-- **Target Audience / Persona**: Visitors and signed-in CineMax users accessing `https://tosifrehan42.github.io/CineMax/`.
-- **Key Value**: Trending, Popular Movies, Upcoming Releases, Popular TV, Top Rated Masterpieces, Load More pagination, live search, and TV episode lists work on GitHub Pages with the exact same data and ranking as the AI Studio preview.
-
----
-
-## 2. User Experience & Visual Design
-
-- **Key User Flows**:
-  1. **Home Page Sections (`Trending`, `Popular Feature Films`, `Upcoming & Recent Releases`, `Popular Television & Series`, `Top Rated Masterpieces`)**: On GitHub Pages, each section displays its distinct category-filtered and ranked titles with working "Load More" pagination across the live expanded catalogue.
-  2. **Discover & Live Search**: Switching category tabs (`Trending Now`, `Popular Movies`, `Upcoming Movies`, `Top Rated Movies`, `Popular TV Shows`, `Top Rated TV`), filtering by genre/mood/rating, and searching titles queries the full live expanded catalogue and live TVMaze search endpoint just like the AI Studio preview.
-  3. **TV Series Episode Progress & Details**: Opening any TV series on GitHub Pages loads real episode lists and cast details from TVMaze when `/api/*` is unavailable.
-- **Visual Identity & Theme**:
-  - Preserves 100% of the existing CineMax dark obsidian (`#090a0f`) aesthetic, `#f59e0b` amber accents, `Outfit` / `Plus Jakarta Sans` typography, checklist controls, and Supabase integration without modification.
-
----
-
-## 3. Key Product Decisions & Trade-Offs
-
-- **Decision 1: Full Parity Between `server.ts` and Static Client Fallback**
-  - *Chosen Approach*: Mirror `server.ts`'s `getLiveExpandedCatalog()` (with 30-minute in-memory + `sessionStorage` caching), `effectiveType` derivation from `category` (`popular_movies` / `upcoming_movies` / `top_rated_movies` → `movie`; `popular_tv` / `top_rated_tv` → `tv`), category sorting (`top_rated_*` by rating descending, `upcoming_movies` by release year and rating descending), multi-word search ranking (`rankSearchResults`), and TVMaze cast/episode enrichment inside the client fallback used when `/api/*` returns 404 on GitHub Pages.
-  - *Why*: In the AI Studio preview, `fetchApiJson('/api/...')` succeeds and uses `server.ts` unchanged. On GitHub Pages, `/api/...` returns 404 HTML and seamlessly runs the identical logic in the browser using public CORS-enabled endpoints (`itunes.apple.com` and `api.tvmaze.com`), without exposing any private API keys.
-- **Decision 2: Stale Cache Prevention & Hashed Asset Verification**
-  - *Chosen Approach*: Add HTTP cache-control meta tags and a startup check that unregisters any rogue/stale service workers on `/CineMax/`, plus a CI step in `.github/workflows/deploy.yml` that extracts the exact `/CineMax/assets/index-*.js` and `/CineMax/assets/index-*.css` paths from `dist/index.html` and verifies those files exist in `dist/assets/` before uploading the Pages artifact.
-  - *Why*: Ensures browsers always revalidate `index.html` and load the latest content-hashed JavaScript and CSS bundles after each GitHub Actions deployment.
-
----
-
-## 4. Technical Architecture & Data Strategy *(Technical Reference)*
-
-### Architecture & Request Resolution Diagram
-
-```
-┌───────────────────────────────────────────────────────────────────────────┐
-│                   CineMax Frontend (HomeView / DiscoverView)              │
-│   fetchCatalogue({ category, page, type, genre, mood, sortBy, query })    │
-└─────────────────────────────────────┬─────────────────────────────────────┘
-                                      │
-                                      ▼
-┌───────────────────────────────────────────────────────────────────────────┐
-│                  fetchApiJson('/api/catalogue?...')                       │
-│         Checks HTTP 200 OK + Content-Type: application/json               │
-└─────────────────┬───────────────────────────────────────┬─────────────────┘
-                  │                                       │
-     [AI Studio Preview / Express]           [GitHub Pages Static Host]
-     HTTP 200 JSON from server.ts            HTTP 404 HTML from GitHub Pages
-                  │                                       │
-                  ▼                                       ▼
-┌───────────────────────────────────┐   ┌───────────────────────────────────┐
-│     Express Backend (server.ts)   │   │  Client Live Catalogue Fallback   │
-│  • Unchanged AI Studio behavior   │   │  • Loads 20 seed items + live     │
-│  • TMDB API (if key configured)   │   │    iTunes RSS + TVMaze shows      │
-│    or Live Expanded Catalogue     │   │  • Applies exact category type &  │
-│  • Category filtering & ranking   │   │    sorting (Trending, Top Rated,  │
-│                                   │   │    Popular, Upcoming, TV)         │
-│                                   │   │  • Live TVMaze search & episodes  │
-└───────────────────────────────────┘   └───────────────────────────────────┘
-```
-
-### Interactive Component & Deployment Verification Mapping
-
-- **Category Resolution (`resolveClientCatalogue`)**:
-  - Derives `effectiveType` from `params.type` and `params.category` (`category.includes('movies')` → `'movie'`, `category.includes('_tv')` → `'tv'`), matching `server.ts` lines 652–659.
-  - Sorts `top_rated_movies` and `top_rated_tv` by `b.rating - a.rating`, and `upcoming_movies` by `b.year - a.year || b.rating - a.rating`, matching `server.ts` lines 959–963.
-  - Supports multi-genre intersection and normalized title search ranking (`normalizeForSearch` + `getTitleMatchTier`), matching `server.ts` lines 930–985.
-- **GitHub Actions Verification (`.github/workflows/deploy.yml`)**:
-  - Runs `bun install --frozen-lockfile`, `bun run lint`, and `bun run build` (`base: '/CineMax/'`).
-  - Parses `dist/index.html` to extract referenced `/CineMax/assets/*.js` and `/CineMax/assets/*.css` filenames and verifies each corresponding file exists in `dist/assets/`.
-  - Uploads `./dist` via `actions/upload-pages-artifact@v3` and deploys via `actions/deploy-pages@v4`.
+## 5. Results Breakdown, Season Summary & Preset Comparison
+- **Primary Readout Panel**:
+  - Displays **Typical Estimated File Size** (in decimal `GB` and `MB`, explicitly labeled `1 GB = 1,000 MB`), alongside the **Low – High Range** (`e.g., 4.2 GB – 6.8 GB`) when using preset ranges.
+  - For **Full TV Seasons**, displays both **Per-Episode Size** and **Full Season Total Size** (`episode count × average episode size` or exact sum of episode runtimes).
+- **Component Breakdown Bar**:
+  - Visual progress bar and tabular readout showing exact **Video Track Size & Bitrate**, **Audio Track Size & Bitrate**, **Container Overhead Size**, and **Total Runtime Used** (in hours, minutes, and exact seconds).
+- **Side-by-Side Comparison Table**:
+  - Automatically computes and compares 5 benchmark profiles for the exact same runtime and audio selection:
+    1. `720p H.264` (Web-DL)
+    2. `1080p H.264` (Web-DL)
+    3. `1080p HEVC` (Web-DL / Encode)
+    4. `4K HEVC` (Streaming / Encode)
+    5. `4K Remux` (Untouched Blu-ray Remux)
+- **Utility Controls**:
+  - **Copy Results**: Formats a clean summary report to the clipboard via `navigator.clipboard.writeText` with visible toast/button confirmation and fallback handling.
+  - **Reset**: Restores default selections cleanly.
+  - **Why Sizes Vary Guide**: Concise technical breakdown explaining VBR scene complexity, film grain, HDR10/Dolby Vision layers, and lossless audio tracks.

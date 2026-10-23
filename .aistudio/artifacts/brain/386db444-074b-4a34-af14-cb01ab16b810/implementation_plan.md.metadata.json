@@ -1,6 +1,6 @@
 {
-  "summary":  "Implementation plan to align the deployed GitHub Pages build with the Google AI Studio preview by mirroring the live catalogue and category resolution logic in the static client fallback, adding HTML cache-busting and stale service-worker cleanup, and verifying hashed asset references in CI.",
-  "updatedAt":  "2026-10-23T08:09:24.424649435Z",
+  "summary":  "Implementation plan for the CineMax Quality & File Size Estimator, covering navigation integration, title detail quick-launch, TMDB metadata prefill, multi-dimensional bitrate calculation engine, storage breakdown, and side-by-side preset comparison.",
+  "updatedAt":  "2026-10-23T09:18:09.614999491Z",
   "requestFeedback":  true,
   "userFacing":  true
 }
