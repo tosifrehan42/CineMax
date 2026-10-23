@@ -1,53 +1,110 @@
-# CineMax — Secure Admin Dashboard Implementation Plan
+# Resilient Admin Access State & Session Lifecycle Fix
 
-## 1. Overview & Security Architecture
-Implement a dedicated, production-hardened **Admin Dashboard (`/admin`)** in CineMax that works seamlessly on both **GitHub Pages (`/CineMax/admin`)** and the local/AI Studio preview (`/admin`).
+Eliminates the bug where the CineMax Admin Dashboard tab and `/admin` view disappear after login, during periodic Supabase JWT refreshes, or on browser page reloads by replacing fragile boolean checks with an explicit, user-scoped state machine (`loading` | `allowed` | `denied` | `error`), session restoration gating, automatic token-refresh recovery, and bounded exponential-backoff retries.
 
-- **Zero Client-Side Trust**:
-  - Admin authorization is enforced exclusively on the server side using the `CINEMAX_ADMIN_USER_ID` secret (a comma-separated allowlist or single Supabase Auth user UUID).
-  - Never expose any `service_role` or secret key in `VITE_*` variables, client bundles, or GitHub Actions frontend build secrets.
-  - Every request to the admin backend independently verifies the caller's Bearer JWT via `supabase.auth.getUser(token)` and checks that `caller.id` matches `CINEMAX_ADMIN_USER_ID` (returning `HTTP 401` for missing/invalid tokens and `HTTP 403` for authenticated non-admin accounts).
-  - The frontend calls a lightweight `check_access` action to determine whether to show the **Admin** link in the navigation bar as a UI convenience; non-admins who visit `/admin` directly see a clear **403 Unauthorized — Administrator Access Required** screen with zero user data exposed.
+## User Review & Critical Decisions
 
-## 2. Supabase Edge Function (`supabase/functions/admin-users/index.ts`)
-Create a single, self-contained Supabase Edge Function `admin-users` (plus matching local Express proxy routes in `server.ts` when running locally with server-side env vars) that handles all privileged operations using the server-only `SUPABASE_SERVICE_ROLE_KEY` and `CINEMAX_ADMIN_USER_ID`:
+> [!IMPORTANT]
+> The following architectural and UX decisions incorporate your confirmed preferences from our clarification step while keeping server-side `CINEMAX_ADMIN_USER_ID` allowlist enforcement mandatory on every API operation.
 
-1. **`check_access`**:
-   - Verifies the caller's JWT and returns `{ isAdmin: true, adminUserId: caller.id }` if `caller.id` is in `CINEMAX_ADMIN_USER_ID`, or `HTTP 403` (`{ isAdmin: false }`) otherwise.
-2. **`list_users`**:
-   - Accepts `{ page, perPage, searchQuery, filterStatus }` (enforcing safe pagination bounds, e.g., `perPage` between `5` and `50`, default `15`).
-   - Fetches Auth users via `adminClient.auth.admin.listUsers()`, computes accurate overview statistics (**Total Users**, **Confirmed Users**, **Unconfirmed Users**, **Recent Registrations [last 7 days]**, and **Suspended Users**), filters by email/ID/username search query, and returns only sanitized user summaries (`id`, `email`, `created_at`, `last_sign_in_at`, `email_confirmed_at`, `banned_until`, `is_Admin`, plus basic `display_name` and `username` from `public.profiles`). Never returns password hashes, tokens, or raw sensitive metadata.
-3. **`get_user_detail`**:
-   - Fetches a single user's Auth record (`adminClient.auth.admin.getUserById(targetUserId)`), their basic `public.profiles` row (`display_name`, `username`, `avatar_url`, `favorite_genres`, `created_at`, `updated_at`), and **privacy-safe aggregate counts only** (`watchlistCount`, `favouritesCount`, `watchedHistoryCount`, `watchedEpisodesCount`) using `select('*', { count: 'exact', head: true })`.
-   - Never exposes private journal notes, personal ratings, or individual watchlist titles.
-   - Also returns recent audit log entries for that target user from `public.admin_audit_logs`.
-4. **`send_password_reset`**:
-   - Triggers a standard Supabase password-reset email for the user's email address via `resetPasswordForEmail(email, { redirectTo })` and records an `admin_audit_logs` entry.
-5. **`confirm_email` / `update_email_confirmation`**:
-   - Confirms an unconfirmed user's email via `adminClient.auth.admin.updateUserById(targetUserId, { email_confirm: true })` and logs the action in `public.admin_audit_logs`.
-6. **`suspend_user` & `restore_user`**:
-   - Blocks self-suspension if `targetUserId === caller.id`.
-   - Uses `adminClient.auth.admin.updateUserById(targetUserId, { ban_duration })` supporting selectable durations (`'24h'`, `'168h'` [7d], `'720h'` [30d], or `'876000h'` [Indefinite ~100 years]) for suspension, or `'none'` to restore access.
-   - Clearly documents in the UI that `ban_duration` prevents new sign-ins and token refreshes immediately, while existing short-lived JWT access tokens remain valid until their natural expiration.
-   - Records the action and duration in `public.admin_audit_logs`.
-7. **`delete_user`**:
-   - Strictly blocks self-deletion if `targetUserId === caller.id`.
-   - Requires explicit confirmation in the request payload (`confirmDelete: true`).
-   - Deletes any avatar files in `storage.objects` under `<targetUserId>/`, calls `adminClient.auth.admin.deleteUser(targetUserId)` (which cascades to `public.profiles`, `public.watchlist_items`, `public.watch_history`, and `public.watched_episodes`), and records the deletion in `public.admin_audit_logs`.
+- **Confirmed Decision 1 — Navbar Persistence During Transient Failures**: Once administrator access is verified for the authenticated user's session, the Navbar **Admin** tab remains visible if a background check or network request experiences a temporary error, surfacing any connection status or retry controls inside the Admin Dashboard view rather than hiding the navigation entry.
+- **Confirmed Decision 2 — User-Scoped Session Cache with Background Revalidation**: Verified `'allowed'` status is cached in `sessionStorage` keyed strictly to the authenticated user's UUID (`cinemax_admin_verified:<user.id>`). On page reload (including `/CineMax/admin`), the UI immediately restores the verified navigation state while revalidating against the `admin-users` Edge Function in the background. If the server explicitly returns `HTTP 403` (`FORBIDDEN_NOT_ADMIN`) or the user signs out / switches accounts, the cache and state are cleared immediately.
+- **Confirmed Decision 3 — 3 Automatic Retries with Exponential Backoff**: Transient network failures, Edge Function cold starts, or `5xx` responses automatically retry up to 3 times (`400ms`, `1000ms`, `2200ms`) before entering the `error` state with a visible manual **Retry Verification** button.
 
-## 3. Audit Log Database Migration (`supabase/admin_audit_logs_migration.sql`)
-- Create a dedicated, non-destructive SQL migration file `/supabase/admin_audit_logs_migration.sql` creating `public.admin_audit_logs`:
-  - Columns: `id` (UUID PK), `admin_user_id` (UUID), `target_user_id` (UUID), `target_email` (TEXT), `action` (TEXT check constraint: `'suspend_user'`, `'restore_user'`, `'delete_user'`, `'confirm_email'`, `'send_password_reset'`), `details` (JSONB without any secrets/tokens), `created_at` (TIMESTAMPTZ).
-  - Enable strict Row-Level Security (`ALTER TABLE public.admin_audit_logs ENABLE ROW LEVEL SECURITY;`) with **zero public/authenticated client policies** so ordinary users cannot read, insert, update, or delete audit logs via the anon key—only the server-side Edge Function (after verifying `CINEMAX_ADMIN_USER_ID`) can write and read audit logs.
+---
 
-## 4. Routing & Admin Dashboard UI (`src/components/AdminDashboardView.tsx`, `Navbar.tsx`, `App.tsx`)
-- **GitHub Pages & SPA `/admin` Route Support**:
-  - Detect `/admin` or `/CineMax/admin` (as well as `#/admin`) on initial page load and `popstate` events in `App.tsx`, syncing the URL bar cleanly when switching between `/admin` and standard CineMax tabs.
-  - Show the **Admin** navigation badge in `Navbar.tsx` only when the server-side `check_access` check confirms the signed-in user is the configured administrator (while still allowing direct URL navigation to `/admin` so the administrator can see setup/deployment diagnostics or non-admins see a proper 403 state).
-- **Admin Dashboard Interface**:
-  - **Overview KPI Cards**: Total Users, Confirmed Users, Unconfirmed Users, and Recent Registrations (last 7 days).
-  - **Searchable, Filterable, Paginated User Table**: Filter by status (`All`, `Confirmed`, `Unconfirmed`, `Suspended`), search by email, UUID, or username, and paginate cleanly on desktop and mobile.
-  - **User Detail Drawer / Panel**: Displays Auth metadata, profile summary, privacy-safe aggregate counts (`Watchlist Items`, `Favourites`, `Journal Entries`, `Episodes Tracked`), and action buttons (**Confirm Email**, **Send Password Reset Email**, **Suspend Account [24h / 7d / 30d / Indefinite]**, **Restore Account**, **Delete Account**).
-  - **Destructive Action Confirmation Modal**: Requires explicit confirmation before suspending or deleting a user, clearly explaining token expiry behavior for suspensions and `ON DELETE CASCADE` record removal for deletions.
-  - **Recent Admin Audit Log Panel**: Displays the latest recorded administrative actions.
-  - **Deployment & Secret Setup Guide Modal/Drawer**: If the `admin-users` Edge Function is not yet deployed or `CINEMAX_ADMIN_USER_ID` is not set in Supabase Edge Function secrets, displays clear, step-by-step CLI and Supabase Dashboard instructions.
+## 1. Overview & Root Cause Analysis
+
+- **Why the Admin Dashboard Disappeared**:
+  1. **Object Reference Churn on Token Refresh**: Supabase's `onAuthStateChange` emits a new `session.user` object reference on every `TOKEN_REFRESHED`, `SIGNED_IN`, and tab-focus event even when `user.id` has not changed. Because the admin check effect depended on the `authUser` object reference, every token refresh triggered a fresh `checkAdminAccess()` call.
+  2. **All Non-200 Errors Treated as Non-Admin (`false`)**: Any momentary network blip, Edge Function cold-start timeout, or `5xx`/`401` during a token transition caused `res.status === 200 && Boolean(res.isAdmin)` to evaluate to `false`, immediately hiding the Navbar Admin tab.
+  3. **Premature Initial Render Before Session Restoration**: On page refresh (especially at `/CineMax/admin`), `authUser` initialized as `null` while `client.auth.getSession()` was still asynchronous, causing the dashboard to flash `HTTP 401 · Authentication Required` before session restoration completed.
+  4. **Expired Token Race (`HTTP 401`) Without Session Revalidation**: If `invokeAdminBackend` ran right as an access token expired, it did not call `client.auth.refreshSession()` / `client.auth.getUser()` to obtain a fresh JWT before retrying.
+  5. **Misleading Fallback Error Classification**: When the `admin-users` Edge Function experienced a transient network error on GitHub Pages, falling through to the non-existent `/api/admin/users` static path caused the client to report `503 EDGE_FUNCTION_NOT_DEPLOYED` instead of a retryable network/transient error.
+
+---
+
+## 2. User Experience & Visual Design
+
+- **Key User Flows**:
+  - **Initial Login & Page Refresh on `/CineMax/admin`**: While Supabase restores the session from storage, the Admin Dashboard displays a calm, layout-stable loading skeleton (`Verifying administrator session...`) rather than flashing an unauthenticated `401` screen.
+  - **Seamless Background Token Refreshes**: When Supabase refreshes the JWT in the background for the same `user.id`, no redundant `checkAdminAccess()` network call is fired, and the Admin tab stays uninterrupted in the Navbar.
+  - **Transient Network or Cold-Start Recovery**: If an Edge Function call encounters a temporary timeout or `5xx` error, the client automatically performs up to 3 exponential-backoff retries. If all retries fail, the Admin tab remains accessible (if previously verified for this user ID) and the dashboard displays a clear **Temporary Connection Issue** banner with a **Retry Now** button—distinct from the `403 Access Denied` and `Setup Required` screens.
+  - **Explicit Denial (`HTTP 403`) or Sign-Out**: If the server explicitly responds with `HTTP 403` (`FORBIDDEN_NOT_ADMIN`) or the user signs out, the cached state for that user is purged immediately and the Admin tab is removed.
+- **Visual Identity & Theme**:
+  - Preserves CineMax's obsidian dark palette (`#090a0f` canvas, `#0d0e14` structural cards, `#f59e0b` amber accents), `Outfit` display headers, `Plus Jakarta Sans` body prose, and `JetBrains Mono` (`tabular-nums`) for UUIDs, status codes, and metrics.
+  - Follows strict SaaS dashboard state completeness: dedicated loading skeleton, transient retryable error banner, `401` sign-in prompt (only after auth initialization finishes with no session), and `403` non-admin denial view.
+
+---
+
+## 3. Key Product Decisions & Trade-Offs
+
+- **Explicit 4-State Admin Access Machine (`'loading' | 'allowed' | 'denied' | 'error'`)**:
+  - *Chosen Approach*: Replace the single `isAdmin: boolean` with `adminAccessState: 'loading' | 'allowed' | 'denied' | 'error'` paired with `verifiedAdminUserId: string | null` and `isAuthInitializing: boolean`.
+  - *Why*: Prevents network hiccups or in-flight checks from being conflated with an explicit `403` authorization denial.
+- **Deduplicating Auth State Changes by `user.id`**:
+  - *Chosen Approach*: Track the active `authUserId = authUser?.id ?? null`. Only reset admin verification when `authUserId` changes (sign-out or account switch). On `TOKEN_REFRESHED` for the same `user.id`, keep the current `'allowed'` state intact.
+  - *Why*: Eliminates periodic tab disappearance when Supabase rotates short-lived JWTs in the background.
+- **Automatic `401` Session Revalidation + Bounded Exponential Backoff**:
+  - *Chosen Approach*: Inside the admin API client, if an operation receives `HTTP 401`, refresh/revalidate the session via `client.auth.refreshSession()` once and retry with the new `access_token`. For network errors, timeouts, or `502`/`503`/`504` responses, retry up to 3 times (`400ms`, `1000ms`, `2200ms`).
+  - *Why*: Handles Edge Function cold starts and token rotation races transparently without weakening server-side security.
+
+---
+
+## 4. Technical Architecture & Data Strategy *(Technical Reference)*
+
+### Architecture & State Lifecycle Diagram
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                   Supabase Auth Session Lifecycle                           │
+│  1. Boot: isAuthInitializing = true -> client.auth.getSession()             │
+│  2. Events: onAuthStateChange (SIGNED_IN, TOKEN_REFRESHED, SIGNED_OUT)      │
+└───────────────────────────────┬─────────────────────────────────────────────┘
+                                │
+                                ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│               Admin Access State Machine (Keyed by user.id)                 │
+│                                                                             │
+│  • Sign-Out / User ID Changed ──► Clear sessionStorage cache                │
+│                                   adminAccessState = 'denied' (if signed    │
+│                                   out) or 'loading' (if new user ID)        │
+│                                                                             │
+│  • Same User ID + TOKEN_REFRESHED ► Preserve 'allowed' state (no flicker)   │
+│                                                                             │
+│  • Initial Load / Refresh ──────► Read sessionStorage['cinemax_admin:<id>'] │
+│                                   If cached 'allowed', show Admin tab       │
+│                                   immediately & revalidate in background    │
+└───────────────────────────────┬─────────────────────────────────────────────┘
+                                │
+                                ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│            Resilient Admin API Client (invokeAdminBackend)                  │
+│                                                                             │
+│  • HTTP 200 (isAdmin: true)  ──► adminAccessState = 'allowed' (cache UID)   │
+│  • HTTP 403 (Not in Allowlist) ► adminAccessState = 'denied'  (purge cache) │
+│  • HTTP 401 (Token Expired)  ──► client.auth.refreshSession() -> Retry once │
+│  • Network / 5xx / Cold Start ─► 3x Exponential Backoff (400ms/1s/2.2s)     │
+│                                  If still failing:                          │
+│                                  adminAccessState = 'error' (keep tab if    │
+│                                  previously 'allowed' for this user.id;     │
+│                                  show Retry banner in AdminDashboardView)   │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### Interactive Component & State Mapping
+
+1. **Auth Initialization & Session Restoration Gate**:
+   - Track `isAuthInitializing` (starts `true`, becomes `false` only after `ensureSupabaseClient()` and `client.auth.getSession()` settle).
+   - When navigating directly to `/CineMax/admin` or `/admin` on page refresh, the route waits for `isAuthInitializing === false` before deciding whether the user is unauthenticated (`401`).
+2. **Admin Access Verification & Caching**:
+   - Helper functions read/write `sessionStorage` key `cinemax_admin_verified_uid` for the current `user.id`.
+   - `showAdminTabInNavbar` is `true` when `isAuthenticated && (adminAccessState === 'allowed' || (adminAccessState !== 'denied' && verifiedAdminUserId === authUser.id))`.
+   - Note: This cache only controls client-side UI visibility so the tab does not vanish on refresh or transient network errors; every data fetch and mutation in the Admin Dashboard still sends the caller's live Bearer JWT to the `admin-users` Edge Function, which independently verifies `CINEMAX_ADMIN_USER_ID`.
+3. **Edge Function Invocation & Error Differentiation**:
+   - Distinguish genuine HTTP `403 FORBIDDEN_NOT_ADMIN` responses from transient network/fetch errors (`FunctionsFetchError`, `FunctionsRelayError`, `500`/`502`/`504`).
+   - Only fallback to `/api/admin/users` when running on `localhost` / local dev or when `VITE_API_BASE_URL` is configured, preventing a failed GitHub Pages `/api/admin/users` `404` from masking a transient Edge Function error as `EDGE_FUNCTION_NOT_DEPLOYED`.
+4. **Admin Dashboard View States**:
+   - **Loading State**: Shown while `isAuthInitializing` or initial `adminAccessState === 'loading'` (when no cached list data is present).
+   - **Transient Error State**: Shown when a request fails after 3 automatic retries, preserving any already-loaded user table or displaying a dedicated **Temporary Server/Network Error** card with a manual **Retry Now** button that re-triggers both `checkAdminAccess` and `loadUsers`.
+   - **Explicit Forbidden State (`403`)**: Shown only when the server explicitly denies authorization (`status === 403 && code === 'FORBIDDEN_NOT_ADMIN'`).

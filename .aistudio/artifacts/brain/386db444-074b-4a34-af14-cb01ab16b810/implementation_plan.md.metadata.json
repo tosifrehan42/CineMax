@@ -1,6 +1,6 @@
 {
-  "summary":  "Implementation plan for the CineMax Admin Dashboard (/admin), covering server-side authorization via CINEMAX_ADMIN_USER_ID in a Supabase Edge Function (admin-users), audit logging SQL migration with strict RLS, privacy-safe user management, and GitHub Pages /admin route compatibility.",
-  "updatedAt":  "2026-10-23T10:15:04.419021272Z",
+  "summary":  "Implementation plan for fixing the disappearing Admin Dashboard tab and route state across login, token refreshes, transient network errors, and page reloads on GitHub Pages.",
+  "updatedAt":  "2026-10-23T18:10:45.201003625Z",
   "requestFeedback":  true,
   "userFacing":  true
 }

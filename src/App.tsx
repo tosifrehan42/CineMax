@@ -43,7 +43,16 @@ import { SearchOverlay } from './components/SearchOverlay';
 import { AuthModal } from './components/AuthModal';
 import { QualityFileSizeEstimator } from './components/QualityFileSizeEstimator';
 import { AdminDashboardView } from './components/AdminDashboardView';
-import { checkAdminAccess } from './services/adminApi';
+import {
+  AdminAccessState,
+  checkAdminAccess,
+  clearCachedVerifiedAdminUid,
+  deriveAdminStateFromCheckResult,
+  getCachedVerifiedAdminUid,
+  isUserCachedAsVerifiedAdmin,
+  setCachedVerifiedAdminUid,
+  shouldShowAdminTab,
+} from './services/adminApi';
 import { Film } from 'lucide-react';
 
 function isUrlAdminRoute(): boolean {
@@ -132,7 +141,16 @@ export default function App() {
   const [currentTab, setCurrentTab] = useState<TabView>(() =>
     isUrlAdminRoute() ? 'admin' : 'home'
   );
-  const [isAdmin, setIsAdmin] = useState(false);
+  const [isAuthInitializing, setIsAuthInitializing] = useState<boolean>(true);
+  const [adminAccessState, setAdminAccessState] =
+    useState<AdminAccessState>('loading');
+  const [verifiedAdminUserId, setVerifiedAdminUserId] = useState<string | null>(
+    () => getCachedVerifiedAdminUid()
+  );
+  const [adminCheckError, setAdminCheckError] = useState<string | null>(null);
+  const hasVerifiedInMemoryForUserRef = useRef<string | null>(null);
+  const lastLoadedCloudUserIdRef = useRef<string | null>(null);
+  const activeAuthUserIdRef = useRef<string | null>(null);
 
   const navigateToTab = useCallback((tab: TabView) => {
     setCurrentTab(tab);
@@ -335,40 +353,72 @@ export default function App() {
     let active = true;
     let unsubscribe: (() => void) | null = null;
 
-    ensureSupabaseClient().then(async ({ client, configured, securityWarning: secWarn }) => {
-      if (!active) return;
-      setSupabaseConfigured(configured);
-      setSecurityWarning(secWarn);
-
-      if (!client) return;
-
-      const { data } = await client.auth.getSession();
-      if (!active) return;
-      const initialUser = data.session?.user ?? null;
-      setAuthUser(initialUser);
-      if (initialUser) {
-        loadCloudUserData(initialUser);
-      }
-
-      const { data: sub } = client.auth.onAuthStateChange((_event, session) => {
+    ensureSupabaseClient()
+      .then(async ({ client, configured, securityWarning: secWarn }) => {
         if (!active) return;
-        const nextUser = session?.user ?? null;
-        setAuthUser(nextUser);
-        if (nextUser) {
-          loadCloudUserData(nextUser);
-        } else {
-          setUserProfile(null);
-          setCloudWatchlist([]);
-          setWatchHistory([]);
-          setCloudWatchedEpisodes([]);
-          setCloudError(null);
-          setSchemaMissing(false);
-          setMigrationNeeded(false);
+        setSupabaseConfigured(configured);
+        setSecurityWarning(secWarn);
+
+        if (!client) {
+          setIsAuthInitializing(false);
+          return;
+        }
+
+        try {
+          const { data } = await client.auth.getSession();
+          if (!active) return;
+          const initialUser = data.session?.user ?? null;
+          activeAuthUserIdRef.current = initialUser?.id ?? null;
+          setAuthUser(initialUser);
+          if (initialUser) {
+            lastLoadedCloudUserIdRef.current = initialUser.id;
+            loadCloudUserData(initialUser);
+          }
+        } finally {
+          if (active) {
+            setIsAuthInitializing(false);
+          }
+        }
+
+        const { data: sub } = client.auth.onAuthStateChange((event, session) => {
+          if (!active) return;
+          const nextUser = session?.user ?? null;
+          const nextUserId = nextUser?.id ?? null;
+          const prevUserId = activeAuthUserIdRef.current;
+          activeAuthUserIdRef.current = nextUserId;
+
+          setAuthUser(nextUser);
+
+          if (nextUser) {
+            // Avoid redundant full cloud data reloads when only the JWT token refreshed for the same user ID
+            if (prevUserId !== nextUserId || event === 'USER_UPDATED') {
+              lastLoadedCloudUserIdRef.current = nextUser.id;
+              loadCloudUserData(nextUser);
+            }
+          } else {
+            lastLoadedCloudUserIdRef.current = null;
+            hasVerifiedInMemoryForUserRef.current = null;
+            clearCachedVerifiedAdminUid();
+            setVerifiedAdminUserId(null);
+            setAdminAccessState('denied');
+            setAdminCheckError(null);
+            setUserProfile(null);
+            setCloudWatchlist([]);
+            setWatchHistory([]);
+            setCloudWatchedEpisodes([]);
+            setCloudError(null);
+            setSchemaMissing(false);
+            setMigrationNeeded(false);
+          }
+        });
+
+        unsubscribe = () => sub.subscription.unsubscribe();
+      })
+      .catch(() => {
+        if (active) {
+          setIsAuthInitializing(false);
         }
       });
-
-      unsubscribe = () => sub.subscription.unsubscribe();
-    });
 
     return () => {
       active = false;
@@ -376,26 +426,135 @@ export default function App() {
     };
   }, [loadCloudUserData]);
 
-  // Verify admin access against server-side allowlist whenever authUser changes
+  const authUserId = authUser?.id ?? null;
+
+  const verifyCurrentUserAdminAccess = useCallback(
+    async (targetUserId: string, forceCheck = false) => {
+      if (!targetUserId) return;
+
+      // Avoid unnecessary network checks on token refresh when the same user ID was already verified in memory
+      if (
+        !forceCheck &&
+        hasVerifiedInMemoryForUserRef.current === targetUserId
+      ) {
+        return;
+      }
+
+      const cachedForThisUser = isUserCachedAsVerifiedAdmin(targetUserId);
+      if (cachedForThisUser) {
+        setVerifiedAdminUserId(targetUserId);
+        setAdminAccessState('allowed');
+      } else {
+        setAdminAccessState('loading');
+      }
+
+      try {
+        const res = await checkAdminAccess();
+        // Ensure the user did not sign out or switch accounts while the request was in flight
+        if (activeAuthUserIdRef.current !== targetUserId) {
+          return;
+        }
+
+        const previouslyVerified =
+          isUserCachedAsVerifiedAdmin(targetUserId) ||
+          hasVerifiedInMemoryForUserRef.current === targetUserId;
+
+        const { nextState, keepVerifiedForUser } =
+          deriveAdminStateFromCheckResult({
+            userId: targetUserId,
+            checkResult: res,
+            previouslyVerifiedForUser: previouslyVerified,
+          });
+
+        if (nextState === 'allowed') {
+          hasVerifiedInMemoryForUserRef.current = targetUserId;
+          setCachedVerifiedAdminUid(targetUserId);
+          setVerifiedAdminUserId(targetUserId);
+          setAdminAccessState('allowed');
+          setAdminCheckError(null);
+        } else if (nextState === 'denied') {
+          hasVerifiedInMemoryForUserRef.current = targetUserId;
+          clearCachedVerifiedAdminUid();
+          setVerifiedAdminUserId(null);
+          setAdminAccessState('denied');
+          setAdminCheckError(res.error);
+        } else {
+          // Transient error ('error'): keep verifiedAdminUserId if previously verified for this user ID
+          setAdminAccessState('error');
+          setAdminCheckError(
+            res.error || 'Temporary error verifying administrator access.'
+          );
+          if (keepVerifiedForUser) {
+            setVerifiedAdminUserId(targetUserId);
+          }
+        }
+      } catch (err: any) {
+        if (activeAuthUserIdRef.current !== targetUserId) {
+          return;
+        }
+        setAdminAccessState('error');
+        setAdminCheckError(
+          err?.message || 'Temporary network error verifying administrator access.'
+        );
+      }
+    },
+    []
+  );
+
+  // Key admin verification strictly on session restoration completion and authUserId (not object identity)
   useEffect(() => {
-    let active = true;
-    if (!authUser) {
-      setIsAdmin(false);
+    if (isAuthInitializing) {
       return;
     }
-    checkAdminAccess()
-      .then((res) => {
-        if (!active) return;
-        setIsAdmin(res.status === 200 && Boolean(res.isAdmin));
-      })
-      .catch(() => {
-        if (!active) return;
-        setIsAdmin(false);
-      });
-    return () => {
-      active = false;
-    };
-  }, [authUser]);
+
+    if (!authUserId) {
+      hasVerifiedInMemoryForUserRef.current = null;
+      clearCachedVerifiedAdminUid();
+      setVerifiedAdminUserId(null);
+      setAdminAccessState('denied');
+      setAdminCheckError(null);
+      return;
+    }
+
+    // If a different user signed in than the cached admin UUID, clear stale state immediately
+    const cachedUid = getCachedVerifiedAdminUid();
+    if (cachedUid && cachedUid.toLowerCase() !== authUserId.toLowerCase()) {
+      hasVerifiedInMemoryForUserRef.current = null;
+      clearCachedVerifiedAdminUid();
+      setVerifiedAdminUserId(null);
+    }
+
+    verifyCurrentUserAdminAccess(authUserId, false);
+  }, [isAuthInitializing, authUserId, verifyCurrentUserAdminAccess]);
+
+  const handleAdminVerifiedFromDashboard = useCallback(
+    (confirmedAdminUid: string) => {
+      const uid = confirmedAdminUid || authUserId;
+      if (!uid || activeAuthUserIdRef.current !== uid) return;
+      hasVerifiedInMemoryForUserRef.current = uid;
+      setCachedVerifiedAdminUid(uid);
+      setVerifiedAdminUserId(uid);
+      setAdminAccessState('allowed');
+      setAdminCheckError(null);
+    },
+    [authUserId]
+  );
+
+  const handleAdminExplicitlyDeniedFromDashboard = useCallback(() => {
+    if (authUserId) {
+      hasVerifiedInMemoryForUserRef.current = authUserId;
+    }
+    clearCachedVerifiedAdminUid();
+    setVerifiedAdminUserId(null);
+    setAdminAccessState('denied');
+  }, [authUserId]);
+
+  const showAdminTab = shouldShowAdminTab({
+    isAuthenticated,
+    userId: authUserId,
+    adminAccessState,
+    verifiedAdminUserId,
+  });
 
   // Global keyboard shortcut for search (Ctrl+K or Cmd+K)
   useEffect(() => {
@@ -432,9 +591,15 @@ export default function App() {
   };
 
   const handleSignOut = async () => {
+    activeAuthUserIdRef.current = null;
+    lastLoadedCloudUserIdRef.current = null;
+    hasVerifiedInMemoryForUserRef.current = null;
+    clearCachedVerifiedAdminUid();
+    setVerifiedAdminUserId(null);
+    setAdminAccessState('denied');
+    setAdminCheckError(null);
     await signOutUser();
     setAuthUser(null);
-    setIsAdmin(false);
     setUserProfile(null);
     setCloudWatchlist([]);
     setWatchHistory([]);
@@ -1050,7 +1215,7 @@ export default function App() {
         onOpenSurprise={() => setIsSurpriseOpen(true)}
         onQuickSearchClick={() => setIsSearchOpen(true)}
         isAuthenticated={isAuthenticated}
-        isAdmin={isAdmin}
+        isAdmin={showAdminTab}
         userProfile={userProfile}
         userEmail={authUser?.email}
         onOpenAuthModal={handleOpenAuthModal}
@@ -1154,10 +1319,20 @@ export default function App() {
         {currentTab === 'admin' && (
           <AdminDashboardView
             isAuthenticated={isAuthenticated}
-            currentUserId={authUser?.id || null}
+            isAuthInitializing={isAuthInitializing}
+            adminAccessState={adminAccessState}
+            adminCheckError={adminCheckError}
+            currentUserId={authUserId}
             currentUserEmail={authUser?.email || null}
             onOpenAuthModal={handleOpenAuthModal}
             onExitAdmin={() => navigateToTab('home')}
+            onRetryAdminAccess={() =>
+              authUserId
+                ? verifyCurrentUserAdminAccess(authUserId, true)
+                : undefined
+            }
+            onAdminVerified={handleAdminVerifiedFromDashboard}
+            onAdminExplicitlyDenied={handleAdminExplicitlyDeniedFromDashboard}
           />
         )}
       </main>

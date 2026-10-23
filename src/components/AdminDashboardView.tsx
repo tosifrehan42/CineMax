@@ -1,5 +1,6 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
+  AdminAccessState,
   adminConfirmUserEmail,
   adminDeleteUser,
   AdminListUsersResponse,
@@ -48,10 +49,16 @@ import {
 
 interface AdminDashboardViewProps {
   isAuthenticated: boolean;
+  isAuthInitializing?: boolean;
+  adminAccessState?: AdminAccessState;
+  adminCheckError?: string | null;
   currentUserId?: string | null;
   currentUserEmail?: string | null;
   onOpenAuthModal?: (mode?: 'signin' | 'signup') => void;
   onExitAdmin?: () => void;
+  onRetryAdminAccess?: () => Promise<void> | void;
+  onAdminVerified?: (adminUserId: string) => void;
+  onAdminExplicitlyDenied?: () => void;
 }
 
 type StatusFilter = 'all' | 'confirmed' | 'unconfirmed' | 'suspended';
@@ -59,10 +66,16 @@ type SuspendDuration = '24h' | '7d' | '30d' | 'indefinite';
 
 export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
   isAuthenticated,
+  isAuthInitializing = false,
+  adminAccessState = 'loading',
+  adminCheckError = null,
   currentUserId,
   currentUserEmail,
   onOpenAuthModal,
   onExitAdmin,
+  onRetryAdminAccess,
+  onAdminVerified,
+  onAdminExplicitlyDenied,
 }) => {
   // List & Pagination State
   const [listData, setListData] = useState<AdminListUsersResponse | null>(null);
@@ -70,6 +83,9 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
   const [listError, setListError] = useState<string | null>(null);
   const [httpStatus, setHttpStatus] = useState<number>(200);
   const [edgeDeploymentNeeded, setEdgeDeploymentNeeded] = useState<boolean>(false);
+  const [isExplicitDenial, setIsExplicitDenial] = useState<boolean>(false);
+  const [isTransientError, setIsTransientError] = useState<boolean>(false);
+  const [retryAttemptsCount, setRetryAttemptsCount] = useState<number>(0);
 
   const [page, setPage] = useState<number>(1);
   const [perPage] = useState<number>(12);
@@ -103,6 +119,25 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
   const [showSetupGuide, setShowSetupGuide] = useState<boolean>(false);
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
 
+  const lastUserIdRef = useRef<string | null | undefined>(currentUserId);
+  const onAdminVerifiedRef = useRef(onAdminVerified);
+  onAdminVerifiedRef.current = onAdminVerified;
+  const onAdminExplicitlyDeniedRef = useRef(onAdminExplicitlyDenied);
+  onAdminExplicitlyDeniedRef.current = onAdminExplicitlyDenied;
+
+  // Clear stale listData immediately if the authenticated user changes or signs out
+  useEffect(() => {
+    if (lastUserIdRef.current !== currentUserId) {
+      lastUserIdRef.current = currentUserId;
+      setListData(null);
+      setSelectedUserId(null);
+      setUserDetail(null);
+      setListError(null);
+      setIsExplicitDenial(false);
+      setIsTransientError(false);
+    }
+  }, [currentUserId]);
+
   // Debounce search input
   useEffect(() => {
     const timer = setTimeout(() => {
@@ -113,9 +148,16 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
   }, [searchInput]);
 
   const loadUsers = useCallback(async () => {
-    if (!isAuthenticated) {
+    // Wait until initial Supabase session restoration completes before deciding auth status
+    if (isAuthInitializing) {
+      return;
+    }
+
+    if (!isAuthenticated || !currentUserId) {
       setListData(null);
       setHttpStatus(401);
+      setIsExplicitDenial(false);
+      setIsTransientError(false);
       setListError('Authentication required. Sign in with your administrator account.');
       return;
     }
@@ -133,19 +175,44 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
     setIsLoadingList(false);
     setHttpStatus(res.status);
     setEdgeDeploymentNeeded(Boolean(res.edgeDeploymentNeeded));
+    setIsExplicitDenial(Boolean(res.isExplicitDenial));
+    setIsTransientError(Boolean(res.isTransientError));
+    setRetryAttemptsCount(res.retryAttempts || 0);
 
     if (res.error || !res.data) {
-      setListData(null);
+      // Only wipe out existing listData if the server returned 401 or an explicit 403 denial
+      if (res.status === 401 || res.isExplicitDenial) {
+        setListData(null);
+      }
+      if (res.isExplicitDenial) {
+        onAdminExplicitlyDeniedRef.current?.();
+      }
       setListError(res.error || 'Failed to load administrator user list.');
       return;
     }
 
     setListData(res.data);
-  }, [isAuthenticated, page, perPage, debouncedSearch, statusFilter]);
+    onAdminVerifiedRef.current?.(res.data.adminUserId || currentUserId);
+  }, [
+    isAuthInitializing,
+    isAuthenticated,
+    currentUserId,
+    page,
+    perPage,
+    debouncedSearch,
+    statusFilter,
+  ]);
 
   useEffect(() => {
-    loadUsers();
-  }, [loadUsers]);
+    if (!isAuthInitializing) {
+      loadUsers();
+    }
+  }, [isAuthInitializing, loadUsers]);
+
+  const handleManualRetry = async () => {
+    await onRetryAdminAccess?.();
+    await loadUsers();
+  };
 
   const loadSelectedUserDetail = useCallback(async (targetId: string) => {
     setIsLoadingDetail(true);
@@ -326,6 +393,36 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
   }"\nsupabase functions deploy admin-users`;
 
   // ==========================================================================
+  // STATE 0: INITIALIZING / RESTORING SUPABASE SESSION
+  // ==========================================================================
+  if (isAuthInitializing || (isAuthenticated && isLoadingList && !listData && !listError)) {
+    return (
+      <div className="pt-28 pb-20 max-w-3xl mx-auto px-4 sm:px-6">
+        <div className="rounded-2xl bg-[#0d0e14] border border-white/10 p-8 text-center space-y-4 shadow-2xl">
+          <div className="w-14 h-14 rounded-2xl bg-amber-500/15 border border-amber-500/30 flex items-center justify-center mx-auto text-amber-400">
+            <Loader2 className="w-7 h-7 animate-spin" />
+          </div>
+          <div className="space-y-1.5">
+            <span className="text-xs font-mono uppercase tracking-widest text-amber-400">
+              {isAuthInitializing
+                ? 'Restoring Session'
+                : 'Verifying Administrator Access'}
+            </span>
+            <h1 className="font-['Outfit'] text-2xl sm:text-3xl font-extrabold text-white">
+              {isAuthInitializing
+                ? 'Restoring Your CineMax Session...'
+                : 'Loading Administrator Console...'}
+            </h1>
+            <p className="text-xs sm:text-sm text-slate-400 max-w-md mx-auto leading-relaxed">
+              Validating your authenticated session and allowlist permissions with the server.
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ==========================================================================
   // STATE 1: UNAUTHENTICATED (401)
   // ==========================================================================
   if (!isAuthenticated) {
@@ -372,10 +469,85 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
   }
 
   // ==========================================================================
-  // STATE 2: FORBIDDEN NON-ADMIN (403) OR SETUP REQUIRED (503)
+  // STATE 2A: TRANSIENT NETWORK OR SERVER ERROR (WITH VISIBLE RETRY)
   // ==========================================================================
-  if (!isLoadingList && (httpStatus === 403 || httpStatus === 503) && !listData) {
-    const isForbiddenUser = httpStatus === 403 && !edgeDeploymentNeeded;
+  if (
+    !isLoadingList &&
+    !listData &&
+    !isExplicitDenial &&
+    !edgeDeploymentNeeded &&
+    (isTransientError || httpStatus >= 500 || httpStatus === 401 || Boolean(listError))
+  ) {
+    return (
+      <div className="pt-28 pb-20 max-w-3xl mx-auto px-4 sm:px-6">
+        <div className="rounded-2xl bg-[#0d0e14] border border-amber-500/35 p-6 sm:p-8 space-y-5 shadow-2xl">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-5 border-b border-white/10">
+            <div className="flex items-start gap-4">
+              <div className="p-3 rounded-2xl bg-amber-500/15 border border-amber-500/30 text-amber-400 shrink-0">
+                <AlertTriangle className="w-7 h-7" />
+              </div>
+              <div>
+                <span className="text-xs font-mono uppercase tracking-widest text-amber-400">
+                  Temporary Connection Issue · HTTP {httpStatus || 502}
+                  {retryAttemptsCount > 0
+                    ? ` · Retried ${retryAttemptsCount}x`
+                    : ''}
+                </span>
+                <h1 className="font-['Outfit'] text-2xl sm:text-3xl font-extrabold text-white mt-0.5">
+                  Could Not Reach Admin Service
+                </h1>
+                <p className="text-xs sm:text-sm text-slate-300 mt-1 leading-relaxed">
+                  {listError ||
+                    adminCheckError ||
+                    'A temporary network or Edge Function timeout occurred while verifying your session.'}
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                type="button"
+                disabled={isLoadingList}
+                onClick={handleManualRetry}
+                className="px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs flex items-center gap-1.5 transition-colors disabled:opacity-50"
+              >
+                <RefreshCw
+                  className={`w-3.5 h-3.5 ${isLoadingList ? 'animate-spin' : ''}`}
+                />
+                <span>Retry Verification</span>
+              </button>
+              {onExitAdmin && (
+                <button
+                  type="button"
+                  onClick={onExitAdmin}
+                  className="px-3.5 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-xs font-semibold text-slate-200 flex items-center gap-1.5"
+                >
+                  <ArrowLeft className="w-3.5 h-3.5" />
+                  <span>Exit</span>
+                </button>
+              )}
+            </div>
+          </div>
+
+          <p className="text-xs text-slate-400 leading-relaxed">
+            Your administrator session was not revoked—this error is temporary (such as a brief network interruption or Edge Function cold start). Click <strong>Retry Verification</strong> above to reconnect.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  // ==========================================================================
+  // STATE 2B: EXPLICIT FORBIDDEN NON-ADMIN (403) OR SETUP REQUIRED (503)
+  // ==========================================================================
+  if (
+    !isLoadingList &&
+    !listData &&
+    (isExplicitDenial || adminAccessState === 'denied' || edgeDeploymentNeeded)
+  ) {
+    const isForbiddenUser =
+      (isExplicitDenial || (httpStatus === 403 && !edgeDeploymentNeeded)) &&
+      !edgeDeploymentNeeded;
     return (
       <div className="pt-28 pb-20 max-w-4xl mx-auto px-4 sm:px-6 space-y-6">
         <div
@@ -410,7 +582,7 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
                     : 'Deploy `admin-users` Edge Function & Configure Admin UUID'}
                 </h1>
                 <p className="text-xs sm:text-sm text-slate-300 mt-1 leading-relaxed">
-                  {listError}
+                  {listError || adminCheckError}
                 </p>
               </div>
             </div>
@@ -418,7 +590,7 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
             <div className="flex items-center gap-2 shrink-0">
               <button
                 type="button"
-                onClick={loadUsers}
+                onClick={handleManualRetry}
                 className="px-3.5 py-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-xs font-semibold text-white flex items-center gap-1.5"
               >
                 <RefreshCw className="w-3.5 h-3.5" />
@@ -674,6 +846,30 @@ export const AdminDashboardView: React.FC<AdminDashboardViewProps> = ({
           </div>
         )}
       </div>
+
+      {/* Transient Error Banner when listData is already loaded */}
+      {(listError || adminAccessState === 'error') && listData && (
+        <div className="p-4 rounded-2xl border border-amber-500/35 bg-amber-500/10 text-amber-100 text-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="flex items-center gap-2.5">
+            <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
+            <span>
+              <strong>Temporary connection issue:</strong>{' '}
+              {listError ||
+                adminCheckError ||
+                'Background refresh encountered a temporary error. Showing your most recent user directory snapshot.'}
+            </span>
+          </div>
+          <button
+            type="button"
+            disabled={isLoadingList}
+            onClick={handleManualRetry}
+            className="px-3.5 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs flex items-center gap-1.5 shrink-0 self-start sm:self-center"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${isLoadingList ? 'animate-spin' : ''}`} />
+            <span>Retry Now</span>
+          </button>
+        </div>
+      )}
 
       {/* Action Feedback Banner */}
       {actionBanner && (
