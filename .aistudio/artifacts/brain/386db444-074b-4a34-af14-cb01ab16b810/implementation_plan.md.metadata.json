@@ -1,6 +1,6 @@
 {
-  "summary":  "Implementation plan for fixing the disappearing Admin Dashboard tab and route state across login, token refreshes, transient network errors, and page reloads on GitHub Pages.",
-  "updatedAt":  "2026-10-23T18:10:45.201003625Z",
+  "summary":  "Implementation plan for replacing the dummy TrailerModal with a real TMDB-backed YouTube trailer player, numeric TMDB ID resolution, thumbnail preview, multi-trailer switcher, and verified unavailable/embed-error fallbacks.",
+  "updatedAt":  "2026-10-23T18:42:46.161764779Z",
   "requestFeedback":  true,
   "userFacing":  true
 }

@@ -1,5 +1,12 @@
 import { MEDIA_ITEMS } from '../data/mediaData';
-import { CastMember, EpisodeInfo, MediaItem, SeasonSummary } from '../types';
+import {
+  CastMember,
+  EpisodeInfo,
+  MediaItem,
+  SeasonSummary,
+  TrailerLookupResult,
+  TrailerVideo,
+} from '../types';
 
 export type CatalogueCategory =
   | 'trending'
@@ -30,7 +37,7 @@ export interface CatalogueResponse {
   provider: 'tmdb' | 'live_open_catalog';
 }
 
-const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/$/, '');
+const API_BASE_URL = String((import.meta as any).env?.VITE_API_BASE_URL || '').replace(/\/$/, '');
 
 // Tracks whether the current host is a static file server (e.g. GitHub Pages) without /api/* routes
 let staticHostWithoutApi = false;
@@ -742,3 +749,440 @@ export async function fetchTvSeasonEpisodes(
     episodes,
   };
 }
+
+// ============================================================================
+// Official TMDB Trailer & Video Lookup (Server Proxy + Client TMDB Fallback)
+// ============================================================================
+
+const CLIENT_TMDB_BASE_URL = 'https://api.themoviedb.org/3';
+
+export const SEED_TO_TMDB_ID: Record<string, { mediaType: 'movie' | 'tv'; tmdbId: number }> = {
+  'dune-part-two': { mediaType: 'movie', tmdbId: 693134 },
+  severance: { mediaType: 'tv', tmdbId: 95396 },
+  oppenheimer: { mediaType: 'movie', tmdbId: 872585 },
+  shogun: { mediaType: 'tv', tmdbId: 126308 },
+  'blade-runner-2049': { mediaType: 'movie', tmdbId: 335984 },
+  succession: { mediaType: 'tv', tmdbId: 76331 },
+  interstellar: { mediaType: 'movie', tmdbId: 157336 },
+  'the-bear': { mediaType: 'tv', tmdbId: 136315 },
+  arcane: { mediaType: 'tv', tmdbId: 94605 },
+  mindhunter: { mediaType: 'tv', tmdbId: 67744 },
+  'past-lives': { mediaType: 'movie', tmdbId: 666277 },
+  'poor-things': { mediaType: 'movie', tmdbId: 792307 },
+  dark: { mediaType: 'tv', tmdbId: 70523 },
+  'the-batman': { mediaType: 'movie', tmdbId: 414906 },
+  chernobyl: { mediaType: 'tv', tmdbId: 87108 },
+  arrival: { mediaType: 'movie', tmdbId: 329865 },
+  'spirited-away': { mediaType: 'movie', tmdbId: 129 },
+  fallout: { mediaType: 'tv', tmdbId: 106379 },
+  'true-detective-s1': { mediaType: 'tv', tmdbId: 46648 },
+  'everything-everywhere-all-at-once': { mediaType: 'movie', tmdbId: 545611 },
+};
+
+const clientTrailerCache = new Map<string, { timestamp: number; data: TrailerLookupResult }>();
+const clientResolvedTmdbIdCache = new Map<string, { mediaType: 'movie' | 'tv'; tmdbId: number }>();
+const CLIENT_TRAILER_CACHE_TTL_MS = 1000 * 60 * 30; // 30 minutes
+
+function getClientTmdbKey(): string {
+  const raw = String(
+    (import.meta as any).env?.VITE_TMDB_API_KEY ||
+      (import.meta as any).env?.VITE_TMDB_READ_ACCESS_TOKEN ||
+      ''
+  ).trim();
+  if (!raw || raw === 'MY_TMDB_API_KEY' || raw === 'YOUR_TMDB_API_KEY') return '';
+  return raw;
+}
+
+async function fetchClientTmdbJson(
+  endpoint: string,
+  params: Record<string, string | number | undefined> = {},
+  signal?: AbortSignal
+): Promise<any> {
+  const apiKey = getClientTmdbKey();
+  if (!apiKey) throw new Error('VITE_TMDB_API_KEY is not configured');
+
+  const url = new URL(`${CLIENT_TMDB_BASE_URL}${endpoint}`);
+  const headers: Record<string, string> = {
+    Accept: 'application/json',
+  };
+
+  if (apiKey.startsWith('eyJ') || apiKey.length > 45) {
+    headers.Authorization = `Bearer ${apiKey}`;
+  } else {
+    url.searchParams.set('api_key', apiKey);
+  }
+
+  for (const [k, v] of Object.entries(params)) {
+    if (v !== undefined && v !== '') {
+      url.searchParams.set(k, String(v));
+    }
+  }
+
+  const res = await fetch(url.toString(), { headers, signal });
+  if (!res.ok) {
+    throw new Error(`TMDB request failed with status ${res.status}`);
+  }
+  return res.json();
+}
+
+export function rankTmdbVideos(rawVideos: any[], mediaTitle = ''): TrailerVideo[] {
+  if (!Array.isArray(rawVideos)) return [];
+  const youtubeKeyRegex = /^[A-Za-z0-9_-]{11}$/;
+  const normMediaTitle = normalizeForSearch(mediaTitle);
+
+  const candidates = rawVideos.filter((v) => {
+    if (!v || String(v.site || '').toLowerCase() !== 'youtube') return false;
+    const key = String(v.key || '').trim();
+    if (!youtubeKeyRegex.test(key)) return false;
+    const vType = String(v.type || '');
+    const lowerName = String(v.name || '').toLowerCase();
+    if (vType === 'Trailer' || vType === 'Teaser') return true;
+    return lowerName.includes('trailer') || lowerName.includes('teaser');
+  });
+
+  const scored = candidates.map((v, idx) => {
+    const key = String(v.key).trim();
+    const rawType = String(v.type || '');
+    const name = String(v.name || rawType || 'Trailer').trim();
+    const lowerName = name.toLowerCase();
+    const vType: 'Trailer' | 'Teaser' =
+      rawType === 'Trailer' || (rawType !== 'Teaser' && lowerName.includes('trailer'))
+        ? 'Trailer'
+        : 'Teaser';
+    const official = Boolean(v.official);
+    const isoLang = String(v.iso_639_1 || '').toLowerCase();
+    const size = Number(v.size) || 0;
+    const publishedMs = v.published_at ? Date.parse(String(v.published_at)) || 0 : 0;
+
+    let score = 0;
+    if (rawType === 'Trailer') score += 1000;
+    else if (rawType === 'Teaser') score += 450;
+    else score += 250;
+
+    if (official) score += 500;
+    if (!isoLang || isoLang === 'en') score += 200;
+
+    if (lowerName.includes('official trailer')) score += 160;
+    else if (lowerName.includes('main trailer') || lowerName.includes('final trailer')) score += 130;
+    else if (lowerName.includes('official teaser')) score += 100;
+    else if (lowerName.includes('trailer')) score += 80;
+
+    if (normMediaTitle && normalizeForSearch(name).includes(normMediaTitle)) {
+      score += 35;
+    }
+
+    if (
+      lowerName.includes('dub') ||
+      lowerName.includes('subtitled') ||
+      lowerName.includes('recap') ||
+      lowerName.includes('commentary') ||
+      lowerName.includes('vertical')
+    ) {
+      score -= 220;
+    }
+
+    if (size >= 1080) score += 30;
+
+    const video: TrailerVideo = {
+      id: String(v.id || `${key}-${idx}`),
+      key,
+      name,
+      site: 'YouTube',
+      type: vType,
+      official,
+      publishedAt: v.published_at ? String(v.published_at) : undefined,
+      iso639_1: v.iso_639_1 ? String(v.iso_639_1) : undefined,
+      size: size > 0 ? size : undefined,
+    };
+
+    return { video, score, publishedMs, idx };
+  });
+
+  scored.sort((a, b) => {
+    if (b.score !== a.score) return b.score - a.score;
+    if (b.publishedMs !== a.publishedMs) return b.publishedMs - a.publishedMs;
+    return a.idx - b.idx;
+  });
+
+  const seenKeys = new Set<string>();
+  const deduped: TrailerVideo[] = [];
+  for (const entry of scored) {
+    if (seenKeys.has(entry.video.key)) continue;
+    seenKeys.add(entry.video.key);
+    deduped.push(entry.video);
+  }
+
+  return deduped;
+}
+
+export function extractDirectTmdbId(
+  mediaId: string,
+  mediaType: 'movie' | 'tv'
+): { mediaType: 'movie' | 'tv'; tmdbId: number } | null {
+  const cleanId = String(mediaId || '').trim();
+  const seedMatch = SEED_TO_TMDB_ID[cleanId];
+  if (seedMatch) {
+    return seedMatch;
+  }
+
+  const prefixMatch = cleanId.match(/^tmdb-(movie|tv)-(\d+)$/i);
+  if (prefixMatch) {
+    const mType = prefixMatch[1].toLowerCase() === 'tv' ? 'tv' : 'movie';
+    const numId = parseInt(prefixMatch[2], 10);
+    if (Number.isFinite(numId) && numId > 0) {
+      return { mediaType: mType, tmdbId: numId };
+    }
+  }
+
+  if (/^\d+$/.test(cleanId)) {
+    const numId = parseInt(cleanId, 10);
+    if (Number.isFinite(numId) && numId > 0) {
+      return { mediaType, tmdbId: numId };
+    }
+  }
+
+  return null;
+}
+
+async function resolveClientNumericTmdbId(
+  media: MediaItem,
+  signal?: AbortSignal
+): Promise<{ mediaType: 'movie' | 'tv'; tmdbId: number } | null> {
+  const direct = extractDirectTmdbId(media.id, media.type);
+  if (direct) return direct;
+
+  const cacheKey = `${media.type}:${media.id}:${media.title.toLowerCase()}`;
+  const cached = clientResolvedTmdbIdCache.get(cacheKey);
+  if (cached) return cached;
+
+  // If TVMaze item, try IMDb external ID first if available
+  if (media.id.startsWith('tvmaze-tv-')) {
+    const showId = media.id.replace('tvmaze-tv-', '');
+    if (/^\d+$/.test(showId)) {
+      try {
+        const tvMazeRes = await fetch(`https://api.tvmaze.com/shows/${showId}`, { signal });
+        if (tvMazeRes.ok) {
+          const showData = await tvMazeRes.json();
+          const imdbId = showData?.externals?.imdb ? String(showData.externals.imdb).trim() : '';
+          if (imdbId) {
+            const findData = await fetchClientTmdbJson(
+              `/find/${encodeURIComponent(imdbId)}`,
+              { external_source: 'imdb_id' },
+              signal
+            );
+            const tvResults = findData?.tv_results;
+            if (Array.isArray(tvResults) && tvResults.length > 0 && tvResults[0]?.id) {
+              const resolved = { mediaType: 'tv' as const, tmdbId: Number(tvResults[0].id) };
+              clientResolvedTmdbIdCache.set(cacheKey, resolved);
+              return resolved;
+            }
+          }
+        }
+      } catch (err: any) {
+        if (err?.name === 'AbortError') throw err;
+      }
+    }
+  }
+
+  // Search TMDB by title + year
+  const searchEndpoint = media.type === 'tv' ? '/search/tv' : '/search/movie';
+  const searchData = await fetchClientTmdbJson(
+    searchEndpoint,
+    {
+      query: media.title,
+      include_adult: 'false',
+    },
+    signal
+  );
+
+  const rawResults: any[] = Array.isArray(searchData?.results) ? searchData.results : [];
+  if (rawResults.length === 0) return null;
+
+  const normTarget = normalizeForSearch(media.title);
+  const targetWords = normTarget.split(' ').filter(Boolean);
+
+  const scoredCandidates = rawResults
+    .filter((r) => r && Number.isFinite(Number(r.id)) && Number(r.id) > 0)
+    .map((r, idx) => {
+      const cTitle =
+        (media.type === 'tv' ? r.name || r.original_name : r.title || r.original_title) || '';
+      const cOrig =
+        (media.type === 'tv' ? r.original_name : r.original_title) || '';
+      const normC = normalizeForSearch(cTitle);
+      const normOrig = normalizeForSearch(cOrig);
+      const tier = Math.max(
+        getTitleMatchTier(normC, normC.split(' ').filter(Boolean), normTarget, targetWords),
+        getTitleMatchTier(normOrig, normOrig.split(' ').filter(Boolean), normTarget, targetWords) * 0.95
+      );
+
+      const dateStr = String((media.type === 'tv' ? r.first_air_date : r.release_date) || '');
+      const cYear = dateStr ? parseInt(dateStr.slice(0, 4), 10) || 0 : 0;
+      let yearBonus = 0;
+      if (media.year && cYear > 0) {
+        const diff = Math.abs(cYear - media.year);
+        if (diff === 0) yearBonus = 1.5;
+        else if (diff === 1) yearBonus = 0.8;
+        else if (diff > 3) yearBonus = -0.8;
+      }
+
+      const votes = Number(r.vote_count || 0);
+      const voteBonus = votes >= 100 ? 0.6 : votes >= 20 ? 0.3 : 0;
+
+      return {
+        raw: r,
+        totalScore: tier * 3 + yearBonus + voteBonus,
+        votes,
+        idx,
+      };
+    });
+
+  scoredCandidates.sort((a, b) => {
+    if (Math.abs(b.totalScore - a.totalScore) > 0.15) return b.totalScore - a.totalScore;
+    if (b.votes !== a.votes) return b.votes - a.votes;
+    return a.idx - b.idx;
+  });
+
+  const best = scoredCandidates[0]?.raw;
+  if (!best?.id) return null;
+
+  const resolved = { mediaType: media.type, tmdbId: Number(best.id) };
+  clientResolvedTmdbIdCache.set(cacheKey, resolved);
+  return resolved;
+}
+
+export async function fetchMediaTrailers(
+  media: MediaItem,
+  signal?: AbortSignal
+): Promise<TrailerLookupResult> {
+  const youtubeSearchUrl = `https://www.youtube.com/results?search_query=${encodeURIComponent(
+    `${media.title} ${media.year || ''} official trailer`.trim()
+  )}`;
+
+  const cacheKey = `${media.type}:${media.id}`;
+  const cached = clientTrailerCache.get(cacheKey);
+  if (cached && Date.now() - cached.timestamp < CLIENT_TRAILER_CACHE_TTL_MS) {
+    return cached.data;
+  }
+
+  // 1. Try server proxy endpoint (/api/trailer/:type/:id)
+  const queryParams = new URLSearchParams({
+    title: media.title,
+    year: media.year ? String(media.year) : '',
+  });
+  const serverResult = await fetchApiJson<TrailerLookupResult>(
+    `/api/trailer/${media.type}/${encodeURIComponent(media.id)}?${queryParams.toString()}`,
+    { signal }
+  );
+
+  if (serverResult && serverResult.status === 'ok' && serverResult.primaryVideo) {
+    clientTrailerCache.set(cacheKey, { timestamp: Date.now(), data: serverResult });
+    return serverResult;
+  }
+
+  // 2. If running on a static host (e.g. GitHub Pages) or server didn't have TMDB configured,
+  //    use client-side TMDB lookup when VITE_TMDB_API_KEY is available.
+  const clientTmdbKey = getClientTmdbKey();
+  if (clientTmdbKey) {
+    try {
+      const resolved = await resolveClientNumericTmdbId(media, signal);
+      if (!resolved || !Number.isFinite(resolved.tmdbId) || resolved.tmdbId <= 0) {
+        const unavailable: TrailerLookupResult = {
+          status: 'unavailable',
+          tmdbId: null,
+          mediaType: media.type,
+          primaryVideo: null,
+          videos: [],
+          youtubeSearchUrl,
+          reason: 'Could not resolve a verified TMDB entry for this title.',
+        };
+        clientTrailerCache.set(cacheKey, { timestamp: Date.now(), data: unavailable });
+        return unavailable;
+      }
+
+      const { mediaType, tmdbId } = resolved;
+      const enData = await fetchClientTmdbJson(
+        `/${mediaType}/${tmdbId}/videos`,
+        { language: 'en-US' },
+        signal
+      );
+      const rawVideos: any[] = Array.isArray(enData?.results) ? [...enData.results] : [];
+
+      if (
+        mediaType === 'tv' &&
+        !rawVideos.some((v) => v?.site === 'YouTube' && v?.type === 'Trailer')
+      ) {
+        try {
+          const s1Data = await fetchClientTmdbJson(
+            `/tv/${tmdbId}/season/1/videos`,
+            { language: 'en-US' },
+            signal
+          );
+          if (Array.isArray(s1Data?.results)) {
+            rawVideos.push(...s1Data.results);
+          }
+        } catch (s1Err: any) {
+          if (s1Err?.name === 'AbortError') throw s1Err;
+        }
+      }
+
+      let ranked = rankTmdbVideos(rawVideos, media.title);
+
+      if (ranked.length === 0) {
+        const allData = await fetchClientTmdbJson(
+          `/${mediaType}/${tmdbId}/videos`,
+          {},
+          signal
+        );
+        ranked = rankTmdbVideos(
+          Array.isArray(allData?.results) ? allData.results : [],
+          media.title
+        );
+      }
+
+      const result: TrailerLookupResult = {
+        status: ranked.length > 0 ? 'ok' : 'unavailable',
+        tmdbId,
+        mediaType,
+        primaryVideo: ranked[0] || null,
+        videos: ranked,
+        youtubeSearchUrl,
+        reason:
+          ranked.length === 0
+            ? 'No official YouTube trailer or teaser was returned by TMDB for this title.'
+            : undefined,
+      };
+      clientTrailerCache.set(cacheKey, { timestamp: Date.now(), data: result });
+      return result;
+    } catch (err: any) {
+      if (err?.name === 'AbortError') throw err;
+      return {
+        status: 'error',
+        tmdbId: null,
+        mediaType: media.type,
+        primaryVideo: null,
+        videos: [],
+        youtubeSearchUrl,
+        reason: 'Unable to reach TMDB video service. Check your connection or try again.',
+      };
+    }
+  }
+
+  // 3. If server returned a structured unavailable/error response and no client key exists
+  if (serverResult) {
+    if (serverResult.status === 'unavailable') {
+      clientTrailerCache.set(cacheKey, { timestamp: Date.now(), data: serverResult });
+    }
+    return serverResult;
+  }
+
+  return {
+    status: 'unavailable',
+    tmdbId: null,
+    mediaType: media.type,
+    primaryVideo: null,
+    videos: [],
+    youtubeSearchUrl,
+    reason: 'Official trailer metadata is unavailable for this title.',
+  };
+}
+

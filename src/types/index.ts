@@ -45,6 +45,28 @@ export interface EpisodeInfo {
   stillUrl?: string;
 }
 
+export interface TrailerVideo {
+  id: string;
+  key: string;
+  name: string;
+  site: 'YouTube';
+  type: 'Trailer' | 'Teaser';
+  official: boolean;
+  publishedAt?: string;
+  iso639_1?: string;
+  size?: number;
+}
+
+export interface TrailerLookupResult {
+  status: 'ok' | 'unavailable' | 'error';
+  tmdbId: number | null;
+  mediaType: MediaType;
+  primaryVideo: TrailerVideo | null;
+  videos: TrailerVideo[];
+  youtubeSearchUrl: string;
+  reason?: string;
+}
+
 export interface MediaItem {
   id: string;
   title: string;

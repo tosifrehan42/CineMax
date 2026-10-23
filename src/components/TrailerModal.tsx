@@ -1,210 +1,500 @@
-import React, { useState, useEffect } from 'react';
-import { MediaItem } from '../types';
-import { X, Play, Pause, Volume2, VolumeX, Maximize2, RotateCcw, Sparkles } from 'lucide-react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { MediaItem, TrailerLookupResult, TrailerVideo } from '../types';
+import { fetchMediaTrailers } from '../services/mediaApi';
+import {
+  X,
+  Play,
+  Film,
+  ExternalLink,
+  AlertCircle,
+  RefreshCw,
+  Search,
+  CheckCircle2,
+  Loader2,
+} from 'lucide-react';
 
 interface TrailerModalProps {
   media: MediaItem | null;
   onClose: () => void;
 }
 
-export const TrailerModal: React.FC<TrailerModalProps> = ({ media, onClose }) => {
-  const [isPlaying, setIsPlaying] = useState(true);
-  const [isMuted, setIsMuted] = useState(false);
-  const [progress, setProgress] = useState(25);
-  const [duration] = useState(134); // 2m 14s
+function getYoutubeWatchUrl(videoKey: string): string {
+  return `https://www.youtube.com/watch?v=${encodeURIComponent(videoKey)}`;
+}
 
+function getYoutubeEmbedUrl(videoKey: string): string {
+  const params = new URLSearchParams({
+    autoplay: '1',
+    playsinline: '1',
+    rel: '0',
+    modestbranding: '1',
+    enablejsapi: '1',
+  });
+  if (typeof window !== 'undefined' && window.location?.origin) {
+    params.set('origin', window.location.origin);
+  }
+  return `https://www.youtube-nocookie.com/embed/${encodeURIComponent(videoKey)}?${params.toString()}`;
+}
+
+export const TrailerModal: React.FC<TrailerModalProps> = ({ media, onClose }) => {
+  const [isLoading, setIsLoading] = useState(false);
+  const [lookupResult, setLookupResult] = useState<TrailerLookupResult | null>(null);
+  const [activeVideo, setActiveVideo] = useState<TrailerVideo | null>(null);
+  const [isPlayerActive, setIsPlayerActive] = useState(false);
+  const [thumbnailHighResFailed, setThumbnailHighResFailed] = useState(false);
+  const [embedErrorCode, setEmbedErrorCode] = useState<number | null>(null);
+  const [reloadCounter, setReloadCounter] = useState(0);
+
+  const iframeRef = useRef<HTMLIFrameElement | null>(null);
+
+  const handleClose = useCallback(() => {
+    // Explicitly stop and release player before closing so audio never continues in background
+    if (iframeRef.current) {
+      try {
+        iframeRef.current.contentWindow?.postMessage(
+          JSON.stringify({ event: 'command', func: 'stopVideo', args: [] }),
+          '*'
+        );
+      } catch {
+        // Ignore cross-origin frame teardown errors
+      }
+      iframeRef.current.src = 'about:blank';
+    }
+    setIsPlayerActive(false);
+    setEmbedErrorCode(null);
+    onClose();
+  }, [onClose]);
+
+  // Keyboard Escape handler
   useEffect(() => {
     if (!media) return;
-
     const handleKeyDown = (e: KeyboardEvent) => {
-      const target = e.target as HTMLElement | null;
-      const isEditable =
-        target instanceof HTMLInputElement ||
-        target instanceof HTMLTextAreaElement ||
-        target instanceof HTMLSelectElement ||
-        target?.isContentEditable;
-
       if (e.key === 'Escape') {
-        onClose();
-        return;
-      }
-      if (e.key === ' ' && !isEditable) {
-        e.preventDefault();
-        setIsPlaying((p) => !p);
+        handleClose();
       }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [media, onClose]);
+  }, [media, handleClose]);
 
-  // Simulate progress when playing and modal is open
+  // Fetch real trailer metadata from TMDB when media changes
   useEffect(() => {
-    if (!media || !isPlaying) return;
-    const interval = setInterval(() => {
-      setProgress((prev) => {
-        if (prev >= 100) return 0;
-        return prev + 0.5;
+    if (!media) {
+      setLookupResult(null);
+      setActiveVideo(null);
+      setIsPlayerActive(false);
+      setEmbedErrorCode(null);
+      setThumbnailHighResFailed(false);
+      return;
+    }
+
+    const controller = new AbortController();
+    setIsLoading(true);
+    setLookupResult(null);
+    setActiveVideo(null);
+    setIsPlayerActive(false);
+    setEmbedErrorCode(null);
+    setThumbnailHighResFailed(false);
+
+    fetchMediaTrailers(media, controller.signal)
+      .then((res) => {
+        if (controller.signal.aborted) return;
+        setLookupResult(res);
+        setActiveVideo(res.primaryVideo || res.videos[0] || null);
+      })
+      .catch((err: any) => {
+        if (controller.signal.aborted || err?.name === 'AbortError') return;
+        const fallbackSearchUrl = `https://www.youtube.com/results?search_query=${encodeURIComponent(
+          `${media.title} ${media.year || ''} official trailer`.trim()
+        )}`;
+        setLookupResult({
+          status: 'error',
+          tmdbId: null,
+          mediaType: media.type,
+          primaryVideo: null,
+          videos: [],
+          youtubeSearchUrl: fallbackSearchUrl,
+          reason: 'Unable to load trailer metadata right now. Please try again.',
+        });
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) {
+          setIsLoading(false);
+        }
       });
-    }, 400);
-    return () => clearInterval(interval);
-  }, [media, isPlaying]);
+
+    return () => {
+      controller.abort();
+    };
+  }, [media, reloadCounter]);
+
+  // Listen for YouTube IFrame Player API postMessage error events (codes 2, 5, 100, 101, 150)
+  useEffect(() => {
+    if (!isPlayerActive || !activeVideo) return;
+
+    const handleMessage = (event: MessageEvent) => {
+      if (
+        !event.origin.includes('youtube.com') &&
+        !event.origin.includes('youtube-nocookie.com')
+      ) {
+        return;
+      }
+      if (typeof event.data !== 'string') return;
+      try {
+        const data = JSON.parse(event.data);
+        if (data?.event === 'onError' && typeof data?.info === 'number') {
+          setEmbedErrorCode(data.info);
+        }
+      } catch {
+        // Ignore non-JSON postMessages
+      }
+    };
+
+    window.addEventListener('message', handleMessage);
+    return () => window.removeEventListener('message', handleMessage);
+  }, [isPlayerActive, activeVideo]);
+
+  const handleIframeLoad = () => {
+    if (!iframeRef.current?.contentWindow) return;
+    try {
+      // Subscribe to YouTube IFrame API events so onError notifications are delivered
+      iframeRef.current.contentWindow.postMessage(
+        JSON.stringify({ event: 'listening', id: 1, channel: 'widget' }),
+        '*'
+      );
+    } catch {
+      // Ignore postMessage handshake errors
+    }
+  };
+
+  const handleSelectVideo = (video: TrailerVideo) => {
+    setActiveVideo(video);
+    setThumbnailHighResFailed(false);
+    setEmbedErrorCode(null);
+    setIsPlayerActive(true);
+  };
 
   if (!media) return null;
 
-  const currentSeconds = Math.floor((progress / 100) * duration);
-  const formatTime = (secs: number) => {
-    const m = Math.floor(secs / 60);
-    const s = secs % 60;
-    return `${m}:${s < 10 ? '0' : ''}${s}`;
-  };
+  const fallbackSearchUrl =
+    lookupResult?.youtubeSearchUrl ||
+    `https://www.youtube.com/results?search_query=${encodeURIComponent(
+      `${media.title} ${media.year || ''} official trailer`.trim()
+    )}`;
+
+  const thumbnailUrl = activeVideo
+    ? thumbnailHighResFailed
+      ? `https://i.ytimg.com/vi/${activeVideo.key}/hqdefault.jpg`
+      : `https://i.ytimg.com/vi/${activeVideo.key}/maxresdefault.jpg`
+    : media.backdropUrl || media.posterUrl;
+
+  const publishedYear = activeVideo?.publishedAt
+    ? new Date(activeVideo.publishedAt).getFullYear()
+    : null;
 
   return (
-    <div className="fixed inset-0 z-50 overflow-hidden bg-black/90 backdrop-blur-xl flex items-center justify-center p-4 sm:p-8 animate-in fade-in duration-200">
-      <div className="fixed inset-0" onClick={onClose} />
+    <div
+      className="fixed inset-0 z-50 overflow-y-auto bg-black/90 backdrop-blur-xl flex items-center justify-center p-3 sm:p-6 md:p-8 animate-in fade-in duration-200"
+      role="dialog"
+      aria-modal="true"
+      aria-label={`${media.title} Trailer`}
+    >
+      <div className="fixed inset-0" onClick={handleClose} />
 
-      <div className="relative z-10 w-full max-w-5xl bg-black border border-white/10 rounded-2xl shadow-2xl overflow-hidden flex flex-col">
-        {/* Top bar with title and close */}
-        <div className="flex items-center justify-between px-6 py-4 bg-slate-950/80 border-b border-white/10">
-          <div className="flex items-center gap-3">
-            <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
-            <span className="text-xs uppercase tracking-wider font-semibold text-slate-400">
-              Official Teaser Preview
+      <div className="relative z-10 w-full max-w-5xl bg-[#090b10] border border-white/10 rounded-2xl shadow-2xl overflow-hidden flex flex-col">
+        {/* Top Header Bar */}
+        <div className="flex items-center justify-between px-4 sm:px-6 py-3.5 bg-slate-950/90 border-b border-white/10 gap-3">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <span className="w-2 h-2 rounded-full bg-amber-400 shrink-0" />
+            <span className="text-xs uppercase tracking-wider font-semibold text-amber-400 shrink-0">
+              {activeVideo
+                ? `${activeVideo.official ? 'Official ' : ''}${activeVideo.type}`
+                : 'Trailer Lookup'}
             </span>
-            <span className="text-slate-600">·</span>
-            <span className="text-sm font-semibold text-white truncate max-w-sm">
+            <span className="text-slate-600 shrink-0">·</span>
+            <span className="text-sm font-semibold text-white truncate">
               {media.title}
+              {media.year ? ` (${media.year})` : ''}
             </span>
+            {activeVideo && (
+              <>
+                <span className="hidden md:inline text-slate-600 shrink-0">·</span>
+                <span className="hidden md:inline text-xs text-slate-400 truncate">
+                  {activeVideo.name}
+                </span>
+              </>
+            )}
           </div>
 
           <button
-            onClick={onClose}
+            onClick={handleClose}
             aria-label="Close trailer"
-            className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-white/10 transition-colors"
+            className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-white/10 transition-colors shrink-0"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
-        {/* Video Canvas Container */}
+        {/* Main 16:9 Video Area */}
         <div className="relative w-full aspect-video bg-black flex items-center justify-center overflow-hidden">
-          {/* Backdrop still behind trailer teaser */}
-          {(media.backdropUrl || media.posterUrl) && (
-            <img
-              src={media.backdropUrl || media.posterUrl}
-              alt={media.title}
-              referrerPolicy="no-referrer"
-              className={`absolute inset-0 w-full h-full object-cover object-center opacity-40 transition-transform duration-1000 ${
-                isPlaying ? 'scale-105' : 'scale-100'
-              }`}
-            />
-          )}
-          <div className="absolute inset-0 bg-black/50 pointer-events-none" />
-
-          {/* Ambient colored lighting reflecting movie tone */}
-          <div
-            className="absolute inset-0 opacity-30 blur-3xl pointer-events-none"
-            style={{
-              background: `radial-gradient(circle at 50% 50%, ${media.themeColor} 0%, transparent 70%)`,
-            }}
-          />
-
-          {/* Anamorphic cinema bars */}
-          <div className="absolute top-0 left-0 right-0 h-10 bg-black/95 z-10 pointer-events-none" />
-          <div className="absolute bottom-0 left-0 right-0 h-10 bg-black/95 z-10 pointer-events-none" />
-
-          {/* Film Grain & Scanline effect */}
-          <div className="absolute inset-0 opacity-15 pointer-events-none bg-[radial-gradient(#ffffff_1px,transparent_1px)] [background-size:16px_16px]" />
-
-          {/* Simulated Cinematic Teaser Scene */}
-          <div className="relative z-0 text-center px-6 max-w-2xl flex flex-col items-center">
-            {/* Pulsing Audio waveform representation */}
-            <div className="flex items-center gap-1.5 h-12 mb-6">
-              {[40, 65, 30, 85, 95, 45, 70, 100, 80, 50, 90, 60, 75, 40, 85, 30].map(
-                (h, idx) => (
-                  <div
-                    key={idx}
-                    className="w-1.5 rounded-full transition-all duration-300"
-                    style={{
-                      backgroundColor: media.posterVisual.accent,
-                      height: isPlaying ? `${Math.max(12, (h * (progress % 20 + 10)) / 25)}px` : '8px',
-                      opacity: isPlaying ? 0.9 : 0.4,
+          {isLoading ? (
+            /* 1. Loading State */
+            <div className="flex flex-col items-center justify-center text-center px-6 py-12">
+              <Loader2 className="w-10 h-10 text-amber-400 animate-spin mb-4" />
+              <p className="text-sm font-semibold text-white mb-1">
+                Fetching official trailer metadata…
+              </p>
+              <p className="text-xs text-slate-400">
+                Checking TMDB video catalog for {media.title}
+              </p>
+            </div>
+          ) : lookupResult?.status === 'ok' && activeVideo ? (
+            embedErrorCode !== null ? (
+              /* 2a. YouTube Embedding Restriction / Unavailable Video Error State */
+              <div className="relative w-full h-full flex flex-col items-center justify-center text-center px-6 py-8 bg-slate-950">
+                <div className="w-12 h-12 rounded-2xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-center text-amber-400 mb-4">
+                  <AlertCircle className="w-6 h-6" />
+                </div>
+                <h3 className="font-['Outfit'] text-xl sm:text-2xl font-bold text-white mb-2">
+                  Playback Restricted on External Sites
+                </h3>
+                <p className="text-xs sm:text-sm text-slate-400 max-w-md mb-6 leading-relaxed">
+                  {embedErrorCode === 101 || embedErrorCode === 150
+                    ? 'The rights holder for this trailer has disabled embedded playback outside of YouTube. You can watch the official trailer directly on YouTube.'
+                    : 'This YouTube video could not be played in the embedded player. You can open it directly on YouTube below.'}
+                </p>
+                <div className="flex flex-wrap items-center justify-center gap-3">
+                  <a
+                    href={getYoutubeWatchUrl(activeVideo.key)}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-semibold text-sm transition-colors shadow-lg shadow-amber-500/20"
+                  >
+                    <Play className="w-4 h-4 fill-current" />
+                    <span>Watch Official {activeVideo.type} on YouTube</span>
+                    <ExternalLink className="w-3.5 h-3.5" />
+                  </a>
+                  <button
+                    onClick={() => {
+                      setEmbedErrorCode(null);
+                      setIsPlayerActive(false);
                     }}
+                    className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-slate-300 text-sm font-medium transition-colors"
+                  >
+                    Back to Preview
+                  </button>
+                </div>
+              </div>
+            ) : isPlayerActive ? (
+              /* 2b. Real Embedded YouTube Player */
+              <iframe
+                ref={iframeRef}
+                key={activeVideo.key}
+                src={getYoutubeEmbedUrl(activeVideo.key)}
+                title={`${media.title} - ${activeVideo.name}`}
+                onLoad={handleIframeLoad}
+                className="w-full h-full border-0"
+                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                allowFullScreen
+              />
+            ) : (
+              /* 2c. Real YouTube Thumbnail Preview Before Playback */
+              <div className="relative w-full h-full group">
+                {thumbnailUrl && (
+                  <img
+                    src={thumbnailUrl}
+                    alt={`${media.title} - ${activeVideo.name}`}
+                    onError={() => {
+                      if (!thumbnailHighResFailed) {
+                        setThumbnailHighResFailed(true);
+                      }
+                    }}
+                    referrerPolicy="no-referrer"
+                    className="w-full h-full object-cover object-center transition-transform duration-700 group-hover:scale-[1.02]"
                   />
-                )
+                )}
+                <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/40 to-black/30" />
+
+                {/* Center Play Trigger */}
+                <button
+                  type="button"
+                  onClick={() => setIsPlayerActive(true)}
+                  aria-label={`Play ${activeVideo.name} for ${media.title}`}
+                  className="absolute inset-0 w-full h-full flex flex-col items-center justify-center px-6 text-center cursor-pointer focus:outline-none"
+                >
+                  <div className="w-16 h-16 sm:w-20 sm:h-20 rounded-full bg-amber-500/95 group-hover:bg-amber-400 text-slate-950 flex items-center justify-center shadow-2xl shadow-amber-500/30 group-hover:scale-110 transition-all duration-300 mb-4">
+                    <Play className="w-8 h-8 sm:w-9 sm:h-9 fill-current ml-1" />
+                  </div>
+                  <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-md bg-black/70 border border-white/15 text-[11px] font-semibold uppercase tracking-wider text-amber-300 mb-2">
+                    {activeVideo.official && <CheckCircle2 className="w-3.5 h-3.5 text-amber-400" />}
+                    <span>
+                      {activeVideo.official ? `Official ${activeVideo.type}` : activeVideo.type}
+                    </span>
+                    {publishedYear && Number.isFinite(publishedYear) ? (
+                      <span>· {publishedYear}</span>
+                    ) : null}
+                  </span>
+                  <h2 className="font-['Outfit'] text-xl sm:text-3xl font-bold text-white max-w-2xl line-clamp-2 drop-shadow-md">
+                    {activeVideo.name}
+                  </h2>
+                  <p className="mt-1.5 text-xs sm:text-sm text-slate-300">
+                    Click to play trailer with full audio &amp; controls
+                  </p>
+                </button>
+              </div>
+            )
+          ) : lookupResult?.status === 'error' ? (
+            /* 3. Network / Lookup Failure State */
+            <div className="relative w-full h-full flex flex-col items-center justify-center text-center px-6 py-8 bg-slate-950">
+              <div className="w-12 h-12 rounded-2xl bg-red-500/10 border border-red-500/30 flex items-center justify-center text-red-400 mb-4">
+                <AlertCircle className="w-6 h-6" />
+              </div>
+              <h3 className="font-['Outfit'] text-xl sm:text-2xl font-bold text-white mb-2">
+                Unable to Load Trailer
+              </h3>
+              <p className="text-xs sm:text-sm text-slate-400 max-w-md mb-6 leading-relaxed">
+                {lookupResult.reason ||
+                  'A network error occurred while fetching trailer information from TMDB.'}
+              </p>
+              <div className="flex flex-wrap items-center justify-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => setReloadCounter((c) => c + 1)}
+                  className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-semibold text-sm transition-colors"
+                >
+                  <RefreshCw className="w-4 h-4" />
+                  <span>Try Again</span>
+                </button>
+                <a
+                  href={fallbackSearchUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-slate-200 text-sm font-medium transition-colors"
+                >
+                  <Search className="w-4 h-4 text-amber-400" />
+                  <span>Search on YouTube</span>
+                  <ExternalLink className="w-3.5 h-3.5 text-slate-400" />
+                </a>
+              </div>
+            </div>
+          ) : (
+            /* 4. Trailer Unavailable State (Honest Fallback — No Fake Player) */
+            <div className="relative w-full h-full flex flex-col items-center justify-center text-center px-6 py-8 bg-slate-950">
+              {(media.backdropUrl || media.posterUrl) && (
+                <img
+                  src={media.backdropUrl || media.posterUrl}
+                  alt={media.title}
+                  referrerPolicy="no-referrer"
+                  className="absolute inset-0 w-full h-full object-cover object-center opacity-15 pointer-events-none"
+                />
+              )}
+              <div className="absolute inset-0 bg-gradient-to-t from-slate-950 via-slate-950/85 to-slate-950/75 pointer-events-none" />
+
+              <div className="relative z-10 flex flex-col items-center max-w-md">
+                <div className="w-12 h-12 rounded-2xl bg-white/5 border border-white/10 flex items-center justify-center text-slate-400 mb-4">
+                  <Film className="w-6 h-6" />
+                </div>
+                <h3 className="font-['Outfit'] text-xl sm:text-2xl font-bold text-white mb-2">
+                  Trailer unavailable
+                </h3>
+                <p className="text-xs sm:text-sm text-slate-400 mb-6 leading-relaxed">
+                  {lookupResult?.reason ||
+                    `No official YouTube trailer or teaser is currently listed in TMDB for "${media.title}".`}
+                </p>
+                <a
+                  href={fallbackSearchUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-semibold text-sm transition-colors shadow-lg shadow-amber-500/20"
+                >
+                  <Search className="w-4 h-4" />
+                  <span>Search on YouTube</span>
+                  <ExternalLink className="w-3.5 h-3.5" />
+                </a>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Bottom Info & Multi-Trailer Switcher Bar */}
+        <div className="px-4 sm:px-6 py-3.5 bg-slate-950 border-t border-white/10 flex flex-col gap-3">
+          {/* Alternate Trailers / Teasers Switcher when multiple videos exist */}
+          {lookupResult && lookupResult.videos.length > 1 && (
+            <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-thin">
+              <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 shrink-0 mr-1">
+                Videos ({lookupResult.videos.length}):
+              </span>
+              {lookupResult.videos.slice(0, 6).map((video) => {
+                const isSelected = activeVideo?.key === video.key;
+                return (
+                  <button
+                    key={video.id}
+                    type="button"
+                    onClick={() => handleSelectVideo(video)}
+                    className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium transition-all shrink-0 border ${
+                      isSelected
+                        ? 'bg-amber-500/15 border-amber-500/50 text-amber-300'
+                        : 'bg-white/5 border-white/10 text-slate-300 hover:bg-white/10 hover:text-white'
+                    }`}
+                  >
+                    <Play
+                      className={`w-3 h-3 shrink-0 ${
+                        isSelected ? 'text-amber-400 fill-amber-400' : 'text-slate-400'
+                      }`}
+                    />
+                    <span className="truncate max-w-[180px]">{video.name}</span>
+                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-black/40 text-slate-400">
+                      {video.type}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+
+          {/* Footer Metadata & Direct YouTube Link */}
+          <div className="flex flex-wrap items-center justify-between gap-3 text-xs text-slate-400">
+            <div className="flex items-center gap-2 min-w-0">
+              {activeVideo ? (
+                <>
+                  <span className="text-slate-300 font-medium truncate">
+                    {activeVideo.name}
+                  </span>
+                  <span>·</span>
+                  <span className="text-slate-500 shrink-0">
+                    YouTube ({activeVideo.type})
+                  </span>
+                </>
+              ) : (
+                <span className="text-slate-500">
+                  {media.title} {media.year ? `(${media.year})` : ''}
+                </span>
               )}
             </div>
 
-            <div className="text-xs uppercase tracking-widest text-white/50 mb-2 font-mono">
-              DIRECTED BY {media.director.toUpperCase()}
-            </div>
-            <h2 className="font-['Outfit'] text-3xl sm:text-5xl font-extrabold text-white tracking-tight leading-none mb-3">
-              {media.title}
-            </h2>
-            <p className="text-sm sm:text-base text-amber-200/90 font-medium italic">
-              "{media.tagline}"
-            </p>
-
-            <div className="mt-6 flex items-center gap-2 text-xs text-white/40 font-mono">
-              <span>CINEMATOGRAPHY 4K ULTRA HD</span>
-              <span>·</span>
-              <span>DOLBY ATMOS 7.1</span>
-            </div>
-          </div>
-
-          {/* Play/Pause Center Overlay */}
-          <button
-            onClick={() => setIsPlaying((p) => !p)}
-            className="absolute inset-0 w-full h-full flex items-center justify-center bg-black/10 hover:bg-black/20 group transition-colors"
-          >
-            <div className="p-4 rounded-full bg-white/20 backdrop-blur-md border border-white/20 text-white group-hover:scale-110 transition-transform shadow-2xl">
-              {isPlaying ? <Pause className="w-8 h-8 fill-white" /> : <Play className="w-8 h-8 fill-white ml-1" />}
-            </div>
-          </button>
-        </div>
-
-        {/* Video Player Controls Bar */}
-        <div className="px-6 py-4 bg-slate-950 border-t border-white/10 space-y-3">
-          {/* Progress Timeline Scrubber */}
-          <div className="relative w-full h-1.5 bg-white/10 rounded-full cursor-pointer overflow-hidden group">
-            <div
-              className="absolute left-0 top-0 bottom-0 bg-gradient-to-r from-amber-500 to-amber-300 rounded-full transition-all duration-150"
-              style={{ width: `${progress}%` }}
-            />
-          </div>
-
-          {/* Controls Row */}
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-4">
-              <button
-                onClick={() => setIsPlaying((p) => !p)}
-                className="text-white hover:text-amber-400 transition-colors"
-              >
-                {isPlaying ? <Pause className="w-5 h-5 fill-current" /> : <Play className="w-5 h-5 fill-current" />}
-              </button>
-
-              <button
-                onClick={() => setProgress(0)}
-                className="text-slate-400 hover:text-white transition-colors"
-                title="Restart"
-              >
-                <RotateCcw className="w-4 h-4" />
-              </button>
-
-              <button
-                onClick={() => setIsMuted((m) => !m)}
-                className="text-slate-400 hover:text-white transition-colors"
-              >
-                {isMuted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
-              </button>
-
-              <span className="text-xs font-mono text-slate-400 tabular-nums">
-                {formatTime(currentSeconds)} / {formatTime(duration)}
-              </span>
-            </div>
-
-            <div className="flex items-center gap-3 text-xs text-slate-400">
-              <span className="hidden sm:inline-block">Press Space to Pause · ESC to Close</span>
-              <Maximize2 className="w-4 h-4 text-slate-400 hover:text-white cursor-pointer" />
+            <div className="flex items-center gap-4 shrink-0">
+              {activeVideo ? (
+                <a
+                  href={getYoutubeWatchUrl(activeVideo.key)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 text-amber-400 hover:text-amber-300 font-medium transition-colors"
+                >
+                  <span>Watch on YouTube</span>
+                  <ExternalLink className="w-3.5 h-3.5" />
+                </a>
+              ) : (
+                <a
+                  href={fallbackSearchUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 text-amber-400 hover:text-amber-300 font-medium transition-colors"
+                >
+                  <span>Search on YouTube</span>
+                  <ExternalLink className="w-3.5 h-3.5" />
+                </a>
+              )}
+              <span className="hidden sm:inline text-slate-600">ESC to close</span>
             </div>
           </div>
         </div>

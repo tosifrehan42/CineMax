@@ -1,110 +1,113 @@
-# Resilient Admin Access State & Session Lifecycle Fix
+# Real TMDB Trailer Fetching & Embedded YouTube Player
 
-Eliminates the bug where the CineMax Admin Dashboard tab and `/admin` view disappear after login, during periodic Supabase JWT refreshes, or on browser page reloads by replacing fragile boolean checks with an explicit, user-scoped state machine (`loading` | `allowed` | `denied` | `error`), session restoration gating, automatic token-refresh recovery, and bounded exponential-backoff retries.
+Replaces the simulated animation in CineMax's Trailer Modal with a real YouTube embedded player powered by official TMDB `/movie/{id}/videos` and `/tv/{id}/videos` metadata, complete with numeric TMDB ID resolution, real YouTube thumbnail previews, a multi-trailer switcher, embed-restriction error handling, and an honest "Trailer unavailable" state with a "Search on YouTube" fallback.
 
 ## User Review & Critical Decisions
 
 > [!IMPORTANT]
-> The following architectural and UX decisions incorporate your confirmed preferences from our clarification step while keeping server-side `CINEMAX_ADMIN_USER_ID` allowlist enforcement mandatory on every API operation.
+> The following design and architectural decisions incorporate your confirmed preferences from our clarification step:
 
-- **Confirmed Decision 1 — Navbar Persistence During Transient Failures**: Once administrator access is verified for the authenticated user's session, the Navbar **Admin** tab remains visible if a background check or network request experiences a temporary error, surfacing any connection status or retry controls inside the Admin Dashboard view rather than hiding the navigation entry.
-- **Confirmed Decision 2 — User-Scoped Session Cache with Background Revalidation**: Verified `'allowed'` status is cached in `sessionStorage` keyed strictly to the authenticated user's UUID (`cinemax_admin_verified:<user.id>`). On page reload (including `/CineMax/admin`), the UI immediately restores the verified navigation state while revalidating against the `admin-users` Edge Function in the background. If the server explicitly returns `HTTP 403` (`FORBIDDEN_NOT_ADMIN`) or the user signs out / switches accounts, the cache and state are cleared immediately.
-- **Confirmed Decision 3 — 3 Automatic Retries with Exponential Backoff**: Transient network failures, Edge Function cold starts, or `5xx` responses automatically retry up to 3 times (`400ms`, `1000ms`, `2200ms`) before entering the `error` state with a visible manual **Retry Verification** button.
+- **Confirmed Decision 1 — Real Thumbnail Preview Before Playback**: When the Trailer Modal opens and a valid TMDB YouTube trailer is resolved, the modal first displays the real YouTube trailer thumbnail (`maxresdefault` with `hqdefault` fallback), official video title, and release metadata. Clicking **Play Official Trailer** launches and autoplays the real embedded YouTube player.
+- **Confirmed Decision 2 — Top-Ranked Trailer with Alternate Switcher**: Videos returned by TMDB are ranked by official status, type (`Trailer` over `Teaser`), language (`en`), and publication date. When multiple suitable trailers or teasers exist, a switcher bar below the player lets users switch between them.
+- **Confirmed Decision 3 — Dual Server Proxy & Client `VITE_TMDB_API_KEY` Support**: Trailer metadata requests check the server proxy (`/api/trailer/:type/:id`) first and seamlessly support direct client-side TMDB `/videos` resolution on GitHub Pages when `VITE_TMDB_API_KEY` is configured, while caching results in memory to prevent duplicate requests.
 
 ---
 
-## 1. Overview & Root Cause Analysis
+## 1. Overview & Problem Diagnosis
 
-- **Why the Admin Dashboard Disappeared**:
-  1. **Object Reference Churn on Token Refresh**: Supabase's `onAuthStateChange` emits a new `session.user` object reference on every `TOKEN_REFRESHED`, `SIGNED_IN`, and tab-focus event even when `user.id` has not changed. Because the admin check effect depended on the `authUser` object reference, every token refresh triggered a fresh `checkAdminAccess()` call.
-  2. **All Non-200 Errors Treated as Non-Admin (`false`)**: Any momentary network blip, Edge Function cold-start timeout, or `5xx`/`401` during a token transition caused `res.status === 200 && Boolean(res.isAdmin)` to evaluate to `false`, immediately hiding the Navbar Admin tab.
-  3. **Premature Initial Render Before Session Restoration**: On page refresh (especially at `/CineMax/admin`), `authUser` initialized as `null` while `client.auth.getSession()` was still asynchronous, causing the dashboard to flash `HTTP 401 · Authentication Required` before session restoration completed.
-  4. **Expired Token Race (`HTTP 401`) Without Session Revalidation**: If `invokeAdminBackend` ran right as an access token expired, it did not call `client.auth.refreshSession()` / `client.auth.getUser()` to obtain a fresh JWT before retrying.
-  5. **Misleading Fallback Error Classification**: When the `admin-users` Edge Function experienced a transient network error on GitHub Pages, falling through to the non-existent `/api/admin/users` static path caused the client to report `503 EDGE_FUNCTION_NOT_DEPLOYED` instead of a retryable network/transient error.
+- **Why the Current Player Was Broken**:
+  - The existing `TrailerModal` component did not fetch video keys or mount an `<iframe>` or `<video>` element. Instead, it rendered a static backdrop image with an animated CSS waveform and a `setInterval` loop that incremented a fake `progress` state from `0%` to `100%` over a hardcoded `2:14` duration.
+- **What This Fix Delivers**:
+  - **Accurate TMDB Numeric ID Resolution**: Resolves the numeric TMDB ID and media type (`movie` or `tv`) before calling TMDB's `/videos` endpoint—extracting numeric IDs directly from `tmdb-*` items, mapping seed slugs via the canonical TMDB ID table, and resolving TVMaze (`tvmaze-tv-*`) or Apple iTunes (`live-movie-*`) catalog items via external IDs (`imdb_id` / `thetvdb_id`) or title + release-year search so slugs are never passed where a numeric TMDB ID is required.
+  - **Real YouTube IFrame Player**: Uses the official YouTube embed player (`youtube-nocookie.com/embed/<key>?enablejsapi=1&playsinline=1&rel=0`) with the YouTube IFrame Player API to support native play, pause, timeline scrubbing, volume, captions, fullscreen, and real-time embed error detection (`onError` codes `2`, `5`, `100`, `101`, `150`).
+  - **Honest Fallback Behavior**: When no playable trailer is returned by TMDB (or when embedding is restricted by the publisher), no fake player or fake progress bar is shown. Instead, the modal displays a clear **Trailer unavailable** state with a **Search on YouTube** action (or **Watch on YouTube** if a valid video key exists but disallows embedding).
 
 ---
 
 ## 2. User Experience & Visual Design
 
 - **Key User Flows**:
-  - **Initial Login & Page Refresh on `/CineMax/admin`**: While Supabase restores the session from storage, the Admin Dashboard displays a calm, layout-stable loading skeleton (`Verifying administrator session...`) rather than flashing an unauthenticated `401` screen.
-  - **Seamless Background Token Refreshes**: When Supabase refreshes the JWT in the background for the same `user.id`, no redundant `checkAdminAccess()` network call is fired, and the Admin tab stays uninterrupted in the Navbar.
-  - **Transient Network or Cold-Start Recovery**: If an Edge Function call encounters a temporary timeout or `5xx` error, the client automatically performs up to 3 exponential-backoff retries. If all retries fail, the Admin tab remains accessible (if previously verified for this user ID) and the dashboard displays a clear **Temporary Connection Issue** banner with a **Retry Now** button—distinct from the `403 Access Denied` and `Setup Required` screens.
-  - **Explicit Denial (`HTTP 403`) or Sign-Out**: If the server explicitly responds with `HTTP 403` (`FORBIDDEN_NOT_ADMIN`) or the user signs out, the cached state for that user is purged immediately and the Admin tab is removed.
+  1. **Loading State**: Opening the modal displays a clean skeleton loader (`Fetching official trailer metadata...`) inside the 16:9 viewport frame.
+  2. **Thumbnail Preview State**: Once resolved, the 16:9 frame displays the real YouTube trailer thumbnail (`https://i.ytimg.com/vi/<key>/maxresdefault.jpg` with automatic fallback to `hqdefault.jpg`), the official TMDB video name (e.g., *"Official Trailer"*), video type, and a central **Play Trailer** button.
+  3. **Active Embedded Playback**: Clicking Play mounts the real YouTube player with full native playback controls (play/pause, seek bar, volume, quality, fullscreen) and a direct **Watch on YouTube** link in the footer bar.
+  4. **Multi-Trailer Switcher**: If TMDB returns multiple official trailers or teasers, a horizontal selector strip below the video canvas allows switching active videos with a single click.
+  5. **Unavailable / Restricted Fallback**: If no trailer is found, the 16:9 frame shows **Trailer unavailable** with an explanation and a clearly labelled **Search on YouTube** button (`https://www.youtube.com/results?search_query=<Title>+<Year>+Official+Trailer`). If a video owner blocks third-party embedding, the player catches the YouTube API error and offers a direct **Watch on YouTube** button.
+  6. **Clean Modal Close**: Clicking the close button, clicking the backdrop, or pressing `Escape` immediately unmounts the modal and destroys the YouTube iframe instance so audio stops immediately.
 - **Visual Identity & Theme**:
-  - Preserves CineMax's obsidian dark palette (`#090a0f` canvas, `#0d0e14` structural cards, `#f59e0b` amber accents), `Outfit` display headers, `Plus Jakarta Sans` body prose, and `JetBrains Mono` (`tabular-nums`) for UUIDs, status codes, and metrics.
-  - Follows strict SaaS dashboard state completeness: dedicated loading skeleton, transient retryable error banner, `401` sign-in prompt (only after auth initialization finishes with no session), and `403` non-admin denial view.
+  - Preserves CineMax's obsidian dark modal frame (`#090a0f` / `#0d0e14`), subtle hairline borders (`border-white/10`), `Outfit` display headers, `Plus Jakarta Sans` UI controls, and `JetBrains Mono` (`tabular-nums`) metadata.
 
 ---
 
 ## 3. Key Product Decisions & Trade-Offs
 
-- **Explicit 4-State Admin Access Machine (`'loading' | 'allowed' | 'denied' | 'error'`)**:
-  - *Chosen Approach*: Replace the single `isAdmin: boolean` with `adminAccessState: 'loading' | 'allowed' | 'denied' | 'error'` paired with `verifiedAdminUserId: string | null` and `isAuthInitializing: boolean`.
-  - *Why*: Prevents network hiccups or in-flight checks from being conflated with an explicit `403` authorization denial.
-- **Deduplicating Auth State Changes by `user.id`**:
-  - *Chosen Approach*: Track the active `authUserId = authUser?.id ?? null`. Only reset admin verification when `authUserId` changes (sign-out or account switch). On `TOKEN_REFRESHED` for the same `user.id`, keep the current `'allowed'` state intact.
-  - *Why*: Eliminates periodic tab disappearance when Supabase rotates short-lived JWTs in the background.
-- **Automatic `401` Session Revalidation + Bounded Exponential Backoff**:
-  - *Chosen Approach*: Inside the admin API client, if an operation receives `HTTP 401`, refresh/revalidate the session via `client.auth.refreshSession()` once and retry with the new `access_token`. For network errors, timeouts, or `502`/`503`/`504` responses, retry up to 3 times (`400ms`, `1000ms`, `2200ms`).
-  - *Why*: Handles Edge Function cold starts and token rotation races transparently without weakening server-side security.
+- **Deterministic TMDB Video Ranking Algorithm**:
+  - *Chosen Approach*: Filter TMDB `/videos` results strictly to `site === 'YouTube'` with valid 11-character video keys (`/^[A-Za-z0-9_-]{11}$/`). Score candidates by:
+    1. Official flag (`official === true`: `+100`)
+    2. Video type (`Trailer`: `+80`, `Teaser`: `+40`, `Clip`/`Featurette`: `+10`)
+    3. Title match (`"Official Trailer"` / `"Main Trailer"`: `+35`, penalizing `"Recap"` / `"Commentary"`)
+    4. Language (`iso_639_1 === 'en'`: `+20`)
+    5. Recency (`published_at` timestamp tie-breaker)
+  - *Why*: Guarantees that official theatrical/series trailers are prioritized over teasers, featurettes, or foreign-language clips.
+- **YouTube IFrame API + Standard Embed Hybrid**:
+  - *Chosen Approach*: Render a real `<iframe>` pointed at `https://www.youtube-nocookie.com/embed/<key>?autoplay=1&playsinline=1&rel=0&modestbranding=1&enablejsapi=1` and bind the YouTube IFrame API `YT.Player` listener to detect `onError` events (`101`/`150` embedding disabled by owner, `100` video removed).
+  - *Why*: Gives users genuine native YouTube playback controls across desktop and mobile while programmatically catching unembeddable videos so users are never stuck on a broken iframe screen.
 
 ---
 
 ## 4. Technical Architecture & Data Strategy *(Technical Reference)*
 
-### Architecture & State Lifecycle Diagram
+### Architecture & Resolution Flow Diagram
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                   Supabase Auth Session Lifecycle                           │
-│  1. Boot: isAuthInitializing = true -> client.auth.getSession()             │
-│  2. Events: onAuthStateChange (SIGNED_IN, TOKEN_REFRESHED, SIGNED_OUT)      │
-└───────────────────────────────┬─────────────────────────────────────────────┘
-                                │
-                                ▼
+│                        User Clicks "Watch Trailer"                          │
+│                  Opens TrailerModal(media: MediaItem)                       │
+└─────────────────────────────────────┬───────────────────────────────────────┘
+                                      │
+                                      ▼
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│               Admin Access State Machine (Keyed by user.id)                 │
+│             Trailer Resolution Service (In-Memory Cached)                   │
 │                                                                             │
-│  • Sign-Out / User ID Changed ──► Clear sessionStorage cache                │
-│                                   adminAccessState = 'denied' (if signed    │
-│                                   out) or 'loading' (if new user ID)        │
+│  1. Identify Numeric TMDB ID & Media Type ('movie' | 'tv'):                 │
+│     • tmdb-movie-123 / tmdb-tv-456 ──► Direct numeric ID (123 / 456)        │
+│     • Seed slug (e.g. dune-part-two) ► Canonical TMDB ID map                │
+│     • tvmaze-tv-* / live-movie-*   ──► Resolve via TVMaze IMDB ID (/find)   │
+│                                        or TMDB /search/{movie|tv}           │
 │                                                                             │
-│  • Same User ID + TOKEN_REFRESHED ► Preserve 'allowed' state (no flicker)   │
+│  2. Fetch TMDB /movie/{id}/videos or /tv/{id}/videos:                       │
+│     • Path A: Server Proxy (/api/trailer/:type/:id)                         │
+│     • Path B: Direct TMDB v3/v4 API (when VITE_TMDB_API_KEY is configured)  │
+│     • Path C: Verified TMDB video metadata for built-in seed catalog        │
 │                                                                             │
-│  • Initial Load / Refresh ──────► Read sessionStorage['cinemax_admin:<id>'] │
-│                                   If cached 'allowed', show Admin tab       │
-│                                   immediately & revalidate in background    │
-└───────────────────────────────┬─────────────────────────────────────────────┘
-                                │
-                                ▼
-┌─────────────────────────────────────────────────────────────────────────────┐
-│            Resilient Admin API Client (invokeAdminBackend)                  │
-│                                                                             │
-│  • HTTP 200 (isAdmin: true)  ──► adminAccessState = 'allowed' (cache UID)   │
-│  • HTTP 403 (Not in Allowlist) ► adminAccessState = 'denied'  (purge cache) │
-│  • HTTP 401 (Token Expired)  ──► client.auth.refreshSession() -> Retry once │
-│  • Network / 5xx / Cold Start ─► 3x Exponential Backoff (400ms/1s/2.2s)     │
-│                                  If still failing:                          │
-│                                  adminAccessState = 'error' (keep tab if    │
-│                                  previously 'allowed' for this user.id;     │
-│                                  show Retry banner in AdminDashboardView)   │
-└─────────────────────────────────────────────────────────────────────────────┘
+│  3. Filter & Rank Official YouTube Videos:                                  │
+│     • site === 'YouTube' & valid 11-char key                                │
+│     • Rank: Official + Type (Trailer > Teaser) + Language + Published Date  │
+└───────────────┬─────────────────────────────────────────────┬───────────────┘
+                │                                             │
+     [ Videos Found (>= 1) ]                       [ No Suitable Trailer ]
+                │                                             │
+                ▼                                             ▼
+┌───────────────────────────────────────┐   ┌─────────────────────────────────┐
+│  Stage 1: Real Thumbnail Preview      │   │  "Trailer Unavailable" View     │
+│  • YouTube maxresdefault/hqdefault    │   │  • Honest status message        │
+│  • Official title & badge             │   │  • "Search on YouTube" button   │
+│  • Click Play ──► Mounts real         │   │    (clearly labelled as search) │
+│    YouTube Embed IFrame Player        │   └─────────────────────────────────┘
+│  • Multi-Trailer Switcher strip       │
+│  • On Embed Error (101/150) ──►       │
+│    Shows "Watch on YouTube" fallback  │
+└───────────────────────────────────────┘
 ```
 
 ### Interactive Component & State Mapping
 
-1. **Auth Initialization & Session Restoration Gate**:
-   - Track `isAuthInitializing` (starts `true`, becomes `false` only after `ensureSupabaseClient()` and `client.auth.getSession()` settle).
-   - When navigating directly to `/CineMax/admin` or `/admin` on page refresh, the route waits for `isAuthInitializing === false` before deciding whether the user is unauthenticated (`401`).
-2. **Admin Access Verification & Caching**:
-   - Helper functions read/write `sessionStorage` key `cinemax_admin_verified_uid` for the current `user.id`.
-   - `showAdminTabInNavbar` is `true` when `isAuthenticated && (adminAccessState === 'allowed' || (adminAccessState !== 'denied' && verifiedAdminUserId === authUser.id))`.
-   - Note: This cache only controls client-side UI visibility so the tab does not vanish on refresh or transient network errors; every data fetch and mutation in the Admin Dashboard still sends the caller's live Bearer JWT to the `admin-users` Edge Function, which independently verifies `CINEMAX_ADMIN_USER_ID`.
-3. **Edge Function Invocation & Error Differentiation**:
-   - Distinguish genuine HTTP `403 FORBIDDEN_NOT_ADMIN` responses from transient network/fetch errors (`FunctionsFetchError`, `FunctionsRelayError`, `500`/`502`/`504`).
-   - Only fallback to `/api/admin/users` when running on `localhost` / local dev or when `VITE_API_BASE_URL` is configured, preventing a failed GitHub Pages `/api/admin/users` `404` from masking a transient Edge Function error as `EDGE_FUNCTION_NOT_DEPLOYED`.
-4. **Admin Dashboard View States**:
-   - **Loading State**: Shown while `isAuthInitializing` or initial `adminAccessState === 'loading'` (when no cached list data is present).
-   - **Transient Error State**: Shown when a request fails after 3 automatic retries, preserving any already-loaded user table or displaying a dedicated **Temporary Server/Network Error** card with a manual **Retry Now** button that re-triggers both `checkAdminAccess` and `loadUsers`.
-   - **Explicit Forbidden State (`403`)**: Shown only when the server explicitly denies authorization (`status === 403 && code === 'FORBIDDEN_NOT_ADMIN'`).
+1. **Numeric TMDB ID & Video Resolution (`fetchMediaTrailers`)**:
+   - Returns `{ status: 'ok' | 'unavailable' | 'error', tmdbId: number | null, videos: TrailerVideoItem[], primaryVideo: TrailerVideoItem | null, youtubeSearchUrl: string, errorMessage?: string }`.
+   - Caches responses in an in-memory `Map<string, TrailerLookupResult>` keyed by `${media.type}:${media.id}` to eliminate duplicate requests when reopening a title's trailer.
+2. **Trailer Modal Lifecycle (`TrailerModal`)**:
+   - **`loading`**: Displayed while `fetchMediaTrailers(media)` is in flight.
+   - **`preview`**: Shows the real YouTube thumbnail for `activeVideo.key`, video title, type (`Official Trailer` / `Teaser`), and a prominent Play button.
+   - **`playing`**: Mounts the YouTube `<iframe>` player with `autoplay=1` and attaches the YouTube IFrame API `onError` callback.
+   - **`embed_restricted`**: Triggered if YouTube emits error `100`, `101`, or `150`, explaining that the publisher disabled external embedding and providing a direct **Watch on YouTube** link (`https://www.youtube.com/watch?v=<key>`).
+   - **`unavailable`**: Rendered when `videos.length === 0`, showing **Trailer unavailable** and a **Search on YouTube** button.
+   - **Cleanup on Close / Video Switch**: Unmounts the `<iframe>` and calls `player.destroy()` when the modal closes or when the user switches to a different trailer in the switcher bar.

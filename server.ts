@@ -5,7 +5,14 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { createServer as createViteServer } from 'vite';
 import { MEDIA_ITEMS } from './src/data/mediaData.ts';
-import type { MediaItem, CastMember, SeasonSummary, EpisodeInfo } from './src/types/index.ts';
+import type {
+  MediaItem,
+  CastMember,
+  SeasonSummary,
+  EpisodeInfo,
+  TrailerVideo,
+  TrailerLookupResult,
+} from './src/types/index.ts';
 import { processAdminRequest } from './src/server/adminHandler.ts';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -1274,6 +1281,421 @@ async function startServer() {
       name: matchingSeason?.name || `Season ${seasonNumber}`,
       episodes,
     });
+  });
+
+  // 4b. Official TMDB Trailer & Video Lookup Endpoint (/api/trailer/:type/:id)
+  const resolvedTmdbIdCache = new Map<string, { mediaType: 'movie' | 'tv'; tmdbId: number }>();
+  const trailerResultCache = new Map<string, { timestamp: number; data: TrailerLookupResult }>();
+  const TRAILER_CACHE_TTL_MS = 1000 * 60 * 30; // 30 minutes
+
+  function rankTmdbVideos(rawVideos: any[], mediaTitle = ''): TrailerVideo[] {
+    if (!Array.isArray(rawVideos)) return [];
+    const youtubeKeyRegex = /^[A-Za-z0-9_-]{11}$/;
+    const normMediaTitle = normalizeForSearch(mediaTitle);
+
+    const candidates = rawVideos.filter((v) => {
+      if (!v || String(v.site || '').toLowerCase() !== 'youtube') return false;
+      const key = String(v.key || '').trim();
+      if (!youtubeKeyRegex.test(key)) return false;
+      const vType = String(v.type || '');
+      const lowerName = String(v.name || '').toLowerCase();
+      if (vType === 'Trailer' || vType === 'Teaser') return true;
+      // Some TMDB TV entries store trailers under type "Clip" or "Featurette" with "Trailer" or "Teaser" in the title
+      return lowerName.includes('trailer') || lowerName.includes('teaser');
+    });
+
+    const scored = candidates.map((v, idx) => {
+      const key = String(v.key).trim();
+      const rawType = String(v.type || '');
+      const name = String(v.name || rawType || 'Trailer').trim();
+      const lowerName = name.toLowerCase();
+      const vType: 'Trailer' | 'Teaser' =
+        rawType === 'Trailer' || (rawType !== 'Teaser' && lowerName.includes('trailer'))
+          ? 'Trailer'
+          : 'Teaser';
+      const official = Boolean(v.official);
+      const isoLang = String(v.iso_639_1 || '').toLowerCase();
+      const size = Number(v.size) || 0;
+      const publishedMs = v.published_at ? Date.parse(String(v.published_at)) || 0 : 0;
+
+      let score = 0;
+      // 1. Prefer explicit Trailer over Teaser over trailer-titled Clip
+      if (rawType === 'Trailer') score += 1000;
+      else if (rawType === 'Teaser') score += 450;
+      else score += 250;
+
+      // 2. Prefer official studio uploads
+      if (official) score += 500;
+      // 3. Prefer English or language-neutral releases
+      if (!isoLang || isoLang === 'en') score += 200;
+      // 4. Title relevance signals
+      if (lowerName.includes('official trailer')) score += 160;
+      else if (lowerName.includes('main trailer') || lowerName.includes('final trailer')) score += 130;
+      else if (lowerName.includes('official teaser')) score += 100;
+      else if (lowerName.includes('trailer')) score += 80;
+
+      if (normMediaTitle && normalizeForSearch(name).includes(normMediaTitle)) {
+        score += 35;
+      }
+
+      // Deprioritize non-standard or localization-dubbed clips when standard trailers exist
+      if (
+        lowerName.includes('dub') ||
+        lowerName.includes('subtitled') ||
+        lowerName.includes('recap') ||
+        lowerName.includes('commentary') ||
+        lowerName.includes('vertical')
+      ) {
+        score -= 220;
+      }
+
+      if (size >= 1080) score += 30;
+
+      const video: TrailerVideo = {
+        id: String(v.id || `${key}-${idx}`),
+        key,
+        name,
+        site: 'YouTube',
+        type: vType,
+        official,
+        publishedAt: v.published_at ? String(v.published_at) : undefined,
+        iso639_1: v.iso_639_1 ? String(v.iso_639_1) : undefined,
+        size: size > 0 ? size : undefined,
+      };
+
+      return { video, score, publishedMs, idx };
+    });
+
+    scored.sort((a, b) => {
+      if (b.score !== a.score) return b.score - a.score;
+      if (b.publishedMs !== a.publishedMs) return b.publishedMs - a.publishedMs;
+      return a.idx - b.idx;
+    });
+
+    const seenKeys = new Set<string>();
+    const deduped: TrailerVideo[] = [];
+    for (const entry of scored) {
+      if (seenKeys.has(entry.video.key)) continue;
+      seenKeys.add(entry.video.key);
+      deduped.push(entry.video);
+    }
+
+    return deduped;
+  }
+
+  async function resolveNumericTmdbIdOnServer(
+    rawId: string,
+    rawType: 'movie' | 'tv',
+    titleHint?: string,
+    yearHint?: number
+  ): Promise<{ mediaType: 'movie' | 'tv'; tmdbId: number; resolvedTitle: string; resolvedYear?: number } | null> {
+    const cleanId = String(rawId || '').trim();
+    const fallbackType: 'movie' | 'tv' = rawType === 'tv' ? 'tv' : 'movie';
+
+    // 1. Check seed map first
+    const seedMatch = SEED_TO_TMDB_ID[cleanId];
+    if (seedMatch) {
+      const seedItem = MEDIA_ITEMS.find((m) => m.id === cleanId);
+      return {
+        mediaType: seedMatch.mediaType,
+        tmdbId: parseInt(seedMatch.tmdbId, 10),
+        resolvedTitle: titleHint || seedItem?.title || cleanId,
+        resolvedYear: yearHint || seedItem?.year,
+      };
+    }
+
+    // 2. Check tmdb-movie-<id> or tmdb-tv-<id>
+    const tmdbPrefixMatch = cleanId.match(/^tmdb-(movie|tv)-(\d+)$/i);
+    if (tmdbPrefixMatch) {
+      const mType = tmdbPrefixMatch[1].toLowerCase() === 'tv' ? 'tv' : 'movie';
+      const numId = parseInt(tmdbPrefixMatch[2], 10);
+      if (Number.isFinite(numId) && numId > 0) {
+        return {
+          mediaType: mType,
+          tmdbId: numId,
+          resolvedTitle: titleHint || '',
+          resolvedYear: yearHint,
+        };
+      }
+    }
+
+    // 3. Check plain numeric ID
+    if (/^\d+$/.test(cleanId)) {
+      const numId = parseInt(cleanId, 10);
+      if (Number.isFinite(numId) && numId > 0) {
+        return {
+          mediaType: fallbackType,
+          tmdbId: numId,
+          resolvedTitle: titleHint || '',
+          resolvedYear: yearHint,
+        };
+      }
+    }
+
+    // 4. Non-TMDB ID (e.g. tvmaze-tv-67 for "Grey's Anatomy", live-movie-*, or custom slug)
+    const cacheKey = `${fallbackType}:${cleanId}:${(titleHint || '').toLowerCase()}`;
+    const cached = resolvedTmdbIdCache.get(cacheKey);
+
+    let lookupTitle = (titleHint || '').trim();
+    let lookupYear = yearHint && Number.isFinite(yearHint) && yearHint > 0 ? yearHint : undefined;
+    let imdbId = '';
+
+    if (!lookupTitle) {
+      const catalog = await getLiveExpandedCatalog();
+      const found = catalog.find((m) => m.id === cleanId) || MEDIA_ITEMS.find((m) => m.id === cleanId);
+      if (found) {
+        lookupTitle = found.title;
+        lookupYear = lookupYear || found.year;
+      }
+    }
+
+    if (cleanId.startsWith('tvmaze-tv-')) {
+      const showId = cleanId.replace('tvmaze-tv-', '');
+      if (/^\d+$/.test(showId)) {
+        try {
+          const tvMazeRes = await fetch(`https://api.tvmaze.com/shows/${showId}`);
+          if (tvMazeRes.ok) {
+            const showData = await tvMazeRes.json();
+            if (!lookupTitle && showData?.name) lookupTitle = String(showData.name);
+            if (!lookupYear && showData?.premiered) {
+              const y = parseInt(String(showData.premiered).slice(0, 4), 10);
+              if (Number.isFinite(y) && y > 0) lookupYear = y;
+            }
+            if (showData?.externals?.imdb) {
+              imdbId = String(showData.externals.imdb).trim();
+            }
+          }
+        } catch {
+          // Ignore optional TVMaze metadata lookup error
+        }
+      }
+    }
+
+    if (cached) {
+      return {
+        mediaType: cached.mediaType,
+        tmdbId: cached.tmdbId,
+        resolvedTitle: lookupTitle,
+        resolvedYear: lookupYear,
+      };
+    }
+
+    // Try exact IMDb external ID match on TMDB first if available
+    if (imdbId) {
+      try {
+        const findData = await fetchFromTmdb(`/find/${encodeURIComponent(imdbId)}`, {
+          external_source: 'imdb_id',
+        });
+        const list =
+          fallbackType === 'tv'
+            ? findData?.tv_results
+            : findData?.movie_results;
+        if (Array.isArray(list) && list.length > 0 && list[0]?.id) {
+          const resolvedId = Number(list[0].id);
+          if (Number.isFinite(resolvedId) && resolvedId > 0) {
+            resolvedTmdbIdCache.set(cacheKey, { mediaType: fallbackType, tmdbId: resolvedId });
+            return {
+              mediaType: fallbackType,
+              tmdbId: resolvedId,
+              resolvedTitle: lookupTitle || list[0].name || list[0].title || '',
+              resolvedYear: lookupYear,
+            };
+          }
+        }
+      } catch {
+        // Fall through to title search
+      }
+    }
+
+    if (!lookupTitle) return null;
+
+    // Search TMDB by title and rank by exact normalized title + year proximity + popularity/votes
+    const searchEndpoint = fallbackType === 'tv' ? '/search/tv' : '/search/movie';
+    const searchData = await fetchFromTmdb(searchEndpoint, {
+      query: lookupTitle,
+      include_adult: 'false',
+    });
+    const rawResults: any[] = Array.isArray(searchData?.results) ? searchData.results : [];
+    if (rawResults.length === 0) return null;
+
+    const normTarget = normalizeForSearch(lookupTitle);
+    const targetWords = normTarget.split(' ').filter(Boolean);
+
+    const scoredCandidates = rawResults
+      .filter((r) => r && Number.isFinite(Number(r.id)) && Number(r.id) > 0)
+      .map((r, idx) => {
+        const cTitle =
+          (fallbackType === 'tv' ? r.name || r.original_name : r.title || r.original_title) || '';
+        const cOrig =
+          (fallbackType === 'tv' ? r.original_name : r.original_title) || '';
+        const normC = normalizeForSearch(cTitle);
+        const normOrig = normalizeForSearch(cOrig);
+        const tier = Math.max(
+          getTitleMatchTier(normC, normC.split(' ').filter(Boolean), normTarget, targetWords),
+          getTitleMatchTier(normOrig, normOrig.split(' ').filter(Boolean), normTarget, targetWords) * 0.95
+        );
+
+        const dateStr = String(
+          (fallbackType === 'tv' ? r.first_air_date : r.release_date) || ''
+        );
+        const cYear = dateStr ? parseInt(dateStr.slice(0, 4), 10) || 0 : 0;
+        let yearBonus = 0;
+        if (lookupYear && cYear > 0) {
+          const diff = Math.abs(cYear - lookupYear);
+          if (diff === 0) yearBonus = 1.5;
+          else if (diff === 1) yearBonus = 0.8;
+          else if (diff > 3) yearBonus = -0.8;
+        }
+
+        const votes = Number(r.vote_count || 0);
+        const voteBonus = votes >= 100 ? 0.6 : votes >= 20 ? 0.3 : 0;
+
+        return {
+          raw: r,
+          totalScore: tier * 3 + yearBonus + voteBonus,
+          votes,
+          idx,
+        };
+      });
+
+    scoredCandidates.sort((a, b) => {
+      if (Math.abs(b.totalScore - a.totalScore) > 0.15) return b.totalScore - a.totalScore;
+      if (b.votes !== a.votes) return b.votes - a.votes;
+      return a.idx - b.idx;
+    });
+
+    const best = scoredCandidates[0]?.raw;
+    if (!best?.id) return null;
+
+    const numericId = Number(best.id);
+    resolvedTmdbIdCache.set(cacheKey, { mediaType: fallbackType, tmdbId: numericId });
+    return {
+      mediaType: fallbackType,
+      tmdbId: numericId,
+      resolvedTitle:
+        lookupTitle ||
+        (fallbackType === 'tv' ? best.name || best.original_name : best.title || best.original_title) ||
+        '',
+      resolvedYear: lookupYear,
+    };
+  }
+
+  app.get('/api/trailer/:type/:id', async (req, res) => {
+    const rawType: 'movie' | 'tv' = req.params.type === 'tv' ? 'tv' : 'movie';
+    const rawId = String(req.params.id || '').trim();
+    const titleHint = String(req.query.title || '').trim();
+    const yearHint = parseInt(String(req.query.year || ''), 10) || undefined;
+
+    const searchQueryParts = [
+      titleHint || rawId.replace(/^(tmdb|tvmaze|live)-(movie|tv)-/i, '').replace(/-/g, ' '),
+      yearHint ? String(yearHint) : '',
+      'official trailer',
+    ].filter(Boolean);
+    const youtubeSearchUrl = `https://www.youtube.com/results?search_query=${encodeURIComponent(
+      searchQueryParts.join(' ')
+    )}`;
+
+    const cacheKey = `${rawType}:${rawId}:${titleHint.toLowerCase()}:${yearHint || ''}`;
+    const cached = trailerResultCache.get(cacheKey);
+    if (cached && Date.now() - cached.timestamp < TRAILER_CACHE_TTL_MS) {
+      return res.json(cached.data);
+    }
+
+    const tmdbKey = getTmdbKey();
+    if (!tmdbKey) {
+      return res.json({
+        status: 'unavailable',
+        tmdbId: null,
+        mediaType: rawType,
+        primaryVideo: null,
+        videos: [],
+        youtubeSearchUrl,
+        reason: 'TMDB API key is not configured on the server.',
+      } satisfies TrailerLookupResult);
+    }
+
+    try {
+      const resolved = await resolveNumericTmdbIdOnServer(rawId, rawType, titleHint, yearHint);
+      if (!resolved || !Number.isFinite(resolved.tmdbId) || resolved.tmdbId <= 0) {
+        const unavailableResult: TrailerLookupResult = {
+          status: 'unavailable',
+          tmdbId: null,
+          mediaType: rawType,
+          primaryVideo: null,
+          videos: [],
+          youtubeSearchUrl,
+          reason: 'Could not match this title to a verified TMDB entry.',
+        };
+        trailerResultCache.set(cacheKey, { timestamp: Date.now(), data: unavailableResult });
+        return res.json(unavailableResult);
+      }
+
+      const { mediaType, tmdbId, resolvedTitle } = resolved;
+      const enVideosData = await fetchFromTmdb(`/${mediaType}/${tmdbId}/videos`, {
+        language: 'en-US',
+      });
+      let rawVideos: any[] = Array.isArray(enVideosData?.results) ? [...enVideosData.results] : [];
+
+      // For TV series, also check Season 1 videos if series-level videos lack an explicit Trailer
+      if (
+        mediaType === 'tv' &&
+        !rawVideos.some((v) => v?.site === 'YouTube' && v?.type === 'Trailer')
+      ) {
+        try {
+          const s1Data = await fetchFromTmdb(`/tv/${tmdbId}/season/1/videos`, {
+            language: 'en-US',
+          });
+          if (Array.isArray(s1Data?.results)) {
+            rawVideos.push(...s1Data.results);
+          }
+        } catch {
+          // Ignore optional season 1 video check failure
+        }
+      }
+
+      let ranked = rankTmdbVideos(rawVideos, resolvedTitle || titleHint);
+
+      // If no English trailer/teaser found, query all languages for that TMDB ID as fallback
+      if (ranked.length === 0) {
+        const allLangVideosData = await fetchFromTmdb(`/${mediaType}/${tmdbId}/videos`);
+        const allRaw: any[] = Array.isArray(allLangVideosData?.results)
+          ? allLangVideosData.results
+          : [];
+        ranked = rankTmdbVideos(allRaw, resolvedTitle || titleHint);
+      }
+
+      const finalSearchUrl = resolvedTitle
+        ? `https://www.youtube.com/results?search_query=${encodeURIComponent(
+            `${resolvedTitle} ${resolved.resolvedYear || yearHint || ''} official trailer`.trim()
+          )}`
+        : youtubeSearchUrl;
+
+      const payload: TrailerLookupResult = {
+        status: ranked.length > 0 ? 'ok' : 'unavailable',
+        tmdbId,
+        mediaType,
+        primaryVideo: ranked[0] || null,
+        videos: ranked,
+        youtubeSearchUrl: finalSearchUrl,
+        reason:
+          ranked.length === 0
+            ? 'No official YouTube trailer or teaser was returned by TMDB for this title.'
+            : undefined,
+      };
+
+      trailerResultCache.set(cacheKey, { timestamp: Date.now(), data: payload });
+      return res.json(payload);
+    } catch (err: any) {
+      return res.status(502).json({
+        status: 'error',
+        tmdbId: null,
+        mediaType: rawType,
+        primaryVideo: null,
+        videos: [],
+        youtubeSearchUrl,
+        reason: err?.message || 'Failed to fetch trailer metadata from TMDB.',
+      } satisfies TrailerLookupResult);
+    }
   });
 
   // 5. Server-Side Admin API Route (Mirrors `supabase/functions/admin-users`)
