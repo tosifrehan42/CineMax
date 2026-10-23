@@ -15,6 +15,8 @@ import {
   ensureSupabaseClient,
   fetchUserProfile,
   updateUserProfile,
+  uploadUserAvatar,
+  removeUserAvatar,
   fetchUserWatchlist,
   upsertWatchlistItem,
   deleteWatchlistItem,
@@ -838,6 +840,53 @@ export default function App() {
     return { error };
   };
 
+  const handleUploadAvatar = async (
+    fileBlob: Blob,
+    mimeType: string
+  ): Promise<{ error: string | null; bucketSetupNeeded?: boolean }> => {
+    if (!authUser || !isAuthenticated) {
+      return { error: 'You must be signed in to upload a profile picture.' };
+    }
+    const { profile, error, bucketSetupNeeded } = await uploadUserAvatar({
+      fileBlob,
+      mimeType,
+      previousAvatarUrl: userProfile?.avatarUrl || null,
+    });
+    if (error || !profile) {
+      return {
+        error: error || 'Failed to upload profile picture.',
+        bucketSetupNeeded,
+      };
+    }
+    setUserProfile({
+      ...profile,
+      email: authUser.email,
+    });
+    return { error: null };
+  };
+
+  const handleRemoveAvatar = async (): Promise<{ error: string | null }> => {
+    if (!authUser || !isAuthenticated) {
+      return { error: 'You must be signed in to remove your profile picture.' };
+    }
+    const { profile, error } = await removeUserAvatar(
+      userProfile?.avatarUrl || null
+    );
+    if (error) {
+      return { error };
+    }
+    if (profile) {
+      setUserProfile({
+        ...profile,
+        email: authUser.email,
+        avatarUrl: null,
+      });
+    } else {
+      setUserProfile((prev) => (prev ? { ...prev, avatarUrl: null } : null));
+    }
+    return { error: null };
+  };
+
   // Local watchlist items not yet in cloud watchlist
   const pendingLocalItems = isAuthenticated
     ? localWatchlist
@@ -1023,6 +1072,8 @@ export default function App() {
             onOpenAuthModal={handleOpenAuthModal}
             onSignOut={handleSignOut}
             onUpdateProfile={handleUpdateProfile}
+            onUploadAvatar={handleUploadAvatar}
+            onRemoveAvatar={handleRemoveAvatar}
             onDeleteHistoryEntry={handleDeleteHistoryEntry}
             allMedia={knownMedia}
             onSelectMedia={(media) => setSelectedMedia(media)}

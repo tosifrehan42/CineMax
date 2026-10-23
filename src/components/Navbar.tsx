@@ -50,12 +50,20 @@ export const Navbar: React.FC<NavbarProps> = ({
     { id: 'profile', label: 'Profile', icon: <User className="w-4 h-4" /> },
   ];
 
+  const [avatarLoadError, setAvatarLoadError] = React.useState(false);
+
+  React.useEffect(() => {
+    setAvatarLoadError(false);
+  }, [userProfile?.avatarUrl]);
+
   const initials = (userProfile?.displayName || userEmail || 'CM')
     .split(' ')
     .map((part) => part[0])
     .join('')
     .toUpperCase()
     .slice(0, 2);
+
+  const showAvatarImage = Boolean(userProfile?.avatarUrl && !avatarLoadError);
 
   return (
     <header className="sticky top-0 z-50 w-full bg-[#090a0f]/90 backdrop-blur-md border-b border-white/5 transition-all">
@@ -130,9 +138,18 @@ export const Navbar: React.FC<NavbarProps> = ({
                 className="flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 text-xs font-medium text-white transition-colors whitespace-nowrap shrink-0"
                 title={userProfile?.displayName || userEmail || 'Profile'}
               >
-                <span className="w-5 h-5 rounded-full bg-amber-500/20 border border-amber-400/40 text-amber-300 font-mono text-[10px] font-bold flex items-center justify-center">
-                  {initials}
-                </span>
+                {showAvatarImage ? (
+                  <img
+                    src={userProfile!.avatarUrl!}
+                    alt={userProfile?.displayName || 'Profile avatar'}
+                    onError={() => setAvatarLoadError(true)}
+                    className="w-5 h-5 rounded-full object-cover border border-amber-400/50 shrink-0"
+                  />
+                ) : (
+                  <span className="w-5 h-5 rounded-full bg-amber-500/20 border border-amber-400/40 text-amber-300 font-mono text-[10px] font-bold flex items-center justify-center shrink-0">
+                    {initials}
+                  </span>
+                )}
                 <span className="hidden lg:inline max-w-[110px] truncate">
                   {userProfile?.displayName || userEmail?.split('@')[0] || 'Account'}
                 </span>
@@ -171,7 +188,16 @@ export const Navbar: React.FC<NavbarProps> = ({
               }`}
             >
               <div className="relative">
-                {item.icon}
+                {item.id === 'profile' && isAuthenticated && showAvatarImage ? (
+                  <img
+                    src={userProfile!.avatarUrl!}
+                    alt="Profile"
+                    onError={() => setAvatarLoadError(true)}
+                    className="w-4 h-4 rounded-full object-cover border border-amber-400/60"
+                  />
+                ) : (
+                  item.icon
+                )}
                 {item.id === 'watchlist' && watchlistCount > 0 && (
                   <span className="absolute -top-1.5 -right-2 w-3.5 h-3.5 rounded-full bg-amber-500 text-black text-[9px] font-bold flex items-center justify-center tabular-nums">
                     {watchlistCount}

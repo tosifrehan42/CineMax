@@ -1,67 +1,45 @@
-# CineMax — Quality & File Size Estimator Implementation Plan
+# CineMax — Profile Picture Upload Implementation Plan
 
-## 1. Overview & Goals
-Add a dedicated, studio-grade **Quality & File Size Estimator** inside CineMax that lets film and TV enthusiasts accurately estimate storage requirements and bandwidth footprints for **Movies**, **Single TV Episodes**, and **Full TV Seasons** without requiring login or altering any existing catalogue, watchlist, or recommendation features.
+## 1. Overview & Architecture
+Implement a complete, end-to-end **Profile Picture Upload** feature in CineMax that allows authenticated users to upload, crop/frame, change, and remove their profile picture using **Supabase Storage (`avatars` bucket)** and the existing **`public.profiles.avatar_url`** column, while updating the avatar across the entire app (`ProfileView`, `Edit Profile` modal, and `Navbar`) without a page reload.
 
-## 2. Navigation & Feature Access
-- **Top & Mobile Navigation (`Navbar.tsx` & `types/index.ts`)**:
-  - Extend `TabView` to `'home' | 'discover' | 'watchlist' | 'estimator' | 'profile'`.
-  - Add a **"Quality & Size"** (`HardDrive` / `Sliders` icon) navigation tab in the desktop header bar and mobile bottom navigation bar.
-- **Title Detail Quick-Launch (`DetailModal.tsx` & `App.tsx`)**:
-  - Add an **"Estimate Quality & File Size"** action button inside `DetailModal` (under the poster quick-actions column) that closes the modal, switches to the **Quality & Size** tab, and automatically prefills the selected Movie or TV Series (including active season & loaded episode runtime metadata).
-- **Clear Estimation Disclaimer**:
-  - Display a prominent studio notice at the top of the tool explaining that results are bitrate-based estimates and that actual release sizes vary depending on scene complexity, grain, HDR metadata, variable bitrate (VBR) encoding, and audio track count.
+## 2. Profile UI & Avatar Rendering (`Navbar.tsx`, `ProfileView.tsx`, `AvatarCropModal.tsx`)
+- **Global Avatar Display**:
+  - Update `Navbar.tsx` and `ProfileView.tsx` to render the user's `userProfile.avatarUrl` image whenever present, with an automatic `onError` fallback to the existing stylized amber initials avatar if an image URL fails to load.
+- **Upload, Change & Remove Controls**:
+  - Place clear **Upload Photo** (when no avatar is set), **Change Photo**, and **Remove Photo** controls in **both** the `ProfileView` hero header card and inside the **Edit Cinephile Profile** modal.
+  - Display a concise privacy note near the upload control stating that profile avatars are stored in a public bucket so avatar URLs can be viewed by anyone with the link, while uploads and deletions are strictly restricted to the account owner via Row-Level Security (RLS).
+- **Interactive Circular Crop, Position & Client-Side Optimization (`src/components/AvatarCropModal.tsx`)**:
+  - Validate selected files immediately on the client:
+    - Allowed MIME types: `image/jpeg`, `image/png`, `image/webp`.
+    - Maximum input file size: **10 MB** (`10 * 1024 * 1024` bytes).
+  - Open an interactive **Circular Crop & Position Modal** with zoom slider and drag-to-reposition controls on an HTML5 `<canvas>`.
+  - Export the framed image as an optimized square `512 × 512` WebP/JPEG/PNG blob guaranteed to be well under the **5 MB** Supabase Storage bucket limit.
+  - Display real-time uploading state, disable duplicate submissions while an upload or removal is in progress, and preserve the previous avatar if an error occurs.
 
-## 3. Inputs & Metadata Prefill
-- **Built-in Title Search & Catalogue Picker**:
-  - Search bar inside the estimator that queries both the loaded CineMax catalogue and live TMDB search (`searchMediaCatalogue`), plus quick-select chips for popular movies and series.
-  - Selecting a title fetches full details (`fetchTitleDetails`) and, for TV shows, season episode lists (`fetchTvSeasonEpisodes`) to extract real runtime and episode counts.
-  - **Strict Runtime Rule**: If a selected title or episode does not have confirmed runtime metadata from TMDB/catalogue, the tool **never silently assumes a fallback runtime**—it alerts the user that runtime metadata is unavailable for that title and prompts for manual hours/minutes entry.
-- **Content Scope Selector**:
-  - **Movie**: Hours + Minutes manual or prefilled inputs.
-  - **TV Episode**: Single episode runtime (Minutes, or Hours + Minutes) with season/episode selector when linked to a TV series.
-  - **Full TV Season**: Episode count + Average episode runtime (auto-calculated from actual episode runtimes when a TV season is selected, or manually editable).
-- **Encoding & Release Parameters**:
-  - **Resolution**: `480p`, `720p HD`, `1080p Full HD`, `1440p`, `2160p / 4K`.
-  - **Source / Release Type**: `Streaming / Web-DL`, `Blu-ray encode`, `Blu-ray Remux`, `Compressed WEBRip`, `Custom bitrate`.
-  - **Video Codec**: `H.264 / AVC`, `H.265 / HEVC`, `AV1`, `Other / custom bitrate`.
-  - **Audio Format**:
-    - `AAC stereo` (~192 kbps / 0.192 Mbps)
-    - `AC-3 / E-AC-3` (~384 kbps / 0.384 Mbps)
-    - `E-AC-3 5.1` (~640 kbps / 0.640 Mbps)
-    - `DTS / DTS-HD` (~1,536 kbps / 1.536 Mbps)
-    - `TrueHD / Atmos` (~4,500 kbps / 4.500 Mbps)
-    - `Custom audio bitrate` (editable kbps / Mbps)
-    - `No audio` (`0 Mbps`, for video-only calculations)
-  - **Container / Muxing Overhead**:
-    - Editable percentage input defaulting to **1.5%** (covers MKV/MP4 packet headers, seek tables, and subtitle tracks).
+## 3. Supabase Storage & RLS Setup (`supabase/avatars_storage_setup.sql` & `supabaseClient.ts`)
+- **Dedicated Non-Destructive SQL Setup Script**:
+  - Create `/supabase/avatars_storage_setup.sql` (and expose a copyable helper in the UI if the `avatars` bucket is not yet provisioned) that:
+    1. Creates the `avatars` bucket in `storage.buckets` (`public = true`, `file_size_limit = 5242880` [5 MB], `allowed_mime_types = ARRAY['image/jpeg', 'image/png', 'image/webp']`).
+    2. Applies strict `storage.objects` RLS policies scoped to `bucket_id = 'avatars'` and `(storage.foldername(name))[1] = auth.uid()::text` so authenticated users can `INSERT`, `UPDATE`, and `DELETE` **only** files inside their own `<user-id>/` folder, while allowing public `SELECT` for displaying avatars.
+- **Scoped File Paths & Safe Storage Cleanup**:
+  - Verify the active authenticated session via `client.auth.getSession()` / `client.auth.getUser()` before any upload or delete operation.
+  - Generate paths strictly from the authenticated user's UID and a collision-safe timestamp/UUID: `<user-id>/avatar-<timestamp>-<random>.<ext>`.
+  - Extract internal storage object paths safely from existing `avatar_url` values only when they belong to the current user's `<user-id>/` prefix.
 
-## 4. Calculation Engine & Bitrate Matrix (`src/utils/fileSizeCalculator.ts`)
-- **Core Formula**:
-  $$\text{Total Average Bitrate (Mbps)} = (\text{Video Bitrate}_{\text{Mbps}} + \text{Audio Bitrate}_{\text{Mbps}}) \times \left(1 + \frac{\text{Overhead \%}}{100}\right)$$
-  $$\text{File Size (Decimal GB)} = \frac{\text{Total Average Bitrate (Mbps)} \times \text{Runtime (seconds)}}{8,000}$$
-  $$\text{File Size (Decimal MB)} = \text{File Size (Decimal GB)} \times 1,000$$
-- **Realistic Multi-Dimensional Preset Matrix**:
-  - Combines **Resolution × Source Type × Video Codec** to produce realistic `(low, typical, high)` video bitrate ranges in Mbps:
-    - *Compressed WEBRip* & *Streaming / Web-DL* scale appropriately by resolution and codec efficiency (`AV1` ~30% lower than `HEVC`; `HEVC` ~35% lower than `H.264`).
-    - *Blu-ray Encode* uses higher archival bitrates.
-    - *Blu-ray Remux* uses authentic disc bitrates (e.g., `1080p Remux` ~24–36 Mbps; `2160p / 4K Remux` ~50–85 Mbps typical ~64 Mbps).
-  - Users can also override the preset at any time by tweaking the **Editable Video Bitrate (Mbps)** or **Editable Audio Bitrate (kbps)** directly.
+## 4. Atomic Database Integration (`src/services/supabaseClient.ts` & `src/App.tsx`)
+- **Targeted `public.profiles.avatar_url` Updates**:
+  - Fix `updateUserProfile` so editing text fields (`displayName`, `username`, `bio`, `favoriteGenres`) never overwrites an existing `avatar_url` when `avatarUrl` is not passed.
+  - Add `uploadUserAvatar(fileBlob, mimeType, currentAvatarUrl)`:
+    1. Verifies active session and validates MIME type (`image/jpeg`, `image/png`, `image/webp`) and size ($\le 5\text{ MB}$ post-crop / $\le 10\text{ MB}$ raw).
+    2. Uploads the file to `avatars` at `<user-id>/<unique-name>.<ext>` with `upsert: false`.
+    3. Retrieves the public URL and updates `public.profiles.avatar_url` for `id = user.id` without touching unrelated profile columns.
+    4. **Rollback on DB Failure**: If updating `public.profiles` fails, deletes the newly uploaded storage object immediately and returns the exact error so the UI keeps the previous avatar.
+    5. **Post-Success Old File Cleanup**: Only after both the new upload and `public.profiles` update succeed, deletes the previous `<user-id>/...` storage file (if one existed).
+  - Add `removeUserAvatar(currentAvatarUrl)`:
+    1. Verifies active session and updates `public.profiles` to set `avatar_url = null` for `id = user.id`.
+    2. Only after the database update succeeds, removes the old storage object from `<user-id>/...` in the `avatars` bucket.
 
-## 5. Results Breakdown, Season Summary & Preset Comparison
-- **Primary Readout Panel**:
-  - Displays **Typical Estimated File Size** (in decimal `GB` and `MB`, explicitly labeled `1 GB = 1,000 MB`), alongside the **Low – High Range** (`e.g., 4.2 GB – 6.8 GB`) when using preset ranges.
-  - For **Full TV Seasons**, displays both **Per-Episode Size** and **Full Season Total Size** (`episode count × average episode size` or exact sum of episode runtimes).
-- **Component Breakdown Bar**:
-  - Visual progress bar and tabular readout showing exact **Video Track Size & Bitrate**, **Audio Track Size & Bitrate**, **Container Overhead Size**, and **Total Runtime Used** (in hours, minutes, and exact seconds).
-- **Side-by-Side Comparison Table**:
-  - Automatically computes and compares 5 benchmark profiles for the exact same runtime and audio selection:
-    1. `720p H.264` (Web-DL)
-    2. `1080p H.264` (Web-DL)
-    3. `1080p HEVC` (Web-DL / Encode)
-    4. `4K HEVC` (Streaming / Encode)
-    5. `4K Remux` (Untouched Blu-ray Remux)
-- **Utility Controls**:
-  - **Copy Results**: Formats a clean summary report to the clipboard via `navigator.clipboard.writeText` with visible toast/button confirmation and fallback handling.
-  - **Reset**: Restores default selections cleanly.
-  - **Why Sizes Vary Guide**: Concise technical breakdown explaining VBR scene complexity, film grain, HDR10/Dolby Vision layers, and lossless audio tracks.
+## 5. Validation & Verification
+- Run `npm run lint` (`tsc --noEmit`) and `npm run build` (`vite build`) to verify zero TypeScript or bundling issues.
+- Verify file validation (invalid MIME types, files $>10\text{ MB}$), signed-out guardrails, interactive crop/zoom preview, bucket/RLS error guidance, and state propagation across `Navbar` and `ProfileView`.

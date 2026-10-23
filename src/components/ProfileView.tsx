@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   MediaItem,
   UserProfile,
@@ -6,7 +6,14 @@ import {
   WatchlistEntry,
 } from '../types';
 import { MediaPoster } from './MediaPoster';
-import { parseRuntimeMinutes, SUPABASE_SCHEMA_SQL } from '../services/supabaseClient';
+import { AvatarCropModal } from './AvatarCropModal';
+import {
+  parseRuntimeMinutes,
+  SUPABASE_SCHEMA_SQL,
+  SUPABASE_AVATARS_BUCKET_SQL,
+  validateAvatarFile,
+  MAX_AVATAR_INPUT_BYTES,
+} from '../services/supabaseClient';
 import {
   Star,
   Film,
@@ -28,6 +35,8 @@ import {
   Copy,
   X,
   Flame,
+  Camera,
+  Upload,
 } from 'lucide-react';
 
 interface ProfileViewProps {
@@ -48,6 +57,11 @@ interface ProfileViewProps {
     bio?: string;
     favoriteGenres?: string[];
   }) => Promise<{ error: string | null }>;
+  onUploadAvatar?: (
+    fileBlob: Blob,
+    mimeType: string
+  ) => Promise<{ error: string | null; bucketSetupNeeded?: boolean }>;
+  onRemoveAvatar?: () => Promise<{ error: string | null }>;
   onDeleteHistoryEntry?: (mediaId: string) => void;
   allMedia: MediaItem[];
   onSelectMedia: (media: MediaItem) => void;
@@ -82,6 +96,8 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
   onOpenAuthModal,
   onSignOut,
   onUpdateProfile,
+  onUploadAvatar,
+  onRemoveAvatar,
   onDeleteHistoryEntry,
   allMedia,
   onSelectMedia,
@@ -95,6 +111,118 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
   const [savingProfile, setSavingProfile] = useState(false);
   const [profileFormError, setProfileFormError] = useState<string | null>(null);
   const [copiedSql, setCopiedSql] = useState(false);
+  const [copiedBucketSql, setCopiedBucketSql] = useState(false);
+
+  // Avatar Upload, Crop & Removal State
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const [selectedAvatarFile, setSelectedAvatarFile] = useState<File | null>(null);
+  const [isCropModalOpen, setIsCropModalOpen] = useState(false);
+  const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
+  const [isRemovingAvatar, setIsRemovingAvatar] = useState(false);
+  const [avatarActionError, setAvatarActionError] = useState<string | null>(null);
+  const [avatarActionSuccess, setAvatarActionSuccess] = useState<string | null>(null);
+  const [bucketSetupNeeded, setBucketSetupNeeded] = useState(false);
+  const [avatarImageLoadFailed, setAvatarImageLoadFailed] = useState(false);
+
+  useEffect(() => {
+    setAvatarImageLoadFailed(false);
+  }, [userProfile?.avatarUrl]);
+
+  const hasValidAvatar = Boolean(
+    isAuthenticated && userProfile?.avatarUrl && !avatarImageLoadFailed
+  );
+
+  const handleTriggerFileSelect = () => {
+    setAvatarActionError(null);
+    setAvatarActionSuccess(null);
+    if (!isAuthenticated) {
+      setAvatarActionError('Please sign in to upload or change your profile picture.');
+      onOpenAuthModal?.('signin');
+      return;
+    }
+    if (isUploadingAvatar || isRemovingAvatar) return;
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+      fileInputRef.current.click();
+    }
+  };
+
+  const handleFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setAvatarActionError(null);
+    setAvatarActionSuccess(null);
+    setBucketSetupNeeded(false);
+
+    const validation = validateAvatarFile(file, MAX_AVATAR_INPUT_BYTES);
+    if (!validation.valid) {
+      setAvatarActionError(validation.error);
+      e.target.value = '';
+      return;
+    }
+
+    setSelectedAvatarFile(file);
+    setIsCropModalOpen(true);
+  };
+
+  const handleConfirmCroppedUpload = async (
+    croppedBlob: Blob,
+    mimeType: string
+  ) => {
+    if (!onUploadAvatar || isUploadingAvatar) return;
+    setIsUploadingAvatar(true);
+    setAvatarActionError(null);
+    setAvatarActionSuccess(null);
+    setBucketSetupNeeded(false);
+
+    try {
+      const res = await onUploadAvatar(croppedBlob, mimeType);
+      if (res.error) {
+        setAvatarActionError(res.error);
+        if (res.bucketSetupNeeded) {
+          setBucketSetupNeeded(true);
+        }
+      } else {
+        setIsCropModalOpen(false);
+        setSelectedAvatarFile(null);
+        setAvatarActionSuccess('Profile picture updated and saved to your account.');
+        setTimeout(() => setAvatarActionSuccess(null), 4000);
+      }
+    } finally {
+      setIsUploadingAvatar(false);
+    }
+  };
+
+  const handleRemoveAvatarClick = async () => {
+    if (!isAuthenticated) {
+      onOpenAuthModal?.('signin');
+      return;
+    }
+    if (!onRemoveAvatar || isRemovingAvatar || isUploadingAvatar) return;
+
+    setIsRemovingAvatar(true);
+    setAvatarActionError(null);
+    setAvatarActionSuccess(null);
+
+    try {
+      const res = await onRemoveAvatar();
+      if (res.error) {
+        setAvatarActionError(res.error);
+      } else {
+        setAvatarActionSuccess('Profile picture removed. Reverted to default initials avatar.');
+        setTimeout(() => setAvatarActionSuccess(null), 4000);
+      }
+    } finally {
+      setIsRemovingAvatar(false);
+    }
+  };
+
+  const handleCopyBucketSql = () => {
+    navigator.clipboard?.writeText(SUPABASE_AVATARS_BUCKET_SQL);
+    setCopiedBucketSql(true);
+    setTimeout(() => setCopiedBucketSql(false), 2500);
+  };
 
   const openEditModal = () => {
     setEditDisplayName(
@@ -367,6 +495,75 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
         </div>
       )}
 
+      {/* Hidden File Input for Avatar Upload (JPEG, PNG, WebP up to 10 MB) */}
+      <input
+        ref={fileInputRef}
+        type="file"
+        accept="image/jpeg,image/png,image/webp"
+        onChange={handleFileInputChange}
+        className="hidden"
+        aria-label="Select profile picture (JPEG, PNG, or WebP up to 10 MB)"
+      />
+
+      {/* Avatar Status / Validation Feedback Banners */}
+      {avatarActionError && !isCropModalOpen && (
+        <div className="p-4 rounded-2xl bg-red-500/10 border border-red-500/30 text-xs text-red-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="flex items-start gap-2.5">
+            <AlertCircle className="w-4 h-4 text-red-400 shrink-0 mt-0.5" />
+            <div>
+              <p className="font-semibold text-red-300">Profile Photo Error</p>
+              <p className="text-red-200/90 mt-0.5">{avatarActionError}</p>
+            </div>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            {bucketSetupNeeded && (
+              <button
+                type="button"
+                onClick={handleCopyBucketSql}
+                className="px-3 py-1.5 rounded-lg bg-amber-500 text-slate-950 font-bold text-xs flex items-center gap-1.5 hover:bg-amber-400"
+              >
+                {copiedBucketSql ? (
+                  <>
+                    <Check className="w-3.5 h-3.5" />
+                    <span>SQL Copied!</span>
+                  </>
+                ) : (
+                  <>
+                    <Copy className="w-3.5 h-3.5" />
+                    <span>Copy Avatars Storage SQL</span>
+                  </>
+                )}
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => setAvatarActionError(null)}
+              className="p-1 text-red-300 hover:text-white"
+              aria-label="Dismiss avatar error"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+      )}
+
+      {avatarActionSuccess && (
+        <div className="p-3.5 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 text-xs text-emerald-200 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <Check className="w-4 h-4 text-emerald-400 shrink-0" />
+            <span className="font-medium">{avatarActionSuccess}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setAvatarActionSuccess(null)}
+            className="p-1 text-emerald-300 hover:text-white"
+            aria-label="Dismiss success notice"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      )}
+
       {/* Loading Skeleton */}
       {isLoading ? (
         <div className="py-20 text-center rounded-2xl border border-white/5 bg-slate-900/30 space-y-3">
@@ -379,18 +576,89 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
         <>
           {/* Profile Header Hero */}
           <div className="relative overflow-hidden rounded-2xl border border-white/10 bg-gradient-to-r from-slate-900 via-slate-900/80 to-[#12141f] p-6 sm:p-8 shadow-xl">
-            <div className="relative z-10 flex flex-col sm:flex-row items-center sm:items-start justify-between gap-6 text-center sm:text-left">
+            <div className="relative z-10 flex flex-col lg:flex-row items-center lg:items-start justify-between gap-6 text-center sm:text-left">
               <div className="flex flex-col sm:flex-row items-center sm:items-start gap-6">
-                {/* Avatar container */}
-                <div className="relative w-24 h-24 rounded-2xl bg-gradient-to-br from-amber-400 to-amber-600 p-0.5 shadow-xl shadow-amber-500/20 shrink-0">
-                  <div className="w-full h-full rounded-2xl bg-[#090a0f] flex items-center justify-center overflow-hidden">
-                    <span className="font-['Outfit'] text-3xl font-extrabold text-amber-400">
-                      {initials}
-                    </span>
+                {/* Avatar container + Quick Photo Controls */}
+                <div className="flex flex-col items-center gap-2.5 shrink-0">
+                  <div className="relative group w-24 h-24 sm:w-28 sm:h-28 rounded-2xl bg-gradient-to-br from-amber-400 to-amber-600 p-0.5 shadow-xl shadow-amber-500/20">
+                    <div className="w-full h-full rounded-2xl bg-[#090a0f] flex items-center justify-center overflow-hidden relative">
+                      {hasValidAvatar ? (
+                        <img
+                          src={userProfile!.avatarUrl!}
+                          alt={displayName}
+                          onError={() => setAvatarImageLoadFailed(true)}
+                          className="w-full h-full object-cover"
+                        />
+                      ) : (
+                        <span className="font-['Outfit'] text-3xl sm:text-4xl font-extrabold text-amber-400 select-none">
+                          {initials}
+                        </span>
+                      )}
+
+                      {/* Hover Camera Trigger for Authenticated Users */}
+                      {isAuthenticated && (
+                        <button
+                          type="button"
+                          disabled={isUploadingAvatar || isRemovingAvatar}
+                          onClick={handleTriggerFileSelect}
+                          className="absolute inset-0 bg-black/65 opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity flex flex-col items-center justify-center gap-1 text-[11px] font-semibold text-amber-300 disabled:cursor-wait"
+                          title={hasValidAvatar ? 'Change Photo' : 'Upload Photo'}
+                        >
+                          {isUploadingAvatar || isRemovingAvatar ? (
+                            <Loader2 className="w-5 h-5 animate-spin text-amber-400" />
+                          ) : (
+                            <>
+                              <Camera className="w-5 h-5 text-amber-400" />
+                              <span>{hasValidAvatar ? 'Change' : 'Upload'}</span>
+                            </>
+                          )}
+                        </button>
+                      )}
+                    </div>
+                    <div className="absolute -bottom-1 -right-1 p-1 bg-amber-400 rounded-full text-slate-950 shadow">
+                      <Award className="w-4 h-4 stroke-[2.5]" />
+                    </div>
                   </div>
-                  <div className="absolute -bottom-1 -right-1 p-1 bg-amber-400 rounded-full text-slate-950">
-                    <Award className="w-4 h-4 stroke-[2.5]" />
-                  </div>
+
+                  {/* Explicit Upload / Change / Remove Photo Buttons (Mobile & Desktop Friendly) */}
+                  {isAuthenticated ? (
+                    <div className="flex flex-wrap items-center justify-center gap-1.5">
+                      <button
+                        type="button"
+                        disabled={isUploadingAvatar || isRemovingAvatar}
+                        onClick={handleTriggerFileSelect}
+                        className="px-2.5 py-1 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 text-[11px] font-semibold text-amber-300 hover:text-amber-200 flex items-center gap-1 transition-colors disabled:opacity-40"
+                      >
+                        <Upload className="w-3 h-3" />
+                        <span>{hasValidAvatar ? 'Change Photo' : 'Upload Photo'}</span>
+                      </button>
+
+                      {hasValidAvatar && (
+                        <button
+                          type="button"
+                          disabled={isUploadingAvatar || isRemovingAvatar}
+                          onClick={handleRemoveAvatarClick}
+                          className="px-2.5 py-1 rounded-lg bg-red-500/10 hover:bg-red-500/20 border border-red-500/25 text-[11px] font-semibold text-red-300 flex items-center gap-1 transition-colors disabled:opacity-40"
+                        >
+                          {isRemovingAvatar ? (
+                            <Loader2 className="w-3 h-3 animate-spin" />
+                          ) : (
+                            <Trash2 className="w-3 h-3" />
+                          )}
+                          <span>Remove Photo</span>
+                        </button>
+                      )}
+                    </div>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => onOpenAuthModal?.('signin')}
+                      className="text-[11px] text-slate-400 hover:text-amber-300 flex items-center gap-1 transition-colors"
+                    >
+                      <Camera className="w-3 h-3 text-amber-400" />
+                      <span>Sign in to add photo</span>
+                    </button>
+                  )}
                 </div>
 
                 {/* User Identity Details */}
@@ -717,6 +985,64 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
                 </div>
               )}
 
+              {/* Profile Photo Section inside Edit Profile Modal */}
+              <div className="p-3.5 rounded-xl bg-black/40 border border-white/10 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div className="flex items-center gap-3">
+                  <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-amber-400 to-amber-600 p-0.5 shrink-0">
+                    <div className="w-full h-full rounded-xl bg-[#090a0f] flex items-center justify-center overflow-hidden">
+                      {hasValidAvatar ? (
+                        <img
+                          src={userProfile!.avatarUrl!}
+                          alt={displayName}
+                          onError={() => setAvatarImageLoadFailed(true)}
+                          className="w-full h-full object-cover"
+                        />
+                      ) : (
+                        <span className="font-['Outfit'] text-lg font-extrabold text-amber-400">
+                          {initials}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-xs font-semibold text-white">
+                      Profile Picture
+                    </div>
+                    <div className="text-[11px] text-slate-400">
+                      JPEG, PNG, or WebP up to 10 MB · Public avatar URL
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2 shrink-0">
+                  <button
+                    type="button"
+                    disabled={isUploadingAvatar || isRemovingAvatar}
+                    onClick={handleTriggerFileSelect}
+                    className="px-3 py-1.5 rounded-lg bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/30 text-xs font-semibold text-amber-300 flex items-center gap-1.5 transition-colors disabled:opacity-40"
+                  >
+                    <Upload className="w-3.5 h-3.5" />
+                    <span>{hasValidAvatar ? 'Change Photo' : 'Upload Photo'}</span>
+                  </button>
+                  {hasValidAvatar && (
+                    <button
+                      type="button"
+                      disabled={isUploadingAvatar || isRemovingAvatar}
+                      onClick={handleRemoveAvatarClick}
+                      className="px-2.5 py-1.5 rounded-lg bg-red-500/10 hover:bg-red-500/20 border border-red-500/25 text-xs font-semibold text-red-300 flex items-center gap-1 transition-colors disabled:opacity-40"
+                      title="Remove Profile Photo"
+                    >
+                      {isRemovingAvatar ? (
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                      ) : (
+                        <Trash2 className="w-3.5 h-3.5" />
+                      )}
+                      <span>Remove</span>
+                    </button>
+                  )}
+                </div>
+              </div>
+
               <div className="space-y-1.5">
                 <label className="block text-xs font-medium text-slate-300">
                   Display Name
@@ -811,6 +1137,23 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
           </div>
         </div>
       )}
+
+      {/* Interactive Circular Crop & Preview Modal */}
+      <AvatarCropModal
+        file={selectedAvatarFile}
+        isOpen={isCropModalOpen}
+        isUploading={isUploadingAvatar}
+        error={avatarActionError}
+        bucketSetupNeeded={bucketSetupNeeded}
+        onClose={() => {
+          if (!isUploadingAvatar) {
+            setIsCropModalOpen(false);
+            setSelectedAvatarFile(null);
+            setAvatarActionError(null);
+          }
+        }}
+        onConfirmUpload={handleConfirmCroppedUpload}
+      />
     </div>
   );
 };

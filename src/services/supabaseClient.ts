@@ -198,7 +198,71 @@ CREATE POLICY "Users can insert own watched episodes" ON public.watched_episodes
 DROP POLICY IF EXISTS "Users can update own watched episodes" ON public.watched_episodes;
 CREATE POLICY "Users can update own watched episodes" ON public.watched_episodes FOR UPDATE TO authenticated USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
 DROP POLICY IF EXISTS "Users can delete own watched episodes" ON public.watched_episodes;
-CREATE POLICY "Users can delete own watched episodes" ON public.watched_episodes FOR DELETE TO authenticated USING (auth.uid() = user_id);`;
+CREATE POLICY "Users can delete own watched episodes" ON public.watched_episodes FOR DELETE TO authenticated USING (auth.uid() = user_id);
+
+INSERT INTO storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+VALUES ('avatars', 'avatars', true, 5242880, ARRAY['image/jpeg', 'image/png', 'image/webp'])
+ON CONFLICT (id) DO UPDATE
+SET public = EXCLUDED.public, file_size_limit = EXCLUDED.file_size_limit, allowed_mime_types = EXCLUDED.allowed_mime_types;
+
+DROP POLICY IF EXISTS "Avatar images are publicly readable" ON storage.objects;
+CREATE POLICY "Avatar images are publicly readable" ON storage.objects FOR SELECT USING (bucket_id = 'avatars');
+DROP POLICY IF EXISTS "Users can upload own avatar in own folder" ON storage.objects;
+CREATE POLICY "Users can upload own avatar in own folder" ON storage.objects FOR INSERT TO authenticated WITH CHECK (bucket_id = 'avatars' AND (storage.foldername(name))[1] = auth.uid()::text);
+DROP POLICY IF EXISTS "Users can update own avatar in own folder" ON storage.objects;
+CREATE POLICY "Users can update own avatar in own folder" ON storage.objects FOR UPDATE TO authenticated USING (bucket_id = 'avatars' AND (storage.foldername(name))[1] = auth.uid()::text) WITH CHECK (bucket_id = 'avatars' AND (storage.foldername(name))[1] = auth.uid()::text);
+DROP POLICY IF EXISTS "Users can delete own avatar in own folder" ON storage.objects;
+CREATE POLICY "Users can delete own avatar in own folder" ON storage.objects FOR DELETE TO authenticated USING (bucket_id = 'avatars' AND (storage.foldername(name))[1] = auth.uid()::text);`;
+
+export const SUPABASE_AVATARS_BUCKET_SQL = `-- CineMax Profile Picture Upload — Supabase Storage Setup (\`avatars\` Bucket)
+-- Run this non-destructive script in your Supabase SQL Editor.
+
+INSERT INTO storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+VALUES (
+  'avatars',
+  'avatars',
+  true,
+  5242880, -- 5 MB
+  ARRAY['image/jpeg', 'image/png', 'image/webp']
+)
+ON CONFLICT (id) DO UPDATE
+SET
+  public = EXCLUDED.public,
+  file_size_limit = EXCLUDED.file_size_limit,
+  allowed_mime_types = EXCLUDED.allowed_mime_types;
+
+DROP POLICY IF EXISTS "Avatar images are publicly readable" ON storage.objects;
+CREATE POLICY "Avatar images are publicly readable"
+  ON storage.objects FOR SELECT
+  USING (bucket_id = 'avatars');
+
+DROP POLICY IF EXISTS "Users can upload own avatar in own folder" ON storage.objects;
+CREATE POLICY "Users can upload own avatar in own folder"
+  ON storage.objects FOR INSERT TO authenticated
+  WITH CHECK (
+    bucket_id = 'avatars'
+    AND (storage.foldername(name))[1] = auth.uid()::text
+  );
+
+DROP POLICY IF EXISTS "Users can update own avatar in own folder" ON storage.objects;
+CREATE POLICY "Users can update own avatar in own folder"
+  ON storage.objects FOR UPDATE TO authenticated
+  USING (
+    bucket_id = 'avatars'
+    AND (storage.foldername(name))[1] = auth.uid()::text
+  )
+  WITH CHECK (
+    bucket_id = 'avatars'
+    AND (storage.foldername(name))[1] = auth.uid()::text
+  );
+
+DROP POLICY IF EXISTS "Users can delete own avatar in own folder" ON storage.objects;
+CREATE POLICY "Users can delete own avatar in own folder"
+  ON storage.objects FOR DELETE TO authenticated
+  USING (
+    bucket_id = 'avatars'
+    AND (storage.foldername(name))[1] = auth.uid()::text
+  );`;
 
 function isForbiddenSecretKey(token: string): boolean {
   const clean = (token || '').trim();
@@ -235,8 +299,8 @@ export function normalizeSupabaseBaseUrl(rawUrl: string): string {
 }
 
 let supabaseInstance: SupabaseClient | null = null;
-let resolvedUrl = normalizeSupabaseBaseUrl(import.meta.env.VITE_SUPABASE_URL || '');
-let resolvedAnonKey = (import.meta.env.VITE_SUPABASE_ANON_KEY || '').trim();
+let resolvedUrl = normalizeSupabaseBaseUrl(import.meta.env?.VITE_SUPABASE_URL || '');
+let resolvedAnonKey = (import.meta.env?.VITE_SUPABASE_ANON_KEY || '').trim();
 let securityWarning: string | null = null;
 let initPromise: Promise<SupabaseClient | null> | null = null;
 
@@ -582,14 +646,17 @@ export async function updateUserProfile(
     };
   }
 
-  const payload = {
+  const payload: Record<string, unknown> = {
     id: userId,
     display_name: updates.displayName.trim() || 'Cinema Enthusiast',
     username: cleanUsername,
     bio: (updates.bio ?? '').trim().slice(0, 500),
-    avatar_url: updates.avatarUrl?.trim() || null,
     favorite_genres: updates.favoriteGenres || [],
   };
+
+  if (updates.avatarUrl !== undefined) {
+    payload.avatar_url = updates.avatarUrl?.trim() || null;
+  }
 
   const { data, error } = await client
     .from('profiles')
@@ -614,6 +681,339 @@ export async function updateUserProfile(
       favoriteGenres: Array.isArray(data.favorite_genres) ? data.favorite_genres : [],
       createdAt: data.created_at,
       updatedAt: data.updated_at,
+    },
+    error: null,
+  };
+}
+
+// ============================================================================
+// Profile Picture Upload & Storage Operations (`avatars` Bucket + `public.profiles.avatar_url`)
+// ============================================================================
+
+export const ALLOWED_AVATAR_MIME_TYPES = [
+  'image/jpeg',
+  'image/png',
+  'image/webp',
+] as const;
+
+export const MAX_AVATAR_INPUT_BYTES = 10 * 1024 * 1024; // 10 MB raw selection limit
+export const MAX_AVATAR_UPLOAD_BYTES = 5 * 1024 * 1024; // 5 MB Supabase Storage bucket limit
+
+export function validateAvatarFile(
+  file: { type: string; size: number },
+  maxBytes: number = MAX_AVATAR_INPUT_BYTES
+): { valid: boolean; error: string | null } {
+  if (!file || typeof file.size !== 'number') {
+    return { valid: false, error: 'Please select a valid image file.' };
+  }
+  const mime = (file.type || '').toLowerCase();
+  if (
+    !ALLOWED_AVATAR_MIME_TYPES.includes(
+      mime as (typeof ALLOWED_AVATAR_MIME_TYPES)[number]
+    )
+  ) {
+    return {
+      valid: false,
+      error: 'Unsupported file format. Please choose a JPEG, PNG, or WebP image.',
+    };
+  }
+  if (file.size <= 0) {
+    return { valid: false, error: 'The selected image file is empty.' };
+  }
+  if (file.size > maxBytes) {
+    const maxMb = (maxBytes / (1024 * 1024)).toFixed(0);
+    const actualMb = (file.size / (1024 * 1024)).toFixed(2);
+    return {
+      valid: false,
+      error: `Image is too large (${actualMb} MB). Maximum allowed file size is ${maxMb} MB.`,
+    };
+  }
+  return { valid: true, error: null };
+}
+
+/**
+ * Safely extracts the internal `<user-id>/<filename>` object path from a Supabase Storage
+ * public avatar URL ONLY if it resides inside the authenticated user's own `<userId>/` folder.
+ */
+export function extractOwnAvatarStoragePath(
+  avatarUrl: string | null | undefined,
+  userId: string
+): string | null {
+  if (!avatarUrl || !userId) return null;
+  try {
+    const cleanUrl = avatarUrl.split('?')[0];
+    const marker = '/storage/v1/object/public/avatars/';
+    const idx = cleanUrl.indexOf(marker);
+    if (idx === -1) return null;
+    const rawPath = decodeURIComponent(cleanUrl.slice(idx + marker.length));
+    if (!rawPath || rawPath.includes('..') || rawPath.startsWith('/')) {
+      return null;
+    }
+    const parts = rawPath.split('/');
+    if (parts.length !== 2 || parts[0] !== userId || !parts[1]) {
+      return null;
+    }
+    return rawPath;
+  } catch {
+    return null;
+  }
+}
+
+function getExtensionFromMime(mimeType: string): 'jpg' | 'png' | 'webp' {
+  const normalized = (mimeType || '').toLowerCase();
+  if (normalized === 'image/png') return 'png';
+  if (normalized === 'image/webp') return 'webp';
+  return 'jpg';
+}
+
+function isBucketOrStorageRlsError(err: any): boolean {
+  const msg = String(err?.message || err?.error || '').toLowerCase();
+  return (
+    msg.includes('bucket not found') ||
+    msg.includes('nosuchbucket') ||
+    msg.includes('row-level security') ||
+    msg.includes('violates row-level security')
+  );
+}
+
+export async function uploadUserAvatar(params: {
+  fileBlob: Blob;
+  mimeType: string;
+  previousAvatarUrl?: string | null;
+}): Promise<{
+  profile: UserProfile | null;
+  avatarUrl: string | null;
+  bucketSetupNeeded?: boolean;
+  error: string | null;
+}> {
+  const { client } = await ensureSupabaseClient();
+  if (!client) {
+    return {
+      profile: null,
+      avatarUrl: null,
+      error: 'Supabase is not configured. Please check VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY.',
+    };
+  }
+
+  // 1. Verify active authenticated session before attempting upload
+  const { data: sessionData, error: sessionError } = await client.auth.getSession();
+  const activeUser = sessionData?.session?.user;
+  if (sessionError || !activeUser) {
+    return {
+      profile: null,
+      avatarUrl: null,
+      error: 'Your session has expired or you are signed out. Please sign in again to upload a profile photo.',
+    };
+  }
+
+  // 2. Validate MIME type & post-optimization blob size (<= 5 MB bucket limit)
+  const validation = validateAvatarFile(
+    { type: params.mimeType, size: params.fileBlob.size },
+    MAX_AVATAR_UPLOAD_BYTES
+  );
+  if (!validation.valid) {
+    return {
+      profile: null,
+      avatarUrl: null,
+      error: validation.error,
+    };
+  }
+
+  // 3. Generate unique path strictly scoped to `<authenticated-user-id>/<unique-file>.<ext>`
+  const ext = getExtensionFromMime(params.mimeType);
+  const randomSuffix = Math.random().toString(36).slice(2, 10);
+  const storagePath = `${activeUser.id}/avatar-${Date.now()}-${randomSuffix}.${ext}`;
+
+  // 4. Upload to `avatars` bucket
+  const { error: uploadError } = await client.storage
+    .from('avatars')
+    .upload(storagePath, params.fileBlob, {
+      contentType: params.mimeType,
+      cacheControl: '3600',
+      upsert: false,
+    });
+
+  if (uploadError) {
+    const needsSetup = isBucketOrStorageRlsError(uploadError);
+    return {
+      profile: null,
+      avatarUrl: null,
+      bucketSetupNeeded: needsSetup,
+      error: needsSetup
+        ? `Supabase Storage "avatars" bucket or RLS policy is not set up yet (${uploadError.message}). Run the Avatars Storage SQL script in your Supabase SQL Editor.`
+        : `Avatar upload failed: ${uploadError.message}`,
+    };
+  }
+
+  // 5. Retrieve public URL
+  const { data: publicUrlData } = client.storage
+    .from('avatars')
+    .getPublicUrl(storagePath);
+
+  const publicUrl = publicUrlData?.publicUrl;
+  if (!publicUrl) {
+    await client.storage.from('avatars').remove([storagePath]).catch(() => {});
+    return {
+      profile: null,
+      avatarUrl: null,
+      error: 'Could not generate a usable public URL for the uploaded avatar.',
+    };
+  }
+
+  // 6. Save `avatar_url` to `public.profiles` without overwriting unrelated columns
+  let updatedRow: any = null;
+  const { data: updateData, error: updateError } = await client
+    .from('profiles')
+    .update({ avatar_url: publicUrl })
+    .eq('id', activeUser.id)
+    .select('*')
+    .maybeSingle();
+
+  if (updateError) {
+    // Clean up newly uploaded storage object since saving to DB failed
+    await client.storage.from('avatars').remove([storagePath]).catch(() => {});
+    return {
+      profile: null,
+      avatarUrl: null,
+      error: `Failed to save avatar URL to your profile: ${updateError.message}`,
+    };
+  }
+
+  if (updateData) {
+    updatedRow = updateData;
+  } else {
+    // If profile row did not exist yet, insert it with safe defaults
+    const fallbackName =
+      activeUser.user_metadata?.display_name ||
+      activeUser.email?.split('@')[0] ||
+      'Cinema Enthusiast';
+    const { data: insertedRow, error: insertError } = await client
+      .from('profiles')
+      .upsert(
+        {
+          id: activeUser.id,
+          display_name: fallbackName,
+          avatar_url: publicUrl,
+        },
+        { onConflict: 'id' }
+      )
+      .select('*')
+      .single();
+
+    if (insertError || !insertedRow) {
+      await client.storage.from('avatars').remove([storagePath]).catch(() => {});
+      return {
+        profile: null,
+        avatarUrl: null,
+        error: `Failed to save avatar URL to your profile: ${
+          insertError?.message || 'Profile row could not be created.'
+        }`,
+      };
+    }
+    updatedRow = insertedRow;
+  }
+
+  // 7. Only after both new upload AND database update succeed, delete previous storage object
+  const oldStoragePath = extractOwnAvatarStoragePath(
+    params.previousAvatarUrl,
+    activeUser.id
+  );
+  if (oldStoragePath && oldStoragePath !== storagePath) {
+    await client.storage
+      .from('avatars')
+      .remove([oldStoragePath])
+      .catch(() => {
+        // Non-fatal if old file was already removed
+      });
+  }
+
+  return {
+    profile: {
+      id: updatedRow.id,
+      email: activeUser.email,
+      username: updatedRow.username || null,
+      displayName: updatedRow.display_name || 'Cinema Enthusiast',
+      bio: updatedRow.bio || '',
+      avatarUrl: updatedRow.avatar_url || publicUrl,
+      favoriteGenres: Array.isArray(updatedRow.favorite_genres)
+        ? updatedRow.favorite_genres
+        : [],
+      createdAt: updatedRow.created_at || activeUser.created_at || new Date().toISOString(),
+      updatedAt: updatedRow.updated_at || new Date().toISOString(),
+    },
+    avatarUrl: updatedRow.avatar_url || publicUrl,
+    error: null,
+  };
+}
+
+export async function removeUserAvatar(
+  previousAvatarUrl?: string | null
+): Promise<{
+  profile: UserProfile | null;
+  error: string | null;
+}> {
+  const { client } = await ensureSupabaseClient();
+  if (!client) {
+    return { profile: null, error: 'Supabase is not configured.' };
+  }
+
+  // 1. Verify active authenticated session
+  const { data: sessionData, error: sessionError } = await client.auth.getSession();
+  const activeUser = sessionData?.session?.user;
+  if (sessionError || !activeUser) {
+    return {
+      profile: null,
+      error: 'Your session has expired or you are signed out. Please sign in again.',
+    };
+  }
+
+  // 2. Set `public.profiles.avatar_url` to NULL without overwriting unrelated columns
+  const { data: updatedRow, error: updateError } = await client
+    .from('profiles')
+    .update({ avatar_url: null })
+    .eq('id', activeUser.id)
+    .select('*')
+    .maybeSingle();
+
+  if (updateError) {
+    return {
+      profile: null,
+      error: `Failed to remove avatar from your profile: ${updateError.message}`,
+    };
+  }
+
+  // 3. Delete previous storage file from user's folder after DB update succeeds
+  const oldStoragePath = extractOwnAvatarStoragePath(
+    previousAvatarUrl,
+    activeUser.id
+  );
+  if (oldStoragePath) {
+    await client.storage
+      .from('avatars')
+      .remove([oldStoragePath])
+      .catch(() => {});
+  }
+
+  if (!updatedRow) {
+    return {
+      profile: null,
+      error: null,
+    };
+  }
+
+  return {
+    profile: {
+      id: updatedRow.id,
+      email: activeUser.email,
+      username: updatedRow.username || null,
+      displayName: updatedRow.display_name || 'Cinema Enthusiast',
+      bio: updatedRow.bio || '',
+      avatarUrl: null,
+      favoriteGenres: Array.isArray(updatedRow.favorite_genres)
+        ? updatedRow.favorite_genres
+        : [],
+      createdAt: updatedRow.created_at || activeUser.created_at || new Date().toISOString(),
+      updatedAt: updatedRow.updated_at || new Date().toISOString(),
     },
     error: null,
   };
