@@ -178,7 +178,7 @@ const MediaCarouselRowComponent: React.FC<MediaCarouselRowProps> = ({
         tabIndex={0}
         role="region"
         aria-label={title}
-        className="flex items-stretch gap-3.5 sm:gap-4 overflow-x-auto pb-2 pt-1 scroll-smooth snap-x snap-mandatory touch-pan-x overscroll-x-contain focus:outline-none [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
+        className="flex items-stretch gap-3.5 sm:gap-4 overflow-x-auto pb-2 pt-1 scroll-smooth snap-x snap-mandatory touch-auto overscroll-x-contain focus:outline-none [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
       >
         {uniqueItems.map((item, idx) => {
           const rankNum = idx + 1;
