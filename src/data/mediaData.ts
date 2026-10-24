@@ -70,7 +70,7 @@ export const MEDIA_ITEMS: MediaItem[] = [
     id: 'severance',
     title: 'Severance',
     type: 'tv',
-    year: 2024,
+    year: 2022,
     seasons: 2,
     totalEpisodes: 19,
     seasonsList: [
@@ -221,7 +221,7 @@ export const MEDIA_ITEMS: MediaItem[] = [
     id: 'succession',
     title: 'Succession',
     type: 'tv',
-    year: 2023,
+    year: 2018,
     seasons: 4,
     totalEpisodes: 39,
     seasonsList: [
@@ -297,7 +297,7 @@ export const MEDIA_ITEMS: MediaItem[] = [
     id: 'the-bear',
     title: 'The Bear',
     type: 'tv',
-    year: 2024,
+    year: 2022,
     seasons: 3,
     totalEpisodes: 28,
     seasonsList: [
@@ -337,7 +337,7 @@ export const MEDIA_ITEMS: MediaItem[] = [
     id: 'arcane',
     title: 'Arcane',
     type: 'tv',
-    year: 2024,
+    year: 2021,
     seasons: 2,
     totalEpisodes: 18,
     seasonsList: [
@@ -376,7 +376,7 @@ export const MEDIA_ITEMS: MediaItem[] = [
     id: 'mindhunter',
     title: 'Mindhunter',
     type: 'tv',
-    year: 2019,
+    year: 2017,
     seasons: 2,
     totalEpisodes: 19,
     seasonsList: [
@@ -482,7 +482,7 @@ export const MEDIA_ITEMS: MediaItem[] = [
     id: 'dark',
     title: 'Dark',
     type: 'tv',
-    year: 2020,
+    year: 2017,
     seasons: 3,
     totalEpisodes: 26,
     seasonsList: [
@@ -615,7 +615,7 @@ export const MEDIA_ITEMS: MediaItem[] = [
     streamOn: ['Paramount+', 'Prime Video'],
     themeColor: '#0284c7',
     posterUrl: 'https://image.tmdb.org/t/p/w500/x2FJsf1ElAgr63Y3PNPtJrcmpoe.jpg',
-    backdropUrl: 'https://image.tmdb.org/t/p/w1280/x2FJsf1ElAgr63Y3PNPtJrcmpoe.jpg',
+    backdropUrl: '',
     posterVisual: {
       bgFrom: '#061726',
       bgTo: '#0c2e4d',

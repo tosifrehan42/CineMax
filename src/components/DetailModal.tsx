@@ -11,6 +11,10 @@ import {
 import { MediaPoster } from './MediaPoster';
 import { fetchTitleDetails, fetchTvSeasonEpisodes } from '../services/mediaApi';
 import {
+  getAuthorizedEpisodeSource,
+  lookupOnlinePlaybackSources,
+} from '../data/onlinePlaybackSources';
+import {
   X,
   Star,
   Play,
@@ -26,6 +30,7 @@ import {
   Loader2,
   Trash2,
   HardDrive,
+  MonitorPlay,
 } from 'lucide-react';
 
 interface DetailModalProps {
@@ -63,6 +68,11 @@ interface DetailModalProps {
     totalKnownEpisodes: number
   ) => void;
   onPlayTrailer: (media: MediaItem) => void;
+  onPlayOnline?: (
+    media: MediaItem,
+    seasonNumber?: number,
+    episodeNumber?: number
+  ) => void;
   allMedia: MediaItem[];
   onSelectSimilar: (media: MediaItem) => void;
   onRemoveFromWatchlist?: (mediaId: string) => void;
@@ -86,6 +96,7 @@ export const DetailModal: React.FC<DetailModalProps> = ({
   onToggleEpisodeWatched,
   onToggleSeasonWatched,
   onPlayTrailer,
+  onPlayOnline,
   allMedia,
   onSelectSimilar,
   onRegisterMedia,
@@ -158,6 +169,11 @@ export const DetailModal: React.FC<DetailModalProps> = ({
   }, [personalNotes]);
 
   const activeMedia = enrichedMedia || media;
+
+  const onlinePlayback = useMemo(
+    () => (activeMedia ? lookupOnlinePlaybackSources(activeMedia) : null),
+    [activeMedia]
+  );
 
   // Compute seasons list for TV shows
   const seasonsList: SeasonSummary[] = useMemo(() => {
@@ -401,6 +417,37 @@ export const DetailModal: React.FC<DetailModalProps> = ({
 
               {/* Action Buttons */}
               <div className="w-full mt-4 space-y-2.5">
+                {onlinePlayback?.available && onPlayOnline ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (activeMedia.type === 'tv') {
+                        const seasonEp =
+                          onlinePlayback.sources.find(
+                            (s) => s.seasonNumber === selectedSeason
+                          ) || onlinePlayback.defaultSource;
+                        onPlayOnline(
+                          activeMedia,
+                          seasonEp?.seasonNumber,
+                          seasonEp?.episodeNumber
+                        );
+                      } else {
+                        onPlayOnline(activeMedia);
+                      }
+                    }}
+                    className="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 font-semibold text-sm shadow-md shadow-emerald-950/30 transition-all hover:scale-[1.01]"
+                  >
+                    <MonitorPlay className="w-4 h-4 text-emerald-400 shrink-0" />
+                    <span>
+                      {activeMedia.type === 'tv'
+                        ? `Play Online (${onlinePlayback.sources.length} Verified ${
+                            onlinePlayback.sources.length === 1 ? 'Episode' : 'Episodes'
+                          })`
+                        : 'Play Online (Full Movie)'}
+                    </span>
+                  </button>
+                ) : null}
+
                 <button
                   onClick={() => onPlayTrailer(activeMedia)}
                   className="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl bg-gradient-to-r from-amber-400 to-amber-500 hover:from-amber-300 hover:to-amber-400 text-slate-950 font-semibold text-sm shadow-md shadow-amber-500/20 transition-all hover:scale-[1.01]"
@@ -463,6 +510,12 @@ export const DetailModal: React.FC<DetailModalProps> = ({
                     <HardDrive className="w-4 h-4 text-amber-400" />
                     <span>Estimate Quality &amp; File Size</span>
                   </button>
+                )}
+
+                {!onlinePlayback?.available && (
+                  <p className="text-[11px] text-slate-500 text-center pt-1">
+                    No authorized online playback source available.
+                  </p>
                 )}
               </div>
 
@@ -850,10 +903,24 @@ export const DetailModal: React.FC<DetailModalProps> = ({
                     const isWatched = watchedSet.has(
                       `${selectedSeason}:${ep.episodeNumber}`
                     );
+                    const verifiedEpisodeSource = getAuthorizedEpisodeSource(
+                      activeMedia,
+                      selectedSeason,
+                      ep.episodeNumber
+                    );
+                    const displayEpName =
+                      verifiedEpisodeSource?.episodeTitle &&
+                      (!ep.name || /^Episode \d+$/i.test(ep.name))
+                        ? verifiedEpisodeSource.episodeTitle
+                        : ep.name;
+                    const displayRuntime =
+                      verifiedEpisodeSource?.durationMinutes || ep.runtime;
+
                     return (
-                      <button
+                      <div
                         key={`${selectedSeason}-${ep.episodeNumber}`}
-                        type="button"
+                        role="button"
+                        tabIndex={0}
                         onClick={() =>
                           onToggleEpisodeWatched?.(
                             activeMedia,
@@ -863,7 +930,19 @@ export const DetailModal: React.FC<DetailModalProps> = ({
                             effectiveTotalEpisodes
                           )
                         }
-                        className={`flex items-center justify-between gap-3 p-2.5 rounded-xl border text-left transition-all ${
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault();
+                            onToggleEpisodeWatched?.(
+                              activeMedia,
+                              selectedSeason,
+                              ep.episodeNumber,
+                              !isWatched,
+                              effectiveTotalEpisodes
+                            );
+                          }
+                        }}
+                        className={`flex items-center justify-between gap-3 p-2.5 rounded-xl border text-left transition-all cursor-pointer ${
                           isWatched
                             ? 'bg-emerald-500/10 border-emerald-500/30 text-white'
                             : 'bg-slate-900/50 border-white/5 text-slate-300 hover:border-white/15 hover:bg-slate-900'
@@ -890,27 +969,51 @@ export const DetailModal: React.FC<DetailModalProps> = ({
                                   isWatched ? 'line-through text-slate-300' : 'text-white'
                                 }`}
                               >
-                                {ep.name}
+                                {displayEpName}
                               </span>
                             </div>
                             <div className="flex items-center gap-2 text-[11px] text-slate-400 font-mono tabular-nums mt-0.5">
                               {ep.airDate && <span>{ep.airDate}</span>}
-                              {ep.airDate && ep.runtime && <span>·</span>}
-                              {ep.runtime && <span>{ep.runtime}m</span>}
+                              {ep.airDate && displayRuntime && <span>·</span>}
+                              {displayRuntime && <span>{displayRuntime}m</span>}
                             </div>
                           </div>
                         </div>
 
-                        <span
-                          className={`text-[10px] font-semibold px-2 py-0.5 rounded shrink-0 ${
-                            isWatched
-                              ? 'text-emerald-300 bg-emerald-500/15'
-                              : 'text-slate-500'
-                          }`}
-                        >
-                          {isWatched ? 'Watched' : 'Mark'}
-                        </span>
-                      </button>
+                        <div className="flex items-center gap-2 shrink-0">
+                          {verifiedEpisodeSource && onPlayOnline && (
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                onPlayOnline(
+                                  activeMedia,
+                                  selectedSeason,
+                                  ep.episodeNumber
+                                );
+                              }}
+                              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 text-[11px] font-semibold transition-colors"
+                              title={`Play S${String(selectedSeason).padStart(
+                                2,
+                                '0'
+                              )}E${String(ep.episodeNumber).padStart(2, '0')} online`}
+                            >
+                              <Play className="w-3 h-3 fill-current" />
+                              <span>Play</span>
+                            </button>
+                          )}
+
+                          <span
+                            className={`text-[10px] font-semibold px-2 py-0.5 rounded shrink-0 ${
+                              isWatched
+                                ? 'text-emerald-300 bg-emerald-500/15'
+                                : 'text-slate-500'
+                            }`}
+                          >
+                            {isWatched ? 'Watched' : 'Mark'}
+                          </span>
+                        </div>
+                      </div>
                     );
                   })}
                 </div>

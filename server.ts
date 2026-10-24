@@ -7,6 +7,7 @@ import { createServer as createViteServer } from 'vite';
 import { MEDIA_ITEMS } from './src/data/mediaData.ts';
 import { EXTRA_ANCHOR_ITEMS, INDIAN_TRENDING_ITEMS } from './src/data/franchiseData.ts';
 import { VERIFIED_TMDB_TRAILERS } from './src/data/verifiedTrailers.ts';
+import { dedupeMediaItems } from './src/utils/mediaIntegrity.ts';
 import type {
   MediaItem,
   CastMember,
@@ -536,21 +537,21 @@ async function getLiveExpandedCatalog(forceRefresh = false): Promise<MediaItem[]
       const backdropUrl = '';
 
       const releaseLabel = entry?.['im:releaseDate']?.label || '';
-      const year = releaseLabel ? parseInt(releaseLabel.slice(0, 4), 10) || 2024 : 2024;
+      const parsedReleaseYear = releaseLabel ? parseInt(releaseLabel.slice(0, 4), 10) : 0;
+      const year = Number.isFinite(parsedReleaseYear) && parsedReleaseYear > 1900 ? parsedReleaseYear : 0;
       const rawGenre = entry?.category?.attributes?.label || 'Drama';
       const normalizedGenre = normalizeGenreName(rawGenre);
       const genres = Array.from(new Set([normalizedGenre, rawGenre !== normalizedGenre ? rawGenre : 'Drama'])).slice(0, 2);
 
-      const director = entry?.['im:artist']?.label || 'Visionary Director';
+      const director = entry?.['im:artist']?.label || 'Acclaimed Filmmaker';
       const synopsis = entry?.summary?.label || `${title} is a feature film directed by ${director}.`;
       const durationMs = Number(entry?.link?.[1]?.['im:duration']?.label || 0);
-      const totalMins = durationMs > 0 ? Math.round(durationMs / 60000) : 124;
-      const runtime = `${Math.floor(totalMins / 60)}h ${totalMins % 60}m`;
+      const totalMins = durationMs > 0 ? Math.round(durationMs / 60000) : 0;
+      const runtime =
+        totalMins > 0 ? `${Math.floor(totalMins / 60)}h ${totalMins % 60}m` : undefined;
 
       const h = hashString(id);
       const palette = PALETTES[h % PALETTES.length];
-      const deterministicRating = Number((7.1 + ((h % 21) / 10)).toFixed(1));
-      const voteCount = `${25 + (h % 450)}k`;
 
       byTitleKey.set(key, {
         id,
@@ -560,8 +561,8 @@ async function getLiveExpandedCatalog(forceRefresh = false): Promise<MediaItem[]
         runtime,
         language: 'en',
         genres,
-        rating: deterministicRating,
-        voteCount,
+        rating: 0,
+        voteCount: '0',
         synopsis,
         tagline: `Directed by ${director}.`,
         director,
@@ -608,7 +609,8 @@ async function getLiveExpandedCatalog(forceRefresh = false): Promise<MediaItem[]
       const id = `tvmaze-tv-${show.id}`;
       const posterUrl = show.image?.original || show.image?.medium || '';
       const backdropUrl = '';
-      const year = show.premiered ? parseInt(show.premiered.slice(0, 4), 10) || 2022 : 2022;
+      const parsedPremiered = show.premiered ? parseInt(show.premiered.slice(0, 4), 10) : 0;
+      const year = Number.isFinite(parsedPremiered) && parsedPremiered > 1900 ? parsedPremiered : 0;
       const rawGenres: string[] = Array.isArray(show.genres) && show.genres.length > 0 ? show.genres : ['Drama'];
       const genres = Array.from(new Set(rawGenres.map(normalizeGenreName))).slice(0, 3);
       if (String(show.type || '').toLowerCase() === 'documentary' && !genres.includes('Documentary')) {
@@ -617,13 +619,15 @@ async function getLiveExpandedCatalog(forceRefresh = false): Promise<MediaItem[]
       if (String(show.type || '').toLowerCase() === 'animation' && !genres.includes('Animation')) {
         genres.unshift('Animation');
       }
-      const rating = Number((show.rating?.average || 7.8).toFixed(1));
+      const rating =
+        typeof show.rating?.average === 'number' && show.rating.average > 0
+          ? Number(show.rating.average.toFixed(1))
+          : 0;
       const synopsis = stripHtml(show.summary) || `${title} is an acclaimed television series.`;
       const networkName = show.network?.name || show.webChannel?.name || 'Max';
 
       const h = hashString(id);
       const palette = PALETTES[h % PALETTES.length];
-      const seasons = Math.max(1, Math.min(8, Math.round((show.weight || 85) / 22)));
       const rawLang = String(show.language || 'English').toLowerCase();
       const langCode = rawLang.startsWith('ja')
         ? 'ja'
@@ -642,11 +646,11 @@ async function getLiveExpandedCatalog(forceRefresh = false): Promise<MediaItem[]
         title,
         type: 'tv',
         year,
-        seasons,
+        seasons: undefined,
         language: langCode,
         genres,
         rating,
-        voteCount: `${40 + (h % 320)}k`,
+        voteCount: '0',
         synopsis,
         tagline: `Original series on ${networkName}.`,
         director: `${networkName} Original Production`,
@@ -671,7 +675,7 @@ async function getLiveExpandedCatalog(forceRefresh = false): Promise<MediaItem[]
     }
   }
 
-  cachedLiveCatalog = Array.from(byTitleKey.values());
+  cachedLiveCatalog = dedupeMediaItems(Array.from(byTitleKey.values()));
   lastCacheTimestamp = now;
   return cachedLiveCatalog;
 }
@@ -786,14 +790,7 @@ async function startServer() {
         mapped.length >= 6
           ? mapped
           : [...mapped, ...fallbackSeedItems];
-      const seenMergedIds = new Set<string>();
-      const finalItems = rawCombined
-        .filter((it) => {
-          if (!it?.id || seenMergedIds.has(it.id)) return false;
-          seenMergedIds.add(it.id);
-          return true;
-        })
-        .slice(0, 20);
+      const finalItems = dedupeMediaItems(rawCombined).slice(0, 20);
       return {
         items: finalItems,
         page,
@@ -1247,8 +1244,10 @@ async function startServer() {
           );
         }
 
-        let items = filteredRaw.map((r, idx) =>
-          mapTmdbItemToMediaItem(r, forcedType, (page - 1) * 20 + idx + 1)
+        let items = dedupeMediaItems(
+          filteredRaw.map((r, idx) =>
+            mapTmdbItemToMediaItem(r, forcedType, (page - 1) * 20 + idx + 1)
+          )
         );
 
         // Apply post-filters when searching or browsing preset categories
@@ -1319,15 +1318,11 @@ async function startServer() {
     try {
       const catalog = await getLiveExpandedCatalog(bypassCache);
       let pool =
-        category === 'trending_india' ? [...INDIAN_TRENDING_ITEMS, ...catalog] : [...catalog];
+        category === 'trending_india' || category === 'hindi_movies' || category === 'south_indian_cinema'
+          ? [...INDIAN_TRENDING_ITEMS, ...EXTRA_ANCHOR_ITEMS, ...catalog]
+          : [...catalog];
 
-      // Deduplicate pool by id
-      const seenIds = new Set<string>();
-      pool = pool.filter((item) => {
-        if (seenIds.has(item.id)) return false;
-        seenIds.add(item.id);
-        return true;
-      });
+      pool = dedupeMediaItems(pool);
 
       // If user searches a specific query, also query live TVMaze search endpoint to find any show on earth
       if (query.length >= 2 && effectiveType !== 'movie') {
@@ -1359,11 +1354,14 @@ async function startServer() {
                 title: show.name,
                 type: 'tv',
                 year: show.premiered ? parseInt(show.premiered.slice(0, 4), 10) || 0 : 0,
-                seasons: 2,
+                seasons: undefined,
                 language: 'en',
                 genres,
-                rating: Number((show.rating?.average || 0).toFixed(1)),
-                voteCount: `${15 + (h % 180)}k`,
+                rating:
+                  typeof show.rating?.average === 'number' && show.rating.average > 0
+                    ? Number(show.rating.average.toFixed(1))
+                    : 0,
+                voteCount: '0',
                 synopsis: stripHtml(show.summary) || `${show.name} is a television series.`,
                 tagline: `Original series on ${networkName}.`,
                 director: `${networkName} Production`,
@@ -1387,6 +1385,8 @@ async function startServer() {
           // Ignore transient search enrichment error
         }
       }
+
+      pool = dedupeMediaItems(pool);
 
       // Filter by media type strictly
       if (effectiveType !== 'all') {
@@ -1414,8 +1414,10 @@ async function startServer() {
         );
       } else if (category === 'documentaries') {
         pool = pool.filter((item) =>
-          item.genres.some((g) => g.toLowerCase() === 'documentary' || g.toLowerCase() === 'history')
+          item.genres.some((g) => g.toLowerCase() === 'documentary')
         );
+      } else if (category === 'upcoming_movies') {
+        pool = pool.filter((item) => item.type === 'movie' && item.year >= 2024);
       } else if (category === 'now_playing_movies' || category === 'recently_released') {
         pool = pool.filter((item) => item.year >= 2023);
       }

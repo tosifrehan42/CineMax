@@ -3,6 +3,7 @@ import { MediaItem, WatchStatus } from '../types';
 import { MOODS, GENRES } from '../data/mediaData';
 import { MediaCard } from './MediaCard';
 import { CatalogueCategory, fetchCatalogue } from '../services/mediaApi';
+import { dedupeMediaItems } from '../utils/mediaIntegrity';
 import {
   Search,
   RotateCcw,
@@ -205,21 +206,10 @@ const DiscoverViewComponent: React.FC<DiscoverViewProps> = ({
           onRegisterMedia(response.items);
         }
 
-        const uniqueResponseItems: MediaItem[] = [];
-        const responseSeen = new Set<string>();
-        for (const it of response.items) {
-          if (it?.id && !responseSeen.has(it.id)) {
-            responseSeen.add(it.id);
-            uniqueResponseItems.push(it);
-          }
-        }
+        const uniqueResponseItems = dedupeMediaItems(response.items);
 
         if (mode === 'append') {
-          setItems((prev) => {
-            const seen = new Set(prev.map((i) => i.id));
-            const uniqueNew = uniqueResponseItems.filter((i) => !seen.has(i.id));
-            return [...prev, ...uniqueNew];
-          });
+          setItems((prev) => dedupeMediaItems([...prev, ...uniqueResponseItems]));
         } else {
           setItems(uniqueResponseItems);
         }

@@ -1,6 +1,7 @@
 import React, { useRef, useState, useEffect, useCallback, useMemo } from 'react';
 import { MediaItem, WatchStatus } from '../types';
 import { MediaCard } from './MediaCard';
+import { dedupeMediaItems } from '../utils/mediaIntegrity';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 
 interface MediaCarouselRowProps {
@@ -47,12 +48,7 @@ const MediaCarouselRowComponent: React.FC<MediaCarouselRowProps> = ({
 
   const uniqueItems = useMemo(() => {
     if (!items || items.length === 0) return [];
-    const seen = new Set<string>();
-    return items.filter((item) => {
-      if (!item?.id || seen.has(item.id)) return false;
-      seen.add(item.id);
-      return true;
-    });
+    return dedupeMediaItems(items);
   }, [items]);
 
   const updateScrollButtons = useCallback(() => {

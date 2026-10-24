@@ -1,5 +1,7 @@
 import { FranchiseCollection, MediaItem } from '../types';
 import { MEDIA_ITEMS } from './mediaData';
+import { AUTHORIZED_PLAYABLE_MEDIA_ITEMS } from './onlinePlaybackSources';
+import { dedupeMediaItems } from '../utils/mediaIntegrity';
 
 const findSeed = (id: string): MediaItem | undefined =>
   MEDIA_ITEMS.find((m) => m.id === id);
@@ -71,8 +73,8 @@ export const INDIAN_TRENDING_ITEMS: MediaItem[] = [
     popularityRank: 7,
     streamOn: ['Prime Video', 'Netflix'],
     themeColor: '#e08a3c',
-    posterUrl: 'https://image.tmdb.org/t/p/w500/b0PlSFdDwbyK0cf5RxwDpaOJQvQ.jpg',
-    backdropUrl: 'https://image.tmdb.org/t/p/w1280/9SSEUrSqhljBMzRe4aBTh17rUaC.jpg',
+    posterUrl: '',
+    backdropUrl: '',
     posterVisual: {
       bgFrom: '#1c120a',
       bgTo: '#3f210d',
@@ -81,7 +83,7 @@ export const INDIAN_TRENDING_ITEMS: MediaItem[] = [
     },
   },
   {
-    id: 'tmdb-movie-1197306',
+    id: 'tmdb-movie-1266798',
     title: 'Maharaja',
     type: 'movie',
     year: 2024,
@@ -105,8 +107,8 @@ export const INDIAN_TRENDING_ITEMS: MediaItem[] = [
     popularityRank: 9,
     streamOn: ['Netflix'],
     themeColor: '#e11d48',
-    posterUrl: 'https://image.tmdb.org/t/p/w500/nEufeZlyAOLqO2brrs0yeF1lgXO.jpg',
-    backdropUrl: 'https://image.tmdb.org/t/p/w1280/z121dSTR7PY9KxKuvwiIFSYW8cf.jpg',
+    posterUrl: '',
+    backdropUrl: '',
     posterVisual: {
       bgFrom: '#20070c',
       bgTo: '#450a16',
@@ -141,8 +143,8 @@ export const INDIAN_TRENDING_ITEMS: MediaItem[] = [
     popularityRank: 10,
     streamOn: ['Prime Video'],
     themeColor: '#10b981',
-    posterUrl: 'https://image.tmdb.org/t/p/w500/pPHpeI2X1qEd1CS1SeyrdhZ4qnT.jpg',
-    backdropUrl: 'https://image.tmdb.org/t/p/w1280/hPea3Qy5Gd6z4kJLUruBbwAH8Rm.jpg',
+    posterUrl: '',
+    backdropUrl: '',
     posterVisual: {
       bgFrom: '#061f18',
       bgTo: '#0b3d30',
@@ -174,8 +176,8 @@ export const INDIAN_TRENDING_ITEMS: MediaItem[] = [
     popularityRank: 12,
     streamOn: ['Prime Video'],
     themeColor: '#f97316',
-    posterUrl: 'https://image.tmdb.org/t/p/w500/jFt1gS4BGHlK8xt76Y81Alp4dbt.jpg',
-    backdropUrl: 'https://image.tmdb.org/t/p/w1280/i0Y0wP8H6SRgjr6QmuwbtQbS24D.jpg',
+    posterUrl: '',
+    backdropUrl: '',
     posterVisual: {
       bgFrom: '#1c0c04',
       bgTo: '#3b1606',
@@ -209,8 +211,8 @@ export const INDIAN_TRENDING_ITEMS: MediaItem[] = [
     popularityRank: 14,
     streamOn: ['Netflix'],
     themeColor: '#e08a3c',
-    posterUrl: 'https://image.tmdb.org/t/p/w500/p2lVAcPuRPSO8Al6hDDGw0OgMi8.jpg',
-    backdropUrl: 'https://image.tmdb.org/t/p/w1280/wPjtacig0kIkVcTQmXoNt6jbMwo.jpg',
+    posterUrl: '',
+    backdropUrl: '',
     posterVisual: {
       bgFrom: '#1c120a',
       bgTo: '#3f210d',
@@ -279,7 +281,7 @@ export const INDIAN_TRENDING_ITEMS: MediaItem[] = [
     streamOn: ['Prime Video', 'Netflix'],
     themeColor: '#0ea5e9',
     posterUrl: 'https://image.tmdb.org/t/p/w500/66A9MqXOyVFCssoloscw79z8Tew.jpg',
-    backdropUrl: 'https://image.tmdb.org/t/p/w1280/wPjtacig0kIkVcTQmXoNt6jbMwo.jpg',
+    backdropUrl: '',
     posterVisual: {
       bgFrom: '#041829',
       bgTo: '#0b2b40',
@@ -419,8 +421,8 @@ const DUNE_PROPHECY: MediaItem = {
   contentRating: 'TV-MA',
   streamOn: ['Max', 'JioCinema'],
   themeColor: '#e08a3c',
-  posterUrl: 'https://image.tmdb.org/t/p/w500/1pdfLvkbY9ohJlCjQH2CZjjYVvJ.jpg',
-  backdropUrl: 'https://image.tmdb.org/t/p/w1280/xOMo8BRK7PfcJv9JCnx7s5hj0PX.jpg',
+  posterUrl: '',
+  backdropUrl: '',
   posterVisual: {
     bgFrom: '#1c120a',
     bgTo: '#3f210d',
@@ -846,8 +848,8 @@ export const REGIONAL_AND_GENRE_ANCHOR_ITEMS: MediaItem[] = [
     popularityRank: 13,
     streamOn: ['Prime Video', 'Netflix'],
     themeColor: '#f97316',
-    posterUrl: 'https://image.tmdb.org/t/p/w500/nEufeZlyAOLqO2brrs0yeF1lgXO.jpg',
-    backdropUrl: 'https://image.tmdb.org/t/p/w1280/i0Y0wP8H6SRgjr6QmuwbtQbS24D.jpg',
+    posterUrl: '',
+    backdropUrl: '',
     posterVisual: {
       bgFrom: '#1c0c04',
       bgTo: '#3b1606',
@@ -880,8 +882,8 @@ export const REGIONAL_AND_GENRE_ANCHOR_ITEMS: MediaItem[] = [
     popularityRank: 15,
     streamOn: ['Disney+ Hotstar', 'ZEE5'],
     themeColor: '#e11d48',
-    posterUrl: 'https://image.tmdb.org/t/p/w500/b0PlSFdDwbyK0cf5RxwDpaOJQvQ.jpg',
-    backdropUrl: 'https://image.tmdb.org/t/p/w1280/z121dSTR7PY9KxKuvwiIFSYW8cf.jpg',
+    posterUrl: '',
+    backdropUrl: '',
     posterVisual: {
       bgFrom: '#20070c',
       bgTo: '#450a16',
@@ -913,8 +915,8 @@ export const REGIONAL_AND_GENRE_ANCHOR_ITEMS: MediaItem[] = [
     popularityRank: 17,
     streamOn: ['Prime Video', 'Disney+ Hotstar'],
     themeColor: '#f59e0b',
-    posterUrl: 'https://image.tmdb.org/t/p/w500/jFt1gS4BGHlK8xt76Y81Alp4dbt.jpg',
-    backdropUrl: 'https://image.tmdb.org/t/p/w1280/9SSEUrSqhljBMzRe4aBTh17rUaC.jpg',
+    posterUrl: '',
+    backdropUrl: '',
     posterVisual: {
       bgFrom: '#1c120a',
       bgTo: '#3f210d',
@@ -923,7 +925,7 @@ export const REGIONAL_AND_GENRE_ANCHOR_ITEMS: MediaItem[] = [
     },
   },
   {
-    id: 'tmdb-movie-1214509',
+    id: 'tmdb-movie-1160164',
     title: '12th Fail',
     type: 'movie',
     year: 2023,
@@ -946,8 +948,8 @@ export const REGIONAL_AND_GENRE_ANCHOR_ITEMS: MediaItem[] = [
     popularityRank: 20,
     streamOn: ['Disney+ Hotstar'],
     themeColor: '#0ea5e9',
-    posterUrl: 'https://image.tmdb.org/t/p/w500/66A9MqXOyVFCssoloscw79z8Tew.jpg',
-    backdropUrl: 'https://image.tmdb.org/t/p/w1280/wPjtacig0kIkVcTQmXoNt6jbMwo.jpg',
+    posterUrl: '',
+    backdropUrl: '',
     posterVisual: {
       bgFrom: '#041829',
       bgTo: '#0b2b40',
@@ -1071,8 +1073,8 @@ export const REGIONAL_AND_GENRE_ANCHOR_ITEMS: MediaItem[] = [
     contentRating: 'TV-G',
     streamOn: ['BBC iPlayer', 'Max', 'Discovery+'],
     themeColor: '#10b981',
-    posterUrl: 'https://image.tmdb.org/t/p/w500/t9a72F7fI3b5z2z1q5W4x0A8c6.jpg',
-    backdropUrl: 'https://image.tmdb.org/t/p/w1280/eIi3klFf7mp3oL5EEF4mLIDs26r.jpg',
+    posterUrl: '',
+    backdropUrl: '',
     posterVisual: {
       bgFrom: '#061f18',
       bgTo: '#0b3d30',
@@ -1104,8 +1106,8 @@ export const REGIONAL_AND_GENRE_ANCHOR_ITEMS: MediaItem[] = [
     contentRating: 'TV-MA',
     streamOn: ['Netflix', 'ESPN+'],
     themeColor: '#e11d48',
-    posterUrl: 'https://image.tmdb.org/t/p/w500/oYuLEt3zVCKq57qu2F8dT7NIa6f.jpg',
-    backdropUrl: 'https://image.tmdb.org/t/p/w1280/8ZTVqvKDQ8emSGUEMjsS4yHAwrp.jpg',
+    posterUrl: '',
+    backdropUrl: '',
     posterVisual: {
       bgFrom: '#20070c',
       bgTo: '#450a16',
@@ -1118,6 +1120,7 @@ export const REGIONAL_AND_GENRE_ANCHOR_ITEMS: MediaItem[] = [
 const RAW_EXTRA_ANCHOR_ITEMS: MediaItem[] = [
   ...INDIAN_TRENDING_ITEMS,
   ...REGIONAL_AND_GENRE_ANCHOR_ITEMS,
+  ...AUTHORIZED_PLAYABLE_MEDIA_ITEMS,
   DUNE_PART_ONE,
   DUNE_PROPHECY,
   BATMAN_BEGINS,
@@ -1131,8 +1134,7 @@ const RAW_EXTRA_ANCHOR_ITEMS: MediaItem[] = [
   JOHN_WICK_4,
 ];
 
-export const EXTRA_ANCHOR_ITEMS: MediaItem[] = Array.from(
-  new Map(RAW_EXTRA_ANCHOR_ITEMS.map((item) => [item.id, item])).values()
-);
+export const EXTRA_ANCHOR_ITEMS: MediaItem[] = dedupeMediaItems(RAW_EXTRA_ANCHOR_ITEMS);
+
 
 

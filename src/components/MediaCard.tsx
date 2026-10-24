@@ -337,6 +337,10 @@ export const MediaCard = React.memo(
   MediaCardComponent,
   (prev, next) =>
     prev.media.id === next.media.id &&
+    prev.media.title === next.media.title &&
+    prev.media.year === next.media.year &&
+    prev.media.runtime === next.media.runtime &&
+    prev.media.seasons === next.media.seasons &&
     prev.media.posterUrl === next.media.posterUrl &&
     prev.media.rating === next.media.rating &&
     prev.isInWatchlist === next.isInWatchlist &&

@@ -67,6 +67,45 @@ export interface TrailerLookupResult {
   reason?: string;
 }
 
+export type OnlineContentKind = 'full_movie' | 'full_episode';
+
+export interface AuthorizedOnlineSource {
+  id: string;
+  mediaId: string;
+  tmdbId: number;
+  mediaType: MediaType;
+  title: string;
+  contentKind: OnlineContentKind;
+  providerName: string;
+  channelName: string;
+  channelUrl: string;
+  youtubeVideoId: string;
+  officialWatchUrl: string;
+  language: string;
+  languageLabel: string;
+  subtitles?: string[];
+  durationMinutes: number;
+  resolutionLabel?: string;
+  licenseStatus: string;
+  seasonNumber?: number;
+  episodeNumber?: number;
+  episodeTitle?: string;
+  synopsis?: string;
+  embedAllowed: boolean;
+}
+
+export interface OnlinePlaybackLookupResult {
+  available: boolean;
+  mediaType: MediaType;
+  tmdbId: number | null;
+  canonicalKey: string;
+  sources: AuthorizedOnlineSource[];
+  seasons: number[];
+  defaultSource: AuthorizedOnlineSource | null;
+  unavailableReason?: string;
+}
+
+
 export interface MediaItem {
   id: string;
   title: string;

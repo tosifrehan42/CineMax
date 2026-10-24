@@ -19,6 +19,7 @@ import {
   INDIAN_TRENDING_ITEMS,
 } from '../data/franchiseData';
 import { CatalogueCategory, fetchCatalogue } from '../services/mediaApi';
+import { dedupeMediaItems, getCanonicalMediaKey } from '../utils/mediaIntegrity';
 import {
   Flame,
   Film,
@@ -61,14 +62,7 @@ interface HomeViewProps {
 
 const ROW_BATCH_SIZE = 4;
 
-const dedupeById = (list: MediaItem[]): MediaItem[] => {
-  const seen = new Set<string>();
-  return list.filter((item) => {
-    if (!item?.id || seen.has(item.id)) return false;
-    seen.add(item.id);
-    return true;
-  });
-};
+const dedupeById = (list: MediaItem[]): MediaItem[] => dedupeMediaItems(list);
 
 interface OttRowsState {
   trendingIndia: MediaItem[];
@@ -134,7 +128,11 @@ const HomeViewComponent: React.FC<HomeViewProps> = ({
     topRatedSeries: dedupeById(
       [...initialItems].filter((i) => i.type === 'tv').sort((a, b) => b.rating - a.rating)
     ),
-    upcomingItems: dedupeById([...initialItems].sort((a, b) => b.year - a.year)),
+    upcomingItems: dedupeById(
+      [...initialItems, ...EXTRA_ANCHOR_ITEMS]
+        .filter((i) => i.type === 'movie' && i.year >= 2024)
+        .sort((a, b) => b.year - a.year || b.rating - a.rating)
+    ),
     hindiMovies: dedupeById(
       [...INDIAN_TRENDING_ITEMS, ...EXTRA_ANCHOR_ITEMS].filter(
         (i) => (i.language || '').toLowerCase() === 'hi'
@@ -461,13 +459,15 @@ const HomeViewComponent: React.FC<HomeViewProps> = ({
 
   // Cross-row deduplication helper so the same exact cards don't dominate every standard row
   const deduplicatedStandardRows = useMemo(() => {
-    const usedIds = new Set<string>(featuredHeroItems.slice(0, 2).map((i) => i.id));
+    const usedKeys = new Set<string>(
+      featuredHeroItems.slice(0, 2).map((i) => getCanonicalMediaKey(i))
+    );
 
     const takeDistinct = (source: MediaItem[], minKeep = 6, maxKeep = 14): MediaItem[] => {
-      const filtered = filterByHub(source);
-      const fresh = filtered.filter((i) => !usedIds.has(i.id));
+      const filtered = dedupeMediaItems(filterByHub(source));
+      const fresh = filtered.filter((i) => !usedKeys.has(getCanonicalMediaKey(i)));
       const chosen = (fresh.length >= minKeep ? fresh : filtered).slice(0, maxKeep);
-      chosen.slice(0, 5).forEach((i) => usedIds.add(i.id));
+      chosen.slice(0, 5).forEach((i) => usedKeys.add(getCanonicalMediaKey(i)));
       return chosen;
     };
 

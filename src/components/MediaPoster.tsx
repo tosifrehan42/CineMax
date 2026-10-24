@@ -299,6 +299,8 @@ export const MediaPoster = React.memo(
   MediaPosterComponent,
   (prev, next) =>
     prev.media.id === next.media.id &&
+    prev.media.title === next.media.title &&
+    prev.media.year === next.media.year &&
     prev.media.posterUrl === next.media.posterUrl &&
     prev.media.backdropUrl === next.media.backdropUrl &&
     prev.aspect === next.aspect &&

@@ -2,6 +2,11 @@ import { MEDIA_ITEMS } from '../data/mediaData';
 import { EXTRA_ANCHOR_ITEMS, INDIAN_TRENDING_ITEMS } from '../data/franchiseData';
 import { VERIFIED_TMDB_TRAILERS } from '../data/verifiedTrailers';
 import {
+  dedupeMediaItems,
+  extractCanonicalTmdbIdentity,
+  SEED_TO_TMDB_ID,
+} from '../utils/mediaIntegrity';
+import {
   CastMember,
   EpisodeInfo,
   MediaItem,
@@ -282,24 +287,24 @@ async function getClientLiveExpandedCatalog(forceRefresh = false): Promise<Media
         const backdropUrl = '';
 
         const releaseLabel = entry?.['im:releaseDate']?.label || '';
-        const year = releaseLabel ? parseInt(releaseLabel.slice(0, 4), 10) || 2024 : 2024;
+        const parsedReleaseYear = releaseLabel ? parseInt(releaseLabel.slice(0, 4), 10) : 0;
+        const year = Number.isFinite(parsedReleaseYear) && parsedReleaseYear > 1900 ? parsedReleaseYear : 0;
         const rawGenre = entry?.category?.attributes?.label || 'Drama';
         const normalizedGenre = normalizeGenreName(rawGenre);
         const genres = Array.from(
           new Set([normalizedGenre, rawGenre !== normalizedGenre ? normalizeGenreName(rawGenre) : 'Drama'])
         ).slice(0, 2);
 
-        const director = entry?.['im:artist']?.label || 'Visionary Director';
+        const director = entry?.['im:artist']?.label || 'Acclaimed Filmmaker';
         const synopsis =
           entry?.summary?.label || `${title} is a feature film directed by ${director}.`;
         const durationMs = Number(entry?.link?.[1]?.['im:duration']?.label || 0);
-        const totalMins = durationMs > 0 ? Math.round(durationMs / 60000) : 124;
-        const runtime = `${Math.floor(totalMins / 60)}h ${totalMins % 60}m`;
+        const totalMins = durationMs > 0 ? Math.round(durationMs / 60000) : 0;
+        const runtime =
+          totalMins > 0 ? `${Math.floor(totalMins / 60)}h ${totalMins % 60}m` : undefined;
 
         const h = hashString(id);
         const palette = PALETTES[h % PALETTES.length];
-        const deterministicRating = Number((7.1 + (h % 21) / 10).toFixed(1));
-        const voteCount = `${25 + (h % 450)}k`;
 
         byTitleKey.set(key, {
           id,
@@ -309,8 +314,8 @@ async function getClientLiveExpandedCatalog(forceRefresh = false): Promise<Media
           runtime,
           language: 'en',
           genres,
-          rating: deterministicRating,
-          voteCount,
+          rating: 0,
+          voteCount: '0',
           synopsis,
           tagline: `Directed by ${director}.`,
           director,
@@ -359,7 +364,8 @@ async function getClientLiveExpandedCatalog(forceRefresh = false): Promise<Media
         const id = `tvmaze-tv-${show.id}`;
         const posterUrl = show.image?.original || show.image?.medium || '';
         const backdropUrl = '';
-        const year = show.premiered ? parseInt(show.premiered.slice(0, 4), 10) || 2022 : 2022;
+        const parsedPremiered = show.premiered ? parseInt(show.premiered.slice(0, 4), 10) : 0;
+        const year = Number.isFinite(parsedPremiered) && parsedPremiered > 1900 ? parsedPremiered : 0;
         const rawGenres: string[] =
           Array.isArray(show.genres) && show.genres.length > 0 ? show.genres : ['Drama'];
         const showTypeStr = String(show.type || '').toLowerCase();
@@ -369,14 +375,16 @@ async function getClientLiveExpandedCatalog(forceRefresh = false): Promise<Media
           ? ['Animation', ...rawGenres]
           : rawGenres;
         const genres = Array.from(new Set(combinedRawGenres.map(normalizeGenreName))).slice(0, 3);
-        const rating = Number((show.rating?.average || 7.8).toFixed(1));
+        const rating =
+          typeof show.rating?.average === 'number' && show.rating.average > 0
+            ? Number(show.rating.average.toFixed(1))
+            : 0;
         const synopsis =
           stripHtml(show.summary) || `${title} is an acclaimed television series.`;
         const networkName = show.network?.name || show.webChannel?.name || 'Max';
 
         const h = hashString(id);
         const palette = PALETTES[h % PALETTES.length];
-        const seasons = Math.max(1, Math.min(8, Math.round((show.weight || 85) / 22)));
         const rawLang = String(show.language || 'English').toLowerCase();
         const langCode = rawLang.startsWith('ja')
           ? 'ja'
@@ -395,11 +403,11 @@ async function getClientLiveExpandedCatalog(forceRefresh = false): Promise<Media
           title,
           type: 'tv',
           year,
-          seasons,
+          seasons: undefined,
           language: langCode,
           genres,
           rating,
-          voteCount: `${40 + (h % 320)}k`,
+          voteCount: '0',
           synopsis,
           tagline: `Original series on ${networkName}.`,
           director: `${networkName} Original Production`,
@@ -424,7 +432,7 @@ async function getClientLiveExpandedCatalog(forceRefresh = false): Promise<Media
       }
     }
 
-    const result = Array.from(byTitleKey.values());
+    const result = dedupeMediaItems(Array.from(byTitleKey.values()));
     if (result.length > 20) {
       cachedLiveCatalog = result;
       lastCacheTimestamp = Date.now();
@@ -450,7 +458,13 @@ async function resolveClientCatalogue(
   const effectiveType: 'all' | 'movie' | 'tv' =
     rawType === 'movie' || rawType === 'tv'
       ? rawType
-      : category.includes('movies') || category === 'hindi_movies'
+      : category === 'trending_movies' ||
+        category === 'now_playing_movies' ||
+        category === 'top_10_movies' ||
+        category === 'popular_movies' ||
+        category === 'top_rated_movies' ||
+        category === 'upcoming_movies' ||
+        category === 'south_indian_cinema'
       ? 'movie'
       : category.includes('_tv')
       ? 'tv'
@@ -474,13 +488,7 @@ async function resolveClientCatalogue(
       ? [...INDIAN_TRENDING_ITEMS, ...EXTRA_ANCHOR_ITEMS, ...catalog]
       : [...catalog];
 
-  // Deduplicate by id
-  const seenIds = new Set<string>();
-  pool = pool.filter((item) => {
-    if (seenIds.has(item.id)) return false;
-    seenIds.add(item.id);
-    return true;
-  });
+  pool = dedupeMediaItems(pool);
 
   // Live TVMaze search enrichment when user queries a specific show
   if (query.length >= 2 && effectiveType !== 'movie') {
@@ -513,11 +521,14 @@ async function resolveClientCatalogue(
             title: show.name,
             type: 'tv',
             year: show.premiered ? parseInt(show.premiered.slice(0, 4), 10) || 0 : 0,
-            seasons: 2,
+            seasons: undefined,
             language: 'en',
             genres,
-            rating: Number((show.rating?.average || 0).toFixed(1)),
-            voteCount: `${15 + (h % 180)}k`,
+            rating:
+              typeof show.rating?.average === 'number' && show.rating.average > 0
+                ? Number(show.rating.average.toFixed(1))
+                : 0,
+            voteCount: '0',
             synopsis: stripHtml(show.summary) || `${show.name} is a television series.`,
             tagline: `Original series on ${networkName}.`,
             director: `${networkName} Production`,
@@ -541,6 +552,8 @@ async function resolveClientCatalogue(
       if (err?.name === 'AbortError') throw err;
     }
   }
+
+  pool = dedupeMediaItems(pool);
 
   // Filter by media type strictly
   if (effectiveType !== 'all') {
@@ -569,6 +582,8 @@ async function resolveClientCatalogue(
     pool = pool.filter((item) =>
       item.genres.some((g) => g.toLowerCase() === 'documentary')
     );
+  } else if (category === 'upcoming_movies') {
+    pool = pool.filter((item) => item.type === 'movie' && item.year >= 2024);
   } else if (category === 'now_playing_movies' || category === 'recently_released') {
     pool = pool.filter((item) => item.year >= 2023);
   }
@@ -948,32 +963,7 @@ export async function fetchTvSeasonEpisodes(
 // Official TMDB Trailer & Video Lookup (Server Proxy + Static Host Fallback)
 // ============================================================================
 
-export const SEED_TO_TMDB_ID: Record<string, { mediaType: 'movie' | 'tv'; tmdbId: number }> = {
-  'dune-part-two': { mediaType: 'movie', tmdbId: 693134 },
-  'dune-part-one': { mediaType: 'movie', tmdbId: 438631 },
-  severance: { mediaType: 'tv', tmdbId: 95396 },
-  oppenheimer: { mediaType: 'movie', tmdbId: 872585 },
-  shogun: { mediaType: 'tv', tmdbId: 126308 },
-  'blade-runner-2049': { mediaType: 'movie', tmdbId: 335984 },
-  'blade-runner-1982': { mediaType: 'movie', tmdbId: 78 },
-  succession: { mediaType: 'tv', tmdbId: 76331 },
-  interstellar: { mediaType: 'movie', tmdbId: 157336 },
-  'the-bear': { mediaType: 'tv', tmdbId: 136315 },
-  arcane: { mediaType: 'tv', tmdbId: 94605 },
-  mindhunter: { mediaType: 'tv', tmdbId: 67744 },
-  'past-lives': { mediaType: 'movie', tmdbId: 666277 },
-  'poor-things': { mediaType: 'movie', tmdbId: 792307 },
-  dark: { mediaType: 'tv', tmdbId: 70523 },
-  'the-batman': { mediaType: 'movie', tmdbId: 414906 },
-  'the-dark-knight': { mediaType: 'movie', tmdbId: 155 },
-  'joker-2019': { mediaType: 'movie', tmdbId: 475557 },
-  chernobyl: { mediaType: 'tv', tmdbId: 87108 },
-  arrival: { mediaType: 'movie', tmdbId: 329865 },
-  'spirited-away': { mediaType: 'movie', tmdbId: 129 },
-  fallout: { mediaType: 'tv', tmdbId: 106379 },
-  'true-detective-s1': { mediaType: 'tv', tmdbId: 46648 },
-  'everything-everywhere-all-at-once': { mediaType: 'movie', tmdbId: 545611 },
-};
+export { SEED_TO_TMDB_ID };
 
 const clientTrailerCache = new Map<string, { timestamp: number; data: TrailerLookupResult }>();
 const CLIENT_TRAILER_CACHE_TTL_MS = 1000 * 60 * 30; // 30 minutes
@@ -1092,29 +1082,7 @@ export function extractDirectTmdbId(
   mediaId: string,
   mediaType: 'movie' | 'tv'
 ): { mediaType: 'movie' | 'tv'; tmdbId: number } | null {
-  const cleanId = String(mediaId || '').trim();
-  const seedMatch = SEED_TO_TMDB_ID[cleanId];
-  if (seedMatch) {
-    return seedMatch;
-  }
-
-  const prefixMatch = cleanId.match(/^tmdb-(movie|tv)-(\d+)$/i);
-  if (prefixMatch) {
-    const mType = prefixMatch[1].toLowerCase() === 'tv' ? 'tv' : 'movie';
-    const numId = parseInt(prefixMatch[2], 10);
-    if (Number.isFinite(numId) && numId > 0) {
-      return { mediaType: mType, tmdbId: numId };
-    }
-  }
-
-  if (/^\d+$/.test(cleanId)) {
-    const numId = parseInt(cleanId, 10);
-    if (Number.isFinite(numId) && numId > 0) {
-      return { mediaType, tmdbId: numId };
-    }
-  }
-
-  return null;
+  return extractCanonicalTmdbIdentity(mediaId, mediaType);
 }
 
 /**

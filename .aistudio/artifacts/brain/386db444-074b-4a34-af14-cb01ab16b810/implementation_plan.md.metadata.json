@@ -1,6 +1,6 @@
 {
-  "summary":  "Implementation plan to eliminate the intermittent 1–2 second mobile scrolling freeze in CineMax through progressive IntersectionObserver row batching, low-priority React transitions for secondary feed hydration, instant browser-native poster painting without per-card load state churn, removal of content-visibility layout thrashing on horizontal carousels, and lightweight solid mobile navigation surfaces.",
-  "updatedAt":  "2026-10-24T09:10:22.088867991Z",
+  "summary":  "Implementation plan to eliminate duplicate and cross-title poster/backdrop URLs, enforce canonical (mediaType + tmdbId) deduplication across all carousels and grids, standardize TV first-air years and authentic metadata, and add automated catalogue integrity verification.",
+  "updatedAt":  "2026-10-24T09:55:06.113699013Z",
   "requestFeedback":  true,
   "userFacing":  true
 }

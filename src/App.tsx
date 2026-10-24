@@ -14,6 +14,11 @@ import { MEDIA_ITEMS } from './data/mediaData';
 import { EXTRA_ANCHOR_ITEMS } from './data/franchiseData';
 import { CatalogueCategory } from './services/mediaApi';
 import {
+  dedupeMediaItems,
+  getCanonicalMediaKey,
+  mergeMediaItemMetadata,
+} from './utils/mediaIntegrity';
+import {
   ensureSupabaseClient,
   fetchUserProfile,
   updateUserProfile,
@@ -70,6 +75,11 @@ const DetailModal = React.lazy(() =>
 );
 const TrailerModal = React.lazy(() =>
   import('./components/TrailerModal').then((m) => ({ default: m.TrailerModal }))
+);
+const OnlinePlayerModal = React.lazy(() =>
+  import('./components/OnlinePlayerModal').then((m) => ({
+    default: m.OnlinePlayerModal,
+  }))
 );
 const SurpriseMeModal = React.lazy(() =>
   import('./components/SurpriseMeModal').then((m) => ({ default: m.SurpriseMeModal }))
@@ -212,6 +222,11 @@ export default function App() {
   }, []);
   const [selectedMedia, setSelectedMedia] = useState<MediaItem | null>(null);
   const [trailerMedia, setTrailerMedia] = useState<MediaItem | null>(null);
+  const [onlinePlaybackTarget, setOnlinePlaybackTarget] = useState<{
+    media: MediaItem;
+    seasonNumber?: number;
+    episodeNumber?: number;
+  } | null>(null);
   const [isSurpriseOpen, setIsSurpriseOpen] = useState(false);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
@@ -228,34 +243,37 @@ export default function App() {
   >(undefined);
 
   // Dynamic registry of all loaded media items across pages so Watchlist, Profile & Roulette have full access
-  const [knownMedia, setKnownMedia] = useState<MediaItem[]>(() => {
-    const map = new Map<string, MediaItem>();
-    for (const item of [...MEDIA_ITEMS, ...EXTRA_ANCHOR_ITEMS]) {
-      if (!map.has(item.id)) map.set(item.id, item);
-    }
-    return Array.from(map.values());
-  });
+  const [knownMedia, setKnownMedia] = useState<MediaItem[]>(() =>
+    dedupeMediaItems([...MEDIA_ITEMS, ...EXTRA_ANCHOR_ITEMS])
+  );
 
   const handleRegisterMedia = useCallback((newItems: MediaItem[]) => {
     setKnownMedia((prev) => {
-      const existingMap = new Map(prev.map((m) => [m.id, m]));
+      const canonicalMap = new Map<string, MediaItem>();
+      for (const m of prev) {
+        canonicalMap.set(getCanonicalMediaKey(m), m);
+      }
       let changed = false;
       for (const item of newItems) {
         if (!item || !item.id) continue;
-        const existing = existingMap.get(item.id);
+        const cKey = getCanonicalMediaKey(item);
+        const existing = canonicalMap.get(cKey);
         if (!existing) {
-          existingMap.set(item.id, item);
+          canonicalMap.set(cKey, item);
           changed = true;
         } else if (
+          (!existing.posterUrl && item.posterUrl) ||
+          (!existing.backdropUrl && item.backdropUrl) ||
           (!existing.seasonsList && item.seasonsList) ||
-          (!existing.totalEpisodes && item.totalEpisodes)
+          (!existing.totalEpisodes && item.totalEpisodes) ||
+          (!existing.runtime && item.runtime)
         ) {
-          existingMap.set(item.id, { ...existing, ...item });
+          canonicalMap.set(cKey, mergeMediaItemMetadata(existing, item));
           changed = true;
         }
       }
       if (!changed) return prev;
-      return Array.from(existingMap.values());
+      return dedupeMediaItems(Array.from(canonicalMap.values()));
     });
   }, []);
 
@@ -1244,6 +1262,13 @@ export default function App() {
     setTrailerMedia(media);
   }, []);
 
+  const handlePlayOnline = useCallback(
+    (media: MediaItem, seasonNumber?: number, episodeNumber?: number) => {
+      setOnlinePlaybackTarget({ media, seasonNumber, episodeNumber });
+    },
+    []
+  );
+
   const handleNavbarTabChange = useCallback(
     (tab: TabView, hubMode?: HomeHubMode) => {
       navigateToTab(tab, hubMode);
@@ -1473,6 +1498,7 @@ export default function App() {
             onToggleEpisodeWatched={handleToggleEpisodeWatched}
             onToggleSeasonWatched={handleToggleSeasonWatched}
             onPlayTrailer={handlePlayTrailer}
+            onPlayOnline={handlePlayOnline}
             allMedia={knownMedia}
             onSelectSimilar={handleSelectMedia}
             onRegisterMedia={handleRegisterMedia}
@@ -1490,6 +1516,17 @@ export default function App() {
           <TrailerModal
             media={trailerMedia}
             onClose={() => setTrailerMedia(null)}
+          />
+        )}
+
+        {onlinePlaybackTarget && (
+          <OnlinePlayerModal
+            media={onlinePlaybackTarget.media}
+            initialSeasonNumber={onlinePlaybackTarget.seasonNumber}
+            initialEpisodeNumber={onlinePlaybackTarget.episodeNumber}
+            watchedEpisodes={activeWatchedEpisodes}
+            onToggleEpisodeWatched={handleToggleEpisodeWatched}
+            onClose={() => setOnlinePlaybackTarget(null)}
           />
         )}
 

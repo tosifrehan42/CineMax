@@ -1,118 +1,67 @@
-# CineMax Mobile Scroll Freeze Elimination Plan
+# Catalogue Poster, Metadata & Deduplication Integrity Plan
 
-This plan resolves the intermittent 1–2 second vertical scrolling freeze on mobile devices by eliminating mid-scroll synchronous React commit cascades, removing `content-visibility: auto` layout recalculations on horizontal carousels, replacing per-poster React load state transitions with browser-native painting, and switching mobile sticky chrome to solid GPU-friendly surfaces.
+## 1. Root Cause Audit & Architecture Overview
+An audit of the catalogue seed files, API mappers, and carousel components revealed three root causes behind mismatched posters, inaccurate card metadata, and duplicate titles:
 
-## User Review & Critical Decisions
+1. **Cross-Title Hardcoded Poster & Backdrop Reuse (`src/data/franchiseData.ts` & `src/data/mediaData.ts`)**:
+   - Multiple titles in `INDIAN_TRENDING_ITEMS`, `REGIONAL_AND_GENRE_ANCHOR_ITEMS`, and `FRANCHISE_COLLECTIONS` hardcode another movie or series' TMDB image path:
+     - *RRR*, *Maharaja*, and *Kantara* all point to `/nEufeZlyAOLqO2brrs0yeF1lgXO.jpg` (*RRR*'s poster) and `/i0Y0wP8H6SRgjr6QmuwbtQbS24D.jpg`.
+     - *Tumbbad*, *Jawan*, and *Aavesham* all point to `/jFt1gS4BGHlK8xt76Y81Alp4dbt.jpg` (*Jawan*'s poster).
+     - *Kalki 2898 AD* and *Vikram* point to `/b0PlSFdDwbyK0cf5RxwDpaOJQvQ.jpg` (*The Batman*'s backdrop) and `/9SSEUrSqhljBMzRe4aBTh17rUaC.jpg`.
+     - *The Family Man* points to *Severance*'s poster (`/pPHpeI2X1qEd1CS1SeyrdhZ4qnT.jpg`) and backdrop (`/hPea3Qy5Gd6z4kJLUruBbwAH8Rm.jpg`).
+     - *Sacred Games* and *Dangal* share `/p2lVAcPuRPSO8Al6hDDGw0OgMi8.jpg` and `/wPjtacig0kIkVcTQmXoNt6jbMwo.jpg`.
+     - *3 Idiots* and *12th Fail* share `/66A9MqXOyVFCssoloscw79z8Tew.jpg` and `/wPjtacig0kIkVcTQmXoNt6jbMwo.jpg`.
+     - *Dune: Prophecy* points to *Dune: Part Two*'s poster (`/1pdfLvkbY9ohJlCjQH2CZjjYVvJ.jpg`) and backdrop (`/xOMo8BRK7PfcJv9JCnx7s5hj0PX.jpg`).
+     - *The Last Dance* points to *Inception*'s poster (`/oYuLEt3zVCKq57qu2F8dT7NIa6f.jpg`) and backdrop (`/8ZTVqvKDQ8emSGUEMjsS4yHAwrp.jpg`).
+     - *Planet Earth II* uses a broken poster path (`/t9a72F7fI3b5z2z1q5W4x0A8c6.jpg`) and *Blade Runner*'s backdrop (`/eIi3klFf7mp3oL5EEF4mLIDs26r.jpg`).
+     - *Arrival* in `src/data/mediaData.ts` reuses its vertical 2:3 `poster_path` (`/x2FJsf1ElAgr63Y3PNPtJrcmpoe.jpg`) as its 16:9 `backdropUrl`.
 
-> [!IMPORTANT]
-> All three mobile scroll optimization decisions have been confirmed and incorporated into the architecture below:
+2. **Canonical Identity & Cross-Source Deduplication Gaps**:
+   - Seed titles use slug IDs (`dune-part-two`, `severance`, `the-batman`), whereas live TMDB responses and anchor items use `tmdb-movie-{id}` / `tmdb-tv-{id}`.
+   - Existing deduplication in `HomeView.tsx`, `MediaCarouselRow.tsx`, `DiscoverView.tsx`, `mediaApi.ts`, and `server.ts` only checks `item.id` or `type:title`, allowing the same canonical title to appear twice in a row or grid and allowing a shared `posterUrl` to render under two different titles.
 
-- **Confirmed Decision 1 — Progressive Row Mounting**: Mount the top 4 Home catalogue rows immediately and progressively mount remaining below-the-fold rows in batches of 4 via a lightweight `IntersectionObserver` with generous root margin (`600px`), coupled with `React.startTransition` for secondary feed updates so background API responses never block an active touch scroll.
-- **Confirmed Decision 2 — Mobile Sticky Navigation Surfaces**: Use solid high-opacity dark surfaces (`#0A0D12/98`) on mobile for the sticky top header and fixed bottom navigation bar, preserving `backdrop-blur-xl` exclusively on desktop (`md:backdrop-blur-xl`) to prevent dual-edge GPU compositor tile thrashing during 60–120Hz touch scrolling.
-- **Confirmed Decision 3 — Instant Native Poster Painting**: Remove per-card `isPosterLoaded` React state updates and opacity fade transitions on poster load so lazy-decoded images paint natively on the browser compositor thread without triggering 15–30 React re-renders mid-scroll.
-
----
-
-## 1. Overview & Core Concept
-
-- **What It Does**: Eliminates the 1–2 second main-thread and GPU compositor stalls that occur on mobile (especially Android Chrome) during vertical scrolling across the Home and Discover feeds while preserving all existing CineMax features, visual hierarchy, and touch interactions.
-- **Root Causes Identified During Audit**:
-  1. **Mid-Scroll Synchronous React Commit Cascade**: Approximately 1–2 seconds after initial load—right as a mobile user begins scrolling vertically—9 secondary TMDB category requests resolve simultaneously. Their resolution calls both `onRegisterMedia` (rebuilding the global `knownMedia` array and triggering `HomeView` to re-score/re-filter 250+ items) and `setOttRows` (replacing 9 fallback rows with ~130 new TMDB `MediaCard` items in a single synchronous React commit that unmounts ~130 old card subtrees and mounts ~130 new ones on the main thread).
-  2. **`content-visibility: auto` Layout Thrashing on Nested Horizontal Scrollers**: Every horizontal carousel row previously used `content-visibility: auto` with a fixed `contain-intrinsic-size: auto 340px`. On mobile Chrome, when horizontal `overflow-x: auto; scroll-snap-type: x mandatory` containers cross the viewport boundary during a vertical fling, the browser synchronously unskips the subtree, calculates scroll-snap geometry for 14 cards, and adjusts scroll anchoring whenever the real row height differs from `340px`.
-  3. **Per-Poster `onLoad` React State Storm**: Every `MediaPoster` previously maintained `isPosterLoaded` React state and a `useEffect` reset. Scrolling quickly through rows caused 20+ lazy images to finish decoding within a narrow window, firing 20+ separate React state updates and CSS opacity transitions during active touch scrolling.
-  4. **Dual Full-Width Mobile `backdrop-blur-xl` Compositor Load & Offscreen Hero Timer**: Both the top sticky header and bottom fixed navigation bar applied a 24px `backdrop-blur-xl` filter on mobile, forcing the mobile GPU to sample and blur both viewport edges on every frame, while the Hero Spotlight 8-second interval continued swapping high-resolution backdrops even when scrolled completely offscreen.
-- **Target Audience / Persona**: Mobile and desktop OTT viewers browsing long multi-row catalogues, swiping horizontal carousels, and filtering titles on 60Hz–120Hz touchscreens.
-- **Key Value**: Uninterrupted, native-feeling vertical and horizontal touch scrolling on Android and iOS without 1–2 second freezes, layout jumps, or delayed taps.
-
----
-
-## 2. User Experience & Visual Design
-
-- **Key User Flows**:
-  - **Initial Load & Immediate Vertical Scroll**: The Hero Spotlight and top 4 catalogue rows render immediately. As the user scrolls down, a lightweight sentinel (`600px` ahead of the viewport) smoothly mounts the next batch of 4 rows before the user reaches them, with zero blank flashes or scroll jumps.
-  - **Background Feed Hydration Without Stalls**: When secondary TMDB feeds finish loading in the background, updates are wrapped in low-priority `React.startTransition` and batched cleanly so active touch gestures always take priority over React rendering.
-  - **Pause Offscreen Hero Rotation**: When the user scrolls past the Hero Spotlight, its 8-second auto-advance timer automatically pauses via an `IntersectionObserver` and resumes only when scrolled back into view.
-- **Visual Identity & Theme**:
-  - *Aesthetic Direction*: Preserves the existing **Atmospheric Dark OTT Cinema** aesthetic without any visual redesign.
-  - *Color Palette & Mood*: Deep obsidian canvas (`#0A0D12`), elevated slate card surfaces (`#121721`), warm cinema gold accents (`#F59E0B`), and crisp alabaster typography (`#F8FAFC`).
-  - *Typography & Hierarchy*: Preserves `Plus Jakarta Sans` display headings, `Inter` body copy, and `JetBrains Mono` (`tabular-nums`) for ratings, years, and episode counters.
-  - *Component Styling & Layout*: Retains the 1440px desktop container, 2:3 portrait poster aspect ratios (`aspect-[2/3]`), and horizontal `touch-pan-x` carousels while removing `.cv-auto` scroll-snap containment conflicts.
-- **Interactive Feedback & Motion**:
-  - Instant browser-native image painting with zero layout shift (`aspect-[2/3]` and explicit `width`/`height` attributes).
-  - Lightweight solid dark surfaces on mobile (`bg-[#0A0D12]/95`) for sticky navigation and fallback backdrops, reserving expensive blur filters (`md:backdrop-blur-xl`, `md:blur-xl`) for desktop GPUs.
+3. **Metadata & Category Filtering Inaccuracies**:
+   - Multi-season TV series in `src/data/mediaData.ts` (*Severance*, *Succession*, *The Bear*, *Arcane*, *Mindhunter*, *Dark*) list their most recent season year instead of their original `first_air_date` year.
+   - `HomeView.tsx` seeds the **New & Upcoming Releases** state by sorting all `initialItems` by `year`, surfacing older or TV titles before live movie data loads.
+   - Open-catalogue fallbacks in `server.ts` and `src/services/mediaApi.ts` synthesize ratings (`7.1 + (h % 21) / 10`), default runtimes (`124m`), or estimated season counts (`Math.round((show.weight || 85) / 22)`) when upstream APIs omit those fields.
 
 ---
 
-## 3. Key Product Decisions & Trade-Offs
+## 2. Key Changes & File-by-File Implementation
 
-- **Decision 1: Progressive Row Batching (4 Rows at a Time) + `React.startTransition`**
-  - *Chosen Approach*: Mount the first 4 Home catalogue rows initially and reveal additional batches of 4 rows as the user scrolls within `600px` of the bottom sentinel, while wrapping background TMDB state hydration in `React.startTransition`.
-  - *Why*: Bounds the initial DOM size to ~55 movie cards instead of ~210+, and prevents the Phase 2 TMDB response from locking the main thread for 1–2 seconds when it arrives mid-scroll.
-  - *Alternatives Considered*: `content-visibility: auto` on every carousel row was removed because browser engines struggle with intrinsic size estimation and synchronous layer creation on nested horizontal `scroll-snap` containers during fast vertical flings.
-- **Decision 2: Browser-Native Poster Painting Without Per-Card React State**
-  - *Chosen Approach*: Render `<img loading="lazy" decoding="async" />` directly over the lightweight dark placeholder gradient without firing `setIsPosterLoaded(true)` on every image load; use React state only when an image actually errors (`hasError`).
-  - *Why*: Eliminates hundreds of React state updates and style recalculations as images decode during vertical and horizontal scrolling.
-  - *Alternatives Considered*: Keeping per-card `onLoad` state transitions causes main-thread micro-tasks on every decoded poster image during fast scrolling.
-- **Decision 3: Solid Mobile Sticky Bars & Desktop-Only Scroll Button Listeners**
-  - *Chosen Approach*: Replace `backdrop-blur-xl` on mobile sticky header and bottom nav with solid `#0A0D12/95` (`md:backdrop-blur-xl` on desktop), and attach horizontal carousel scroll-button listeners only when desktop arrow buttons are visible (`>= 768px`).
-  - *Why*: Mobile users swipe carousels directly by touch and never see the desktop `<` / `>` arrow buttons (`hidden md:flex`), so running `scroll` and `window.resize` listeners across 15 rows on mobile wastes main-thread and rAF cycles.
+### A. Canonical Media Identity & Artwork Sanitizer (`src/utils/mediaIntegrity.ts`)
+- Create a shared utility module used by both client (`src/services/mediaApi.ts`, `HomeView.tsx`, `MediaCarouselRow.tsx`, `DiscoverView.tsx`) and server (`server.ts`):
+  - **`getCanonicalMediaKey(item)`**: Resolves `(mediaType + tmdbId)` via `SEED_TO_TMDB_ID` or `tmdb-{type}-{id}` pattern, falling back to normalized `type:title:year` when no TMDB ID exists.
+  - **`dedupeMediaItems(items)`**: Deduplicates any array of `MediaItem` records by canonical media key AND ensures no two distinct titles in a list share the exact same non-empty `posterUrl`.
+  - **`sanitizeMediaItemArtwork(item)`**: Prevents vertical `posterUrl` reuse as `backdropUrl` and strips any `posterUrl` or `backdropUrl` that collides with another title's canonical artwork so `MediaPoster` cleanly renders the title's own bespoke typographic card when an image is absent.
+
+### B. Seed & Regional Catalogue Cleanup (`src/data/franchiseData.ts` & `src/data/mediaData.ts`)
+- **Audit & Fix Every Seed Entry**:
+  - Correct TMDB IDs in `src/data/franchiseData.ts` (e.g. *Maharaja* `tmdb-movie-1266798`, *12th Fail* `tmdb-movie-1160164`, *Kantara* `tmdb-movie-858414`).
+  - Assign each title its own verified, unique artwork URL (from TMDB or official TVMaze artwork for TV series) or `''` (empty string) when a verified unique URL is not statically bundled—completely eliminating every cross-title duplicate `posterUrl` and `backdropUrl`.
+  - Update TV series `year` values in `src/data/mediaData.ts` to match their official `first_air_date` year (*Severance*: `2022`, *Succession*: `2018`, *The Bear*: `2022`, *Arcane*: `2021`, *Mindhunter*: `2017`, *Dark*: `2017`).
+  - Fix *Arrival*'s `backdropUrl` in `src/data/mediaData.ts` so it does not reuse its vertical 2:3 poster path.
+
+### C. Backend & Client API Mapping (`server.ts` & `src/services/mediaApi.ts`)
+- **Strict Type & Category Enforcement**:
+  - Ensure `hindi_movies`, `south_indian_cinema`, `now_playing_movies`, `upcoming_movies`, `popular_movies`, `top_rated_movies`, and `top_10_movies` strictly filter and map `movie` items, while `popular_tv`, `top_rated_tv`, and `top_10_tv` strictly filter and map `tv` items.
+  - Ensure **New & Upcoming Releases** (`upcoming_movies`) only includes movies from `2024` onward in fallback mode and never mixes in older catalog titles.
+- **No Fabricated Metadata**:
+  - Remove synthetic rating formulas (`7.1 + (h % 21) / 10`), default `124m` movie runtimes, and weight-based TV season guesses from the Apple iTunes RSS and TVMaze open-catalog mappers; preserve `0` (rendered as `NR`) when rating is absent and omit `runtime` / `seasons` when unknown so `MediaCard` displays `Film` or `Series` honestly.
+- **Runtime Artwork Enrichment for Static/Seed Items**:
+  - When TMDB is configured on the server or client, automatically enrich any seed/regional item missing a `posterUrl` or `backdropUrl` using its exact `(mediaType, tmdbId)` lookup.
+
+### D. UI Carousel & Card Integrity (`src/components/HomeView.tsx`, `src/components/MediaCarouselRow.tsx`, `src/components/DiscoverView.tsx`)
+- **`HomeView.tsx`**:
+  - Initialize `upcomingItems` exclusively with verified recent/upcoming movies (`type === 'movie' && year >= 2024`) rather than sorting all `initialItems`.
+  - Apply `dedupeMediaItems` across every Home carousel row (`trendingItems`, `top10Movies`, `top10Tv`, `trendingIndia`, `nowPlayingMovies`, `recentlyReleased`, `upcomingItems`, `hindiMovies`, `southIndianMovies`, `animeItems`, `documentaryItems`).
+- **`MediaCarouselRow.tsx` & `DiscoverView.tsx`**:
+  - Upgrade row and grid deduplication to use `dedupeMediaItems` so no carousel or Discover page can ever render duplicate canonical titles or duplicate poster URLs.
 
 ---
 
-## 4. Technical Architecture & Data Strategy *(Technical Reference)*
-
-### Architecture & Component Diagram
-
-```
-┌────────────────────────────────────────────────────────────────────────────┐
-│                        App State & Media Registry                          │
-│  • Deduped knownMedia registry (skips no-op state updates if IDs exist)    │
-│  • Stable memoized callbacks (onToggleWatchlist, onSelectMedia, etc.)      │
-└─────────────────────────────────────┬──────────────────────────────────────┘
-                                      │
-        ┌─────────────────────────────┴─────────────────────────────┐
-        ▼                                                           ▼
-┌───────────────────────────────────────┐   ┌────────────────────────────────┐
-│       Navbar (Mobile & Desktop)       │   │     HomeView & DiscoverView    │
-│ • Mobile: Solid bg-[#0A0D12]/95       │   │ • Phase 1 Priority Feed        │
-│ • Desktop: md:backdrop-blur-xl        │   │ • Phase 2 wrapped in           │
-│ • Zero scroll listeners               │   │   React.startTransition()      │
-└───────────────────────────────────────┘   └───────────────┬────────────────┘
-                                                            │
-                ┌───────────────────────────────────────────┴──────────┐
-                ▼                                                      ▼
-┌───────────────────────────────────────┐   ┌────────────────────────────────┐
-│            HeroSpotlight              │   │  Progressive Row Batcher (4x)  │
-│ • IntersectionObserver pauses 8s      │   │ • Single IntersectionObserver  │
-│   auto-rotation when scrolled away    │   │   (rootMargin: 600px)          │
-│ • Eager priority hero image           │   │ • Mounts 4 rows per step       │
-└───────────────────────────────────────┘   └───────────────┬────────────────┘
-                                                            │
-                                                            ▼
-                                            ┌────────────────────────────────┐
-                                            │        MediaCarouselRow        │
-                                            │ • Native touch-pan-x scroller  │
-                                            │ • No content-visibility stall  │
-                                            │ • Desktop-only scroll listener │
-                                            └───────────────┬────────────────┘
-                                                            │
-                                                            ▼
-                                            ┌────────────────────────────────┐
-                                            │    MediaCard & MediaPoster     │
-                                            │ • Strict React.memo props      │
-                                            │ • Native lazy img decode       │
-                                            │ • Zero onLoad React setState   │
-                                            └────────────────────────────────┘
-```
-
-### Data Model & State
-
-- **Progressive Row Count (`visibleRowCount`)**: Local numeric state in `HomeView` initialized to `4` and incremented by `4` (up to total rows) when the bottom sentinel intersects a `600px` vertical lookahead margin.
-- **Low-Priority Feed Hydration (`startTransition`)**: Secondary TMDB catalogue responses update `ottRows` inside `React.startTransition` so React yields to incoming touch/scroll frames on mobile devices.
-- **Deduplicated Media Registration (`handleRegisterMedia`)**: Only schedules a `knownMedia` state update when genuinely new items or newly enriched episode counts are discovered, avoiding redundant root `App` re-renders when Home or Discover sees already-registered titles.
-
-### Interactive Component & State Mapping
-
-- **Hero Spotlight Offscreen Pause**: A single `IntersectionObserver` on the `HeroSpotlight` root container sets `isInViewport`. The 8-second rotation interval runs only when `isInViewport && !isPaused`, preventing offscreen backdrop decoding while scrolling down the page.
-- **Horizontal Carousel Scroll Tracking**: `MediaCarouselRow` checks `window.matchMedia('(min-width: 768px)')` before attaching `scroll` and `resize` listeners for the desktop-only `<` / `>` chevron buttons, eliminating 15 redundant `resize` and `scroll` listeners on mobile devices.
-- **Poster Fallback & Native Painting**: `MediaPoster` renders the `<img>` element with `loading={priority ? 'eager' : 'lazy'}` and `decoding="async"` without an `onLoad` state toggle. On mobile, wide backdrop fallbacks use a lightweight gradient instead of a `blur-xl` (`24px` CSS blur) filter.
+## 3. Verification & Self-Check
+- Create and run a verification script/check confirming:
+  1. Zero duplicate `posterUrl` or `backdropUrl` values exist across distinct titles in `MEDIA_ITEMS` + `EXTRA_ANCHOR_ITEMS` + `FRANCHISE_COLLECTIONS`.
+  2. Every item has a valid canonical key `(mediaType + tmdbId)` and matching `type`, `year`, and `genres`.
+  3. TypeScript lint (`lint_applet`) and full production build (`compile_applet`) pass with zero errors.
