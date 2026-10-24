@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef, startTransition } from 'react';
 import {
   FranchiseCollection,
   HomeHubMode,
@@ -59,6 +59,8 @@ interface HomeViewProps {
   onRegisterMedia?: (items: MediaItem[]) => void;
 }
 
+const ROW_BATCH_SIZE = 4;
+
 const dedupeById = (list: MediaItem[]): MediaItem[] => {
   const seen = new Set<string>();
   return list.filter((item) => {
@@ -82,6 +84,18 @@ interface OttRowsState {
   southIndianCinema: MediaItem[];
   animeItems: MediaItem[];
   documentaryItems: MediaItem[];
+}
+
+interface HomeRowDescriptor {
+  key: string;
+  title: string;
+  subtitle?: string;
+  badgeText?: string;
+  icon: React.ReactNode;
+  items: MediaItem[];
+  isTop10?: boolean;
+  onExploreAll?: () => void;
+  exploreLabel?: string;
 }
 
 const HomeViewComponent: React.FC<HomeViewProps> = ({
@@ -165,6 +179,13 @@ const HomeViewComponent: React.FC<HomeViewProps> = ({
   const [activeFranchise, setActiveFranchise] = useState<FranchiseCollection | null>(null);
   const [refreshSeed, setRefreshSeed] = useState(0);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [visibleRowCount, setVisibleRowCount] = useState<number>(ROW_BATCH_SIZE);
+  const rowBatchSentinelRef = useRef<HTMLDivElement | null>(null);
+
+  // Reset visible row batch to initial 4 rows when switching between All / Movies / Series
+  useEffect(() => {
+    setVisibleRowCount(ROW_BATCH_SIZE);
+  }, [hubMode]);
 
   useEffect(() => {
     let active = true;
@@ -193,29 +214,31 @@ const HomeViewComponent: React.FC<HomeViewProps> = ({
           ...nowPlayRes.items,
         ]);
 
-        if (onRegisterMedia && priorityFetched.length > 0) {
-          onRegisterMedia(priorityFetched);
-        }
+        startTransition(() => {
+          if (onRegisterMedia && priorityFetched.length > 0) {
+            onRegisterMedia(priorityFetched);
+          }
 
-        setOttRows((prev) => ({
-          ...prev,
-          trendingIndia:
-            indiaRes.items.length > 0 ? dedupeById(indiaRes.items) : prev.trendingIndia,
-          top10Movies:
-            topMovRes.items.length > 0
-              ? dedupeById(topMovRes.items).slice(0, 10)
-              : prev.top10Movies,
-          top10Series:
-            topTvRes.items.length > 0
-              ? dedupeById(topTvRes.items).slice(0, 10)
-              : prev.top10Series,
-          nowPlayingMovies:
-            nowPlayRes.items.length > 0
-              ? dedupeById(nowPlayRes.items)
-              : prev.nowPlayingMovies,
-        }));
+          setOttRows((prev) => ({
+            ...prev,
+            trendingIndia:
+              indiaRes.items.length > 0 ? dedupeById(indiaRes.items) : prev.trendingIndia,
+            top10Movies:
+              topMovRes.items.length > 0
+                ? dedupeById(topMovRes.items).slice(0, 10)
+                : prev.top10Movies,
+            top10Series:
+              topTvRes.items.length > 0
+                ? dedupeById(topTvRes.items).slice(0, 10)
+                : prev.top10Series,
+            nowPlayingMovies:
+              nowPlayRes.items.length > 0
+                ? dedupeById(nowPlayRes.items)
+                : prev.nowPlayingMovies,
+          }));
+        });
 
-        // Phase 2: Defer below-the-fold rows slightly to avoid blocking main thread & image decode
+        // Phase 2: Defer below-the-fold rows and commit inside startTransition so active touch scrolling never stalls
         deferredTimer = setTimeout(async () => {
           if (!active) return;
           try {
@@ -255,37 +278,39 @@ const HomeViewComponent: React.FC<HomeViewProps> = ({
               ...docRes.items,
             ]);
 
-            if (onRegisterMedia && secondaryFetched.length > 0) {
-              onRegisterMedia(secondaryFetched);
-            }
+            startTransition(() => {
+              if (onRegisterMedia && secondaryFetched.length > 0) {
+                onRegisterMedia(secondaryFetched);
+              }
 
-            setOttRows((prev) => ({
-              ...prev,
-              popularMovies:
-                popMovRes.items.length > 0 ? dedupeById(popMovRes.items) : prev.popularMovies,
-              popularSeries:
-                popTvRes.items.length > 0 ? dedupeById(popTvRes.items) : prev.popularSeries,
-              topRatedMovies:
-                ratedMovRes.items.length > 0
-                  ? dedupeById(ratedMovRes.items)
-                  : prev.topRatedMovies,
-              topRatedSeries:
-                ratedTvRes.items.length > 0
-                  ? dedupeById(ratedTvRes.items)
-                  : prev.topRatedSeries,
-              upcomingItems:
-                upMovRes.items.length > 0 ? dedupeById(upMovRes.items) : prev.upcomingItems,
-              hindiMovies:
-                hindiRes.items.length > 0 ? dedupeById(hindiRes.items) : prev.hindiMovies,
-              southIndianCinema:
-                southRes.items.length > 0
-                  ? dedupeById(southRes.items)
-                  : prev.southIndianCinema,
-              animeItems:
-                animeRes.items.length > 0 ? dedupeById(animeRes.items) : prev.animeItems,
-              documentaryItems:
-                docRes.items.length > 0 ? dedupeById(docRes.items) : prev.documentaryItems,
-            }));
+              setOttRows((prev) => ({
+                ...prev,
+                popularMovies:
+                  popMovRes.items.length > 0 ? dedupeById(popMovRes.items) : prev.popularMovies,
+                popularSeries:
+                  popTvRes.items.length > 0 ? dedupeById(popTvRes.items) : prev.popularSeries,
+                topRatedMovies:
+                  ratedMovRes.items.length > 0
+                    ? dedupeById(ratedMovRes.items)
+                    : prev.topRatedMovies,
+                topRatedSeries:
+                  ratedTvRes.items.length > 0
+                    ? dedupeById(ratedTvRes.items)
+                    : prev.topRatedSeries,
+                upcomingItems:
+                  upMovRes.items.length > 0 ? dedupeById(upMovRes.items) : prev.upcomingItems,
+                hindiMovies:
+                  hindiRes.items.length > 0 ? dedupeById(hindiRes.items) : prev.hindiMovies,
+                southIndianCinema:
+                  southRes.items.length > 0
+                    ? dedupeById(southRes.items)
+                    : prev.southIndianCinema,
+                animeItems:
+                  animeRes.items.length > 0 ? dedupeById(animeRes.items) : prev.animeItems,
+                documentaryItems:
+                  docRes.items.length > 0 ? dedupeById(docRes.items) : prev.documentaryItems,
+              }));
+            });
           } catch {
             // Keep seeded initial state if secondary network request fails
           } finally {
@@ -324,6 +349,14 @@ const HomeViewComponent: React.FC<HomeViewProps> = ({
     if (filtered.length > 0) return filtered;
     return filterByHub(initialItems).slice(0, 5);
   }, [initialItems, filterByHub]);
+
+  const handleHeroToggleWatchlist = useCallback(
+    (id: string) => {
+      const item = featuredHeroItems.find((f) => f.id === id);
+      onToggleWatchlist(id, item);
+    },
+    [featuredHeroItems, onToggleWatchlist]
+  );
 
   // 2. Continue Watching (ONLY when genuine progress exists: status === 'watching' or watchedEpisodes > 0 & not completed)
   const continueWatchingItems = useMemo(() => {
@@ -373,7 +406,12 @@ const HomeViewComponent: React.FC<HomeViewProps> = ({
 
     const mediaMap = new Map(allMedia.map((m) => [m.id, m]));
     for (const w of watchlist) {
-      if (w.isFavourite || (w.personalRating && w.personalRating >= 8) || w.status === 'watching' || w.status === 'completed') {
+      if (
+        w.isFavourite ||
+        (w.personalRating && w.personalRating >= 8) ||
+        w.status === 'watching' ||
+        w.status === 'completed'
+      ) {
         const item = w.mediaSnapshot || mediaMap.get(w.mediaId);
         if (item) {
           for (const g of item.genres) {
@@ -475,6 +513,241 @@ const HomeViewComponent: React.FC<HomeViewProps> = ({
       .slice(0, 14);
   }, [allMedia, selectedBrowseGenre, filterByHub]);
 
+  // Build ordered list of active catalogue rows for progressive 4-row IntersectionObserver batching
+  const allCatalogueRows = useMemo<HomeRowDescriptor[]>(() => {
+    const rows: HomeRowDescriptor[] = [];
+
+    if (continueWatchingItems.length > 0) {
+      rows.push({
+        key: 'continue-watching',
+        title: 'Continue Watching',
+        subtitle: 'Pick up right where you left off in your active shows & films',
+        badgeText: `${continueWatchingItems.length} Active`,
+        icon: <PlayCircle className="w-5 h-5" />,
+        items: continueWatchingItems,
+        onExploreAll: () => onNavigateTab('watchlist'),
+        exploreLabel: 'Open Watchlist',
+      });
+    }
+
+    rows.push({
+      key: 'recommended',
+      title: 'Recommended For You',
+      subtitle: recommendationData.subtitle,
+      badgeText: recommendationData.badgeText,
+      icon: <Sparkles className="w-5 h-5" />,
+      items: recommendationData.items,
+      onExploreAll: () => onNavigateTab('discover'),
+      exploreLabel: 'Explore More',
+    });
+
+    rows.push({
+      key: 'trending-india',
+      title: 'Trending in India',
+      subtitle: 'Most streamed blockbusters and acclaimed originals across India',
+      badgeText: 'India Top Picks',
+      icon: <Flame className="w-5 h-5" />,
+      items: deduplicatedStandardRows.india,
+      onExploreAll: () => onExploreCategory('trending_india'),
+      exploreLabel: 'All India Trending',
+    });
+
+    if (hubMode !== 'series') {
+      rows.push({
+        key: 'top10-movies',
+        title: 'Top 10 Movies Today',
+        subtitle: 'Daily ranked theatrical & streaming motion pictures',
+        badgeText: 'Top 10',
+        icon: <Trophy className="w-5 h-5" />,
+        items: top10Movies,
+        isTop10: true,
+        onExploreAll: () => onExploreCategory('popular_movies'),
+        exploreLabel: 'Browse Movies',
+      });
+    }
+
+    if (hubMode !== 'movies') {
+      rows.push({
+        key: 'top10-series',
+        title: 'Top 10 Series Today',
+        subtitle: 'Most watched television dramas, thrillers, and limited series',
+        badgeText: 'Top 10',
+        icon: <Tv className="w-5 h-5" />,
+        items: top10Series,
+        isTop10: true,
+        onExploreAll: () => onExploreCategory('popular_tv'),
+        exploreLabel: 'Browse Series',
+      });
+    }
+
+    if (hubMode !== 'series' && deduplicatedStandardRows.nowPlaying.length > 0) {
+      rows.push({
+        key: 'now-playing',
+        title: 'Now Playing & Recent Premieres',
+        subtitle: 'Fresh theatrical releases and current box-office standouts',
+        badgeText: 'Fresh',
+        icon: <Film className="w-5 h-5" />,
+        items: deduplicatedStandardRows.nowPlaying,
+        onExploreAll: () => onExploreCategory('now_playing_movies'),
+        exploreLabel: 'All Now Playing',
+      });
+    }
+
+    if (hubMode !== 'series') {
+      rows.push({
+        key: 'popular-movies',
+        title: 'Popular Movies',
+        subtitle: 'High-momentum feature films audiences are streaming right now',
+        icon: <Film className="w-5 h-5" />,
+        items: deduplicatedStandardRows.popMovies,
+        onExploreAll: () => onExploreCategory('popular_movies'),
+        exploreLabel: 'See All Movies',
+      });
+    }
+
+    if (hubMode !== 'movies') {
+      rows.push({
+        key: 'popular-series',
+        title: 'Popular Series',
+        subtitle: 'Binge-worthy multi-season television and prestige originals',
+        icon: <Tv className="w-5 h-5" />,
+        items: deduplicatedStandardRows.popSeries,
+        onExploreAll: () => onExploreCategory('popular_tv'),
+        exploreLabel: 'See All Series',
+      });
+    }
+
+    if (hubMode !== 'series') {
+      rows.push({
+        key: 'top-rated-movies',
+        title: 'Top Rated Movies',
+        subtitle: 'All-time highest rated cinema masterpieces by consensus score',
+        icon: <Trophy className="w-5 h-5" />,
+        items: deduplicatedStandardRows.topMovies,
+        onExploreAll: () => onExploreCategory('top_rated_movies'),
+        exploreLabel: 'All Top Rated Movies',
+      });
+    }
+
+    if (hubMode !== 'movies') {
+      rows.push({
+        key: 'top-rated-series',
+        title: 'Top Rated Series',
+        subtitle: 'Critically revered television series with 8.0+ consensus ratings',
+        icon: <Trophy className="w-5 h-5" />,
+        items: deduplicatedStandardRows.topSeries,
+        onExploreAll: () => onExploreCategory('top_rated_tv'),
+        exploreLabel: 'All Top Rated Series',
+      });
+    }
+
+    if (deduplicatedStandardRows.hindi.length > 0) {
+      rows.push({
+        key: 'hindi-cinema',
+        title: 'Hindi Cinema & Originals',
+        subtitle: 'Blockbuster Bollywood features and critically acclaimed Hindi series',
+        badgeText: 'Hindi',
+        icon: <Globe className="w-5 h-5" />,
+        items: deduplicatedStandardRows.hindi,
+        onExploreAll: () => onExploreCategory('hindi_movies'),
+        exploreLabel: 'Explore Hindi Catalogue',
+      });
+    }
+
+    if (deduplicatedStandardRows.southIndian.length > 0) {
+      rows.push({
+        key: 'south-indian',
+        title: 'South Indian Blockbusters',
+        subtitle: 'Essential Telugu, Tamil, Malayalam, and Kannada cinema',
+        badgeText: 'Regional',
+        icon: <Flame className="w-5 h-5" />,
+        items: deduplicatedStandardRows.southIndian,
+        onExploreAll: () => onExploreCategory('south_indian_cinema'),
+        exploreLabel: 'Explore South Indian',
+      });
+    }
+
+    if (deduplicatedStandardRows.anime.length > 0) {
+      rows.push({
+        key: 'anime',
+        title: 'Anime & Global Animation',
+        subtitle: 'Iconic Japanese anime series, Studio Ghibli classics, and animated epics',
+        badgeText: 'Anime',
+        icon: <Sparkles className="w-5 h-5" />,
+        items: deduplicatedStandardRows.anime,
+        onExploreAll: () => onExploreCategory('anime'),
+        exploreLabel: 'All Anime & Animation',
+      });
+    }
+
+    if (deduplicatedStandardRows.documentaries.length > 0) {
+      rows.push({
+        key: 'documentaries',
+        title: 'Acclaimed Documentaries & Docuseries',
+        subtitle: 'Landmark natural history, sports chronicles, and non-fiction storytelling',
+        badgeText: 'Non-Fiction',
+        icon: <Compass className="w-5 h-5" />,
+        items: deduplicatedStandardRows.documentaries,
+        onExploreAll: () => onExploreCategory('documentaries'),
+        exploreLabel: 'All Documentaries',
+      });
+    }
+
+    rows.push({
+      key: 'upcoming',
+      title: 'New & Upcoming Releases',
+      subtitle: 'Recent theatrical premieres and anticipated arrivals',
+      icon: <Calendar className="w-5 h-5" />,
+      items: deduplicatedStandardRows.upcoming,
+      onExploreAll: () => onExploreCategory('upcoming_movies'),
+      exploreLabel: 'Browse Upcoming',
+    });
+
+    return rows;
+  }, [
+    continueWatchingItems,
+    recommendationData,
+    deduplicatedStandardRows,
+    hubMode,
+    top10Movies,
+    top10Series,
+    onNavigateTab,
+    onExploreCategory,
+  ]);
+
+  const totalRowCount = allCatalogueRows.length;
+  const hasMoreRows = visibleRowCount < totalRowCount;
+
+  // Progressive IntersectionObserver batching (mounts 4 rows at a time ahead of scroll)
+  useEffect(() => {
+    if (!hasMoreRows) return;
+    const sentinel = rowBatchSentinelRef.current;
+    if (!sentinel || typeof IntersectionObserver === 'undefined') {
+      setVisibleRowCount(totalRowCount);
+      return;
+    }
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const entry = entries[0];
+        if (entry && entry.isIntersecting) {
+          startTransition(() => {
+            setVisibleRowCount((prev) => Math.min(prev + ROW_BATCH_SIZE, totalRowCount));
+          });
+        }
+      },
+      { rootMargin: '600px 0px' }
+    );
+
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [hasMoreRows, totalRowCount, visibleRowCount]);
+
+  const visibleCatalogueRows = useMemo(
+    () => allCatalogueRows.slice(0, visibleRowCount),
+    [allCatalogueRows, visibleRowCount]
+  );
+
   return (
     <div className="space-y-10 sm:space-y-12 pb-12">
       {/* 1. Featured Cinematic Hero */}
@@ -482,10 +755,7 @@ const HomeViewComponent: React.FC<HomeViewProps> = ({
         featuredItems={featuredHeroItems}
         hubMode={hubMode}
         isInWatchlist={isInWatchlist}
-        onToggleWatchlist={(id) => {
-          const item = featuredHeroItems.find((f) => f.id === id);
-          onToggleWatchlist(id, item);
-        }}
+        onToggleWatchlist={handleHeroToggleWatchlist}
         onSelectMedia={onSelectMedia}
         onPlayTrailer={onPlayTrailer}
       />
@@ -509,14 +779,16 @@ const HomeViewComponent: React.FC<HomeViewProps> = ({
         </button>
       </div>
 
-      {/* 2. Continue Watching (Rendered ONLY when valid viewing progress exists) */}
-      {continueWatchingItems.length > 0 && (
+      {/* Progressively Mounted Catalogue Carousels (4 rows per batch) */}
+      {visibleCatalogueRows.map((row) => (
         <MediaCarouselRow
-          title="Continue Watching"
-          subtitle="Pick up right where you left off in your active shows & films"
-          badgeText={`${continueWatchingItems.length} Active`}
-          icon={<PlayCircle className="w-5 h-5" />}
-          items={continueWatchingItems}
+          key={row.key}
+          title={row.title}
+          subtitle={row.subtitle}
+          badgeText={row.badgeText}
+          icon={row.icon}
+          items={row.items}
+          isTop10={row.isTop10}
           isInWatchlist={isInWatchlist}
           getWatchlistStatus={getWatchlistStatus}
           onToggleWatchlist={onToggleWatchlist}
@@ -525,295 +797,15 @@ const HomeViewComponent: React.FC<HomeViewProps> = ({
           getWatchedEpisodesCount={getWatchedEpisodesCount}
           onSelectMedia={onSelectMedia}
           onPlayTrailer={onPlayTrailer}
-          onExploreAll={() => onNavigateTab('watchlist')}
-          exploreLabel="Open Watchlist"
+          onExploreAll={row.onExploreAll}
+          exploreLabel={row.exploreLabel}
         />
+      ))}
+
+      {/* Sentinel for mounting the next batch of 4 rows ahead of viewport */}
+      {hasMoreRows && (
+        <div ref={rowBatchSentinelRef} aria-hidden="true" className="h-4 w-full" />
       )}
-
-      {/* 3. Recommended For You */}
-      <MediaCarouselRow
-        title="Recommended For You"
-        subtitle={recommendationData.subtitle}
-        badgeText={recommendationData.badgeText}
-        icon={<Sparkles className="w-5 h-5" />}
-        items={recommendationData.items}
-        isInWatchlist={isInWatchlist}
-        getWatchlistStatus={getWatchlistStatus}
-        onToggleWatchlist={onToggleWatchlist}
-        onUpdateStatus={onUpdateStatus}
-        onRemoveFromWatchlist={onRemoveFromWatchlist}
-        getWatchedEpisodesCount={getWatchedEpisodesCount}
-        onSelectMedia={onSelectMedia}
-        onPlayTrailer={onPlayTrailer}
-        onExploreAll={() => onNavigateTab('discover')}
-        exploreLabel="Explore More"
-      />
-
-      {/* 4. Trending in India */}
-      <MediaCarouselRow
-        title="Trending in India"
-        subtitle="Most streamed blockbusters and acclaimed originals across India"
-        badgeText="India Top Picks"
-        icon={<Flame className="w-5 h-5" />}
-        items={deduplicatedStandardRows.india}
-        isInWatchlist={isInWatchlist}
-        getWatchlistStatus={getWatchlistStatus}
-        onToggleWatchlist={onToggleWatchlist}
-        onUpdateStatus={onUpdateStatus}
-        onRemoveFromWatchlist={onRemoveFromWatchlist}
-        getWatchedEpisodesCount={getWatchedEpisodesCount}
-        onSelectMedia={onSelectMedia}
-        onPlayTrailer={onPlayTrailer}
-        onExploreAll={() => onExploreCategory('trending_india')}
-        exploreLabel="All India Trending"
-      />
-
-      {/* 5A. Top 10 Movies (Shown in 'all' and 'movies' hub) */}
-      {hubMode !== 'series' && (
-        <MediaCarouselRow
-          title="Top 10 Movies Today"
-          subtitle="Daily ranked theatrical & streaming motion pictures"
-          badgeText="Top 10"
-          icon={<Trophy className="w-5 h-5" />}
-          items={top10Movies}
-          isTop10={true}
-          isInWatchlist={isInWatchlist}
-          getWatchlistStatus={getWatchlistStatus}
-          onToggleWatchlist={onToggleWatchlist}
-          onUpdateStatus={onUpdateStatus}
-          onRemoveFromWatchlist={onRemoveFromWatchlist}
-          getWatchedEpisodesCount={getWatchedEpisodesCount}
-          onSelectMedia={onSelectMedia}
-          onPlayTrailer={onPlayTrailer}
-          onExploreAll={() => onExploreCategory('popular_movies')}
-          exploreLabel="Browse Movies"
-        />
-      )}
-
-      {/* 5B. Top 10 Series (Shown in 'all' and 'series' hub) */}
-      {hubMode !== 'movies' && (
-        <MediaCarouselRow
-          title="Top 10 Series Today"
-          subtitle="Most watched television dramas, thrillers, and limited series"
-          badgeText="Top 10"
-          icon={<Tv className="w-5 h-5" />}
-          items={top10Series}
-          isTop10={true}
-          isInWatchlist={isInWatchlist}
-          getWatchlistStatus={getWatchlistStatus}
-          onToggleWatchlist={onToggleWatchlist}
-          onUpdateStatus={onUpdateStatus}
-          onRemoveFromWatchlist={onRemoveFromWatchlist}
-          getWatchedEpisodesCount={getWatchedEpisodesCount}
-          onSelectMedia={onSelectMedia}
-          onPlayTrailer={onPlayTrailer}
-          onExploreAll={() => onExploreCategory('popular_tv')}
-          exploreLabel="Browse Series"
-        />
-      )}
-
-      {/* 5C. Now Playing in Theatres (Shown in 'all' and 'movies' hub) */}
-      {hubMode !== 'series' && deduplicatedStandardRows.nowPlaying.length > 0 && (
-        <MediaCarouselRow
-          title="Now Playing & Recent Premieres"
-          subtitle="Fresh theatrical releases and current box-office standouts"
-          badgeText="Fresh"
-          icon={<Film className="w-5 h-5" />}
-          items={deduplicatedStandardRows.nowPlaying}
-          isInWatchlist={isInWatchlist}
-          getWatchlistStatus={getWatchlistStatus}
-          onToggleWatchlist={onToggleWatchlist}
-          onUpdateStatus={onUpdateStatus}
-          onRemoveFromWatchlist={onRemoveFromWatchlist}
-          getWatchedEpisodesCount={getWatchedEpisodesCount}
-          onSelectMedia={onSelectMedia}
-          onPlayTrailer={onPlayTrailer}
-          onExploreAll={() => onExploreCategory('now_playing_movies')}
-          exploreLabel="All Now Playing"
-        />
-      )}
-
-      {/* 6. Popular Movies */}
-      {hubMode !== 'series' && (
-        <MediaCarouselRow
-          title="Popular Movies"
-          subtitle="High-momentum feature films audiences are streaming right now"
-          icon={<Film className="w-5 h-5" />}
-          items={deduplicatedStandardRows.popMovies}
-          isInWatchlist={isInWatchlist}
-          getWatchlistStatus={getWatchlistStatus}
-          onToggleWatchlist={onToggleWatchlist}
-          onUpdateStatus={onUpdateStatus}
-          onRemoveFromWatchlist={onRemoveFromWatchlist}
-          getWatchedEpisodesCount={getWatchedEpisodesCount}
-          onSelectMedia={onSelectMedia}
-          onPlayTrailer={onPlayTrailer}
-          onExploreAll={() => onExploreCategory('popular_movies')}
-          exploreLabel="See All Movies"
-        />
-      )}
-
-      {/* 7. Popular Series */}
-      {hubMode !== 'movies' && (
-        <MediaCarouselRow
-          title="Popular Series"
-          subtitle="Binge-worthy multi-season television and prestige originals"
-          icon={<Tv className="w-5 h-5" />}
-          items={deduplicatedStandardRows.popSeries}
-          isInWatchlist={isInWatchlist}
-          getWatchlistStatus={getWatchlistStatus}
-          onToggleWatchlist={onToggleWatchlist}
-          onUpdateStatus={onUpdateStatus}
-          onRemoveFromWatchlist={onRemoveFromWatchlist}
-          getWatchedEpisodesCount={getWatchedEpisodesCount}
-          onSelectMedia={onSelectMedia}
-          onPlayTrailer={onPlayTrailer}
-          onExploreAll={() => onExploreCategory('popular_tv')}
-          exploreLabel="See All Series"
-        />
-      )}
-
-      {/* 8. Top Rated Movies */}
-      {hubMode !== 'series' && (
-        <MediaCarouselRow
-          title="Top Rated Movies"
-          subtitle="All-time highest rated cinema masterpieces by consensus score"
-          icon={<Trophy className="w-5 h-5" />}
-          items={deduplicatedStandardRows.topMovies}
-          isInWatchlist={isInWatchlist}
-          getWatchlistStatus={getWatchlistStatus}
-          onToggleWatchlist={onToggleWatchlist}
-          onUpdateStatus={onUpdateStatus}
-          onRemoveFromWatchlist={onRemoveFromWatchlist}
-          getWatchedEpisodesCount={getWatchedEpisodesCount}
-          onSelectMedia={onSelectMedia}
-          onPlayTrailer={onPlayTrailer}
-          onExploreAll={() => onExploreCategory('top_rated_movies')}
-          exploreLabel="All Top Rated Movies"
-        />
-      )}
-
-      {/* 9. Top Rated Series */}
-      {hubMode !== 'movies' && (
-        <MediaCarouselRow
-          title="Top Rated Series"
-          subtitle="Critically revered television series with 8.0+ consensus ratings"
-          icon={<Trophy className="w-5 h-5" />}
-          items={deduplicatedStandardRows.topSeries}
-          isInWatchlist={isInWatchlist}
-          getWatchlistStatus={getWatchlistStatus}
-          onToggleWatchlist={onToggleWatchlist}
-          onUpdateStatus={onUpdateStatus}
-          onRemoveFromWatchlist={onRemoveFromWatchlist}
-          getWatchedEpisodesCount={getWatchedEpisodesCount}
-          onSelectMedia={onSelectMedia}
-          onPlayTrailer={onPlayTrailer}
-          onExploreAll={() => onExploreCategory('top_rated_tv')}
-          exploreLabel="All Top Rated Series"
-        />
-      )}
-
-      {/* 10A. Hindi Cinema & Series Spotlight */}
-      {deduplicatedStandardRows.hindi.length > 0 && (
-        <MediaCarouselRow
-          title="Hindi Cinema & Originals"
-          subtitle="Blockbuster Bollywood features and critically acclaimed Hindi series"
-          badgeText="Hindi"
-          icon={<Globe className="w-5 h-5" />}
-          items={deduplicatedStandardRows.hindi}
-          isInWatchlist={isInWatchlist}
-          getWatchlistStatus={getWatchlistStatus}
-          onToggleWatchlist={onToggleWatchlist}
-          onUpdateStatus={onUpdateStatus}
-          onRemoveFromWatchlist={onRemoveFromWatchlist}
-          getWatchedEpisodesCount={getWatchedEpisodesCount}
-          onSelectMedia={onSelectMedia}
-          onPlayTrailer={onPlayTrailer}
-          onExploreAll={() => onExploreCategory('hindi_movies')}
-          exploreLabel="Explore Hindi Catalogue"
-        />
-      )}
-
-      {/* 10B. South Indian Blockbusters (Telugu, Tamil, Malayalam, Kannada) */}
-      {deduplicatedStandardRows.southIndian.length > 0 && (
-        <MediaCarouselRow
-          title="South Indian Blockbusters"
-          subtitle="Essential Telugu, Tamil, Malayalam, and Kannada cinema"
-          badgeText="Regional"
-          icon={<Flame className="w-5 h-5" />}
-          items={deduplicatedStandardRows.southIndian}
-          isInWatchlist={isInWatchlist}
-          getWatchlistStatus={getWatchlistStatus}
-          onToggleWatchlist={onToggleWatchlist}
-          onUpdateStatus={onUpdateStatus}
-          onRemoveFromWatchlist={onRemoveFromWatchlist}
-          getWatchedEpisodesCount={getWatchedEpisodesCount}
-          onSelectMedia={onSelectMedia}
-          onPlayTrailer={onPlayTrailer}
-          onExploreAll={() => onExploreCategory('south_indian_cinema')}
-          exploreLabel="Explore South Indian"
-        />
-      )}
-
-      {/* 10C. Anime & Global Animation */}
-      {deduplicatedStandardRows.anime.length > 0 && (
-        <MediaCarouselRow
-          title="Anime & Global Animation"
-          subtitle="Iconic Japanese anime series, Studio Ghibli classics, and animated epics"
-          badgeText="Anime"
-          icon={<Sparkles className="w-5 h-5" />}
-          items={deduplicatedStandardRows.anime}
-          isInWatchlist={isInWatchlist}
-          getWatchlistStatus={getWatchlistStatus}
-          onToggleWatchlist={onToggleWatchlist}
-          onUpdateStatus={onUpdateStatus}
-          onRemoveFromWatchlist={onRemoveFromWatchlist}
-          getWatchedEpisodesCount={getWatchedEpisodesCount}
-          onSelectMedia={onSelectMedia}
-          onPlayTrailer={onPlayTrailer}
-          onExploreAll={() => onExploreCategory('anime')}
-          exploreLabel="All Anime & Animation"
-        />
-      )}
-
-      {/* 10D. Acclaimed Documentaries */}
-      {deduplicatedStandardRows.documentaries.length > 0 && (
-        <MediaCarouselRow
-          title="Acclaimed Documentaries & Docuseries"
-          subtitle="Landmark natural history, sports chronicles, and non-fiction storytelling"
-          badgeText="Non-Fiction"
-          icon={<Compass className="w-5 h-5" />}
-          items={deduplicatedStandardRows.documentaries}
-          isInWatchlist={isInWatchlist}
-          getWatchlistStatus={getWatchlistStatus}
-          onToggleWatchlist={onToggleWatchlist}
-          onUpdateStatus={onUpdateStatus}
-          onRemoveFromWatchlist={onRemoveFromWatchlist}
-          getWatchedEpisodesCount={getWatchedEpisodesCount}
-          onSelectMedia={onSelectMedia}
-          onPlayTrailer={onPlayTrailer}
-          onExploreAll={() => onExploreCategory('documentaries')}
-          exploreLabel="All Documentaries"
-        />
-      )}
-
-      {/* 11. New & Upcoming */}
-      <MediaCarouselRow
-        title="New & Upcoming Releases"
-        subtitle="Recent theatrical premieres and anticipated arrivals"
-        icon={<Calendar className="w-5 h-5" />}
-        items={deduplicatedStandardRows.upcoming}
-        isInWatchlist={isInWatchlist}
-        getWatchlistStatus={getWatchlistStatus}
-        onToggleWatchlist={onToggleWatchlist}
-        onUpdateStatus={onUpdateStatus}
-        onRemoveFromWatchlist={onRemoveFromWatchlist}
-        getWatchedEpisodesCount={getWatchedEpisodesCount}
-        onSelectMedia={onSelectMedia}
-        onPlayTrailer={onPlayTrailer}
-        onExploreAll={() => onExploreCategory('upcoming_movies')}
-        exploreLabel="Browse Upcoming"
-      />
 
       {/* 11. Browse by Genre */}
       <section className="space-y-4 pt-2">

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { HomeHubMode, MediaItem } from '../types';
 import { MediaPoster } from './MediaPoster';
 import {
@@ -21,7 +21,7 @@ interface HeroSpotlightProps {
   onPlayTrailer: (media: MediaItem) => void;
 }
 
-export const HeroSpotlight: React.FC<HeroSpotlightProps> = ({
+const HeroSpotlightComponent: React.FC<HeroSpotlightProps> = ({
   featuredItems,
   hubMode = 'all',
   isInWatchlist,
@@ -31,20 +31,39 @@ export const HeroSpotlight: React.FC<HeroSpotlightProps> = ({
 }) => {
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isPaused, setIsPaused] = useState(false);
+  const [isInViewport, setIsInViewport] = useState(true);
+  const containerRef = useRef<HTMLDivElement | null>(null);
 
   // Reset index if featured items change (e.g. switching between All / Movies / Series)
   useEffect(() => {
     setCurrentIndex(0);
   }, [hubMode, featuredItems.length]);
 
-  // Auto-advance spotlight every 8 seconds unless paused on hover/focus
+  // Pause auto-rotation when HeroSpotlight is scrolled out of the viewport on mobile/desktop
   useEffect(() => {
-    if (featuredItems.length <= 1 || isPaused) return;
+    const el = containerRef.current;
+    if (!el || typeof IntersectionObserver === 'undefined') return;
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const entry = entries[0];
+        if (entry) {
+          setIsInViewport(entry.isIntersecting);
+        }
+      },
+      { threshold: 0.1 }
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
+  // Auto-advance spotlight every 8 seconds unless paused on hover/focus or offscreen
+  useEffect(() => {
+    if (featuredItems.length <= 1 || isPaused || !isInViewport) return;
     const timer = setInterval(() => {
       setCurrentIndex((prev) => (prev + 1) % featuredItems.length);
     }, 8000);
     return () => clearInterval(timer);
-  }, [featuredItems.length, isPaused]);
+  }, [featuredItems.length, isPaused, isInViewport]);
 
   if (!featuredItems || featuredItems.length === 0) return null;
 
@@ -61,6 +80,7 @@ export const HeroSpotlight: React.FC<HeroSpotlightProps> = ({
 
   return (
     <div
+      ref={containerRef}
       onMouseEnter={() => setIsPaused(true)}
       onMouseLeave={() => setIsPaused(false)}
       className="relative w-full overflow-hidden rounded-2xl border border-white/10 bg-[#0A0D12] shadow-2xl"
@@ -267,3 +287,5 @@ export const HeroSpotlight: React.FC<HeroSpotlightProps> = ({
     </div>
   );
 };
+
+export const HeroSpotlight = React.memo(HeroSpotlightComponent);

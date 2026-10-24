@@ -70,13 +70,11 @@ const MediaPosterComponent: React.FC<MediaPosterProps> = ({
   const [hasBackdropError, setHasBackdropError] = useState(() =>
     cleanBackdropUrl ? failedImageUrls.has(cleanBackdropUrl) : false
   );
-  const [isPosterLoaded, setIsPosterLoaded] = useState(false);
   const [hasPosterError, setHasPosterError] = useState(() =>
     cleanPosterUrl ? failedImageUrls.has(cleanPosterUrl) : false
   );
 
   const backdropImgRef = useRef<HTMLImageElement | null>(null);
-  const posterImgRef = useRef<HTMLImageElement | null>(null);
 
   useEffect(() => {
     if (!cleanBackdropUrl) {
@@ -104,24 +102,9 @@ const MediaPosterComponent: React.FC<MediaPosterProps> = ({
   useEffect(() => {
     if (!cleanPosterUrl) {
       setHasPosterError(false);
-      setIsPosterLoaded(false);
       return;
     }
-    if (failedImageUrls.has(cleanPosterUrl)) {
-      setHasPosterError(true);
-      setIsPosterLoaded(false);
-      return;
-    }
-    setHasPosterError(false);
-    if (
-      posterImgRef.current &&
-      posterImgRef.current.complete &&
-      posterImgRef.current.naturalWidth > 0
-    ) {
-      setIsPosterLoaded(true);
-    } else {
-      setIsPosterLoaded(false);
-    }
+    setHasPosterError(failedImageUrls.has(cleanPosterUrl));
   }, [cleanPosterUrl]);
 
   const renderVisualIcon = () => {
@@ -204,7 +187,7 @@ const MediaPosterComponent: React.FC<MediaPosterProps> = ({
                 if (cleanPosterUrl) failedImageUrls.add(cleanPosterUrl);
                 setHasPosterError(true);
               }}
-              className="absolute inset-0 w-full h-full object-cover object-center scale-110 blur-xl opacity-45 pointer-events-none"
+              className="absolute inset-0 w-full h-full object-cover object-center md:scale-110 md:blur-xl opacity-35 md:opacity-45 pointer-events-none"
             />
             <div className="hidden sm:flex absolute right-8 md:right-14 lg:right-20 top-1/2 -translate-y-1/2 h-[76%] aspect-[2/3] rounded-xl overflow-hidden shadow-2xl border border-white/15 z-[1] pointer-events-none">
               <img
@@ -240,7 +223,7 @@ const MediaPosterComponent: React.FC<MediaPosterProps> = ({
     );
   }
 
-  // Standard 2:3 vertical movie/TV poster
+  // Standard 2:3 vertical movie/TV poster — instant browser-native paint without per-card onLoad React state
   const posterSrcSet = buildTmdbPosterSrcSet(rawPosterUrl);
 
   return (
@@ -250,19 +233,9 @@ const MediaPosterComponent: React.FC<MediaPosterProps> = ({
         background: `radial-gradient(circle at 50% 20%, ${accent}25 0%, transparent 70%), linear-gradient(180deg, ${bgFrom} 0%, ${bgTo} 70%, #06070a 100%)`,
       }}
     >
-      {/* Lightweight Static Loading Placeholder (avoids 100+ simultaneous spinning animations on mobile) */}
-      {Boolean(cleanPosterUrl) && !isPosterLoaded && !hasPosterError && (
-        <div className="absolute inset-0 z-10 flex flex-col items-center justify-end bg-slate-900/70 p-3 pointer-events-none">
-          <span className="text-[10px] font-medium text-slate-400/80 text-center line-clamp-1">
-            {media.title}
-          </span>
-        </div>
-      )}
-
       {/* Real Movie/TV Poster Image */}
       {cleanPosterUrl && !hasPosterError ? (
         <img
-          ref={posterImgRef}
           src={cleanPosterUrl}
           srcSet={posterSrcSet}
           sizes="(max-width: 640px) 42vw, (max-width: 1024px) 24vw, 200px"
@@ -273,14 +246,11 @@ const MediaPosterComponent: React.FC<MediaPosterProps> = ({
           loading={priority ? 'eager' : 'lazy'}
           decoding={priority ? 'sync' : 'async'}
           fetchPriority={priority ? 'high' : 'auto'}
-          onLoad={() => setIsPosterLoaded(true)}
           onError={() => {
             if (cleanPosterUrl) failedImageUrls.add(cleanPosterUrl);
             setHasPosterError(true);
           }}
-          className={`w-full h-full object-cover object-center transition-opacity duration-300 md:group-hover:scale-105 md:transition-transform ${
-            isPosterLoaded ? 'opacity-100' : 'opacity-0'
-          }`}
+          className="w-full h-full object-cover object-center md:group-hover:scale-105 md:transition-transform"
         />
       ) : (
         /* Graceful Stylized Fallback Artwork when an image fails to load */

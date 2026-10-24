@@ -162,7 +162,7 @@ const NavbarComponent: React.FC<NavbarProps> = ({
   return (
     <>
       {/* Sticky Top Header (Desktop Full Bar + Mobile Compact Top Bar) */}
-      <header className="sticky top-0 z-50 w-full bg-[#0A0D12]/90 backdrop-blur-xl border-b border-white/[0.07] transition-all">
+      <header className="sticky top-0 z-50 w-full bg-[#0A0D12]/95 md:bg-[#0A0D12]/90 md:backdrop-blur-xl border-b border-white/[0.07] transition-colors">
         <div className="max-w-[1440px] mx-auto px-4 sm:px-6 lg:px-8 h-14 md:h-16 flex items-center justify-between gap-4 lg:gap-8">
           {/* Left Zone: Brand Logo + Desktop Navigation */}
           <div className="flex items-center gap-6 lg:gap-8 min-w-0">
@@ -356,7 +356,7 @@ const NavbarComponent: React.FC<NavbarProps> = ({
       {/* Mobile Fixed Bottom Navigation Bar (Home, Discover, Watchlist, Profile) */}
       <nav
         aria-label="Mobile Bottom Navigation"
-        className="md:hidden fixed bottom-0 inset-x-0 z-50 bg-[#0A0D12]/95 backdrop-blur-xl border-t border-white/10 pb-[env(safe-area-inset-bottom)]"
+        className="md:hidden fixed bottom-0 inset-x-0 z-50 bg-[#0A0D12]/95 border-t border-white/10 pb-[env(safe-area-inset-bottom)]"
       >
         <div className="grid grid-cols-4 h-14">
           {mobileBottomItems.map((item) => (

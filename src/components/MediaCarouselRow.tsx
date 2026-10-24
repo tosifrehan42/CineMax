@@ -70,6 +70,13 @@ const MediaCarouselRowComponent: React.FC<MediaCarouselRowProps> = ({
   }, []);
 
   useEffect(() => {
+    if (
+      typeof window !== 'undefined' &&
+      window.matchMedia &&
+      !window.matchMedia('(min-width: 768px)').matches
+    ) {
+      return;
+    }
     updateScrollButtons();
     const el = scrollContainerRef.current;
     if (!el) return;
@@ -108,7 +115,7 @@ const MediaCarouselRowComponent: React.FC<MediaCarouselRowProps> = ({
   if (uniqueItems.length === 0) return null;
 
   return (
-    <section className="relative space-y-3 group/row cv-auto">
+    <section className="relative space-y-3 group/row">
       {/* Row Header */}
       <div className="flex items-end justify-between gap-4">
         <div className="min-w-0">
@@ -235,4 +242,21 @@ const MediaCarouselRowComponent: React.FC<MediaCarouselRowProps> = ({
   );
 };
 
-export const MediaCarouselRow = React.memo(MediaCarouselRowComponent);
+export const MediaCarouselRow = React.memo(
+  MediaCarouselRowComponent,
+  (prev, next) =>
+    prev.title === next.title &&
+    prev.subtitle === next.subtitle &&
+    prev.badgeText === next.badgeText &&
+    prev.isTop10 === next.isTop10 &&
+    prev.exploreLabel === next.exploreLabel &&
+    prev.items === next.items &&
+    prev.isInWatchlist === next.isInWatchlist &&
+    prev.getWatchlistStatus === next.getWatchlistStatus &&
+    prev.getWatchedEpisodesCount === next.getWatchedEpisodesCount &&
+    prev.onToggleWatchlist === next.onToggleWatchlist &&
+    prev.onUpdateStatus === next.onUpdateStatus &&
+    prev.onRemoveFromWatchlist === next.onRemoveFromWatchlist &&
+    prev.onSelectMedia === next.onSelectMedia &&
+    prev.onPlayTrailer === next.onPlayTrailer
+);

@@ -25,10 +25,9 @@
   }
 }
 
-/* Offscreen row layout & paint containment for long carousels */
+/* Avoid content-visibility: auto on nested scroll-snap carousels to prevent mobile scroll freezes */
 .cv-auto {
-  content-visibility: auto;
-  contain-intrinsic-size: auto 340px;
+  contain: style;
 }
 
 @media (prefers-reduced-motion: reduce) {
