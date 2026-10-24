@@ -30,7 +30,7 @@ interface NavbarProps {
   onSignOut?: () => void;
 }
 
-export const Navbar: React.FC<NavbarProps> = ({
+const NavbarComponent: React.FC<NavbarProps> = ({
   currentTab,
   homeHubMode = 'all',
   onTabChange,
@@ -397,3 +397,5 @@ export const Navbar: React.FC<NavbarProps> = ({
     </>
   );
 };
+
+export const Navbar = React.memo(NavbarComponent);

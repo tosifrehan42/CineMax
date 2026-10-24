@@ -6,6 +6,7 @@ import { fileURLToPath } from 'url';
 import { createServer as createViteServer } from 'vite';
 import { MEDIA_ITEMS } from './src/data/mediaData.ts';
 import { EXTRA_ANCHOR_ITEMS, INDIAN_TRENDING_ITEMS } from './src/data/franchiseData.ts';
+import { VERIFIED_TMDB_TRAILERS } from './src/data/verifiedTrailers.ts';
 import type {
   MediaItem,
   CastMember,
@@ -75,6 +76,7 @@ const GENRE_NAME_TO_MOVIE_ID: Record<string, number> = {
   Action: 28,
   Fantasy: 14,
   Animation: 16,
+  Documentary: 99,
   History: 36,
   Comedy: 35,
   Horror: 27,
@@ -91,6 +93,7 @@ const GENRE_NAME_TO_TV_ID: Record<string, number> = {
   Action: 10759,
   Fantasy: 10765,
   Animation: 16,
+  Documentary: 99,
   History: 18,
   Comedy: 35,
   Horror: 9648,
@@ -293,14 +296,8 @@ function mapTmdbItemToMediaItem(raw: any, forcedType?: 'movie' | 'tv', indexOffs
       : 0;
 
   const palette = PALETTES[hashString(id) % PALETTES.length];
-  const posterUrl = raw.poster_path
-    ? `${TMDB_IMAGE_W500}${raw.poster_path}`
-    : raw.backdrop_path
-    ? `${TMDB_IMAGE_W500}${raw.backdrop_path}`
-    : '';
-  const backdropUrl = raw.backdrop_path
-    ? `${TMDB_IMAGE_W1280}${raw.backdrop_path}`
-    : posterUrl;
+  const posterUrl = raw.poster_path ? `${TMDB_IMAGE_W500}${raw.poster_path}` : '';
+  const backdropUrl = raw.backdrop_path ? `${TMDB_IMAGE_W1280}${raw.backdrop_path}` : '';
 
   const seasonsList: SeasonSummary[] | undefined =
     mediaType === 'tv' && Array.isArray(raw.seasons)
@@ -401,7 +398,15 @@ function buildTmdbYearBounds(
   return {};
 }
 
-async function fetchFromTmdb(endpoint: string, params: Record<string, string | number | undefined> = {}) {
+const tmdbResponseCache = new Map<string, { timestamp: number; data: any }>();
+const TMDB_FRESH_TTL_MS = 1000 * 60 * 10; // 10 minutes for trending / now playing / upcoming
+const TMDB_STANDARD_TTL_MS = 1000 * 60 * 20; // 20 minutes for standard endpoints
+
+async function fetchFromTmdb(
+  endpoint: string,
+  params: Record<string, string | number | undefined> = {},
+  options: { ttlMs?: number; bypassCache?: boolean } = {}
+) {
   const apiKey = getTmdbKey();
   if (!apiKey) throw new Error('TMDB_API_KEY is not configured');
 
@@ -410,6 +415,27 @@ async function fetchFromTmdb(endpoint: string, params: Record<string, string | n
     Accept: 'application/json',
   };
 
+  for (const [k, v] of Object.entries(params)) {
+    if (v !== undefined && v !== '') {
+      url.searchParams.set(k, String(v));
+    }
+  }
+
+  const cacheKey = `${endpoint}?${url.searchParams.toString()}`;
+  const isDynamicEndpoint =
+    endpoint.startsWith('/trending') ||
+    endpoint.includes('now_playing') ||
+    endpoint.includes('upcoming');
+  const effectiveTtl =
+    options.ttlMs ?? (isDynamicEndpoint ? TMDB_FRESH_TTL_MS : TMDB_STANDARD_TTL_MS);
+
+  if (!options.bypassCache) {
+    const cached = tmdbResponseCache.get(cacheKey);
+    if (cached && Date.now() - cached.timestamp < effectiveTtl) {
+      return cached.data;
+    }
+  }
+
   // Support both v4 JWT Read Access Token and v3 32-char API key
   if (apiKey.startsWith('eyJ') || apiKey.length > 45) {
     headers.Authorization = `Bearer ${apiKey}`;
@@ -417,18 +443,14 @@ async function fetchFromTmdb(endpoint: string, params: Record<string, string | n
     url.searchParams.set('api_key', apiKey);
   }
 
-  for (const [k, v] of Object.entries(params)) {
-    if (v !== undefined && v !== '') {
-      url.searchParams.set(k, String(v));
-    }
-  }
-
   const res = await fetch(url.toString(), { headers });
   if (!res.ok) {
     const errText = await res.text();
     throw new Error(`TMDB API Error (${res.status}): ${errText.slice(0, 160)}`);
   }
-  return res.json();
+  const json = await res.json();
+  tmdbResponseCache.set(cacheKey, { timestamp: Date.now(), data: json });
+  return json;
 }
 
 // ============================================================================
@@ -450,6 +472,7 @@ function normalizeGenreName(g: string): string {
   if (lower.includes('mystery')) return 'Mystery';
   if (lower.includes('fantasy')) return 'Fantasy';
   if (lower.includes('animation') || lower.includes('anime')) return 'Animation';
+  if (lower.includes('documentary') || lower.includes('docuseries') || lower.includes('nature')) return 'Documentary';
   if (lower.includes('history') || lower.includes('historical') || lower.includes('war')) return 'History';
   if (lower.includes('comedy')) return 'Comedy';
   if (lower.includes('horror') || lower.includes('supernatural')) return 'Horror';
@@ -457,9 +480,9 @@ function normalizeGenreName(g: string): string {
   return 'Drama';
 }
 
-async function getLiveExpandedCatalog(): Promise<MediaItem[]> {
+async function getLiveExpandedCatalog(forceRefresh = false): Promise<MediaItem[]> {
   const now = Date.now();
-  if (cachedLiveCatalog && cachedLiveCatalog.length > 60 && now - lastCacheTimestamp < 1000 * 60 * 30) {
+  if (!forceRefresh && cachedLiveCatalog && cachedLiveCatalog.length > 60 && now - lastCacheTimestamp < 1000 * 60 * 15) {
     return cachedLiveCatalog;
   }
 
@@ -476,7 +499,7 @@ async function getLiveExpandedCatalog(): Promise<MediaItem[]> {
     }
   }
 
-  // 2. Fetch live Movies from Apple iTunes Movie RSS genre feeds (All, Action, Drama, Sci-Fi, Thriller, Comedy, Horror)
+  // 2. Fetch live Movies from Apple iTunes Movie RSS genre feeds (All, Action, Drama, Sci-Fi, Thriller, Comedy, Horror, Documentary)
   const movieFeeds = [
     'https://itunes.apple.com/us/rss/topmovies/limit=100/json',
     'https://itunes.apple.com/us/rss/topmovies/limit=80/genre=4401/json',
@@ -484,6 +507,7 @@ async function getLiveExpandedCatalog(): Promise<MediaItem[]> {
     'https://itunes.apple.com/us/rss/topmovies/limit=80/genre=4413/json',
     'https://itunes.apple.com/us/rss/topmovies/limit=80/genre=4416/json',
     'https://itunes.apple.com/us/rss/topmovies/limit=60/genre=4404/json',
+    'https://itunes.apple.com/us/rss/topmovies/limit=60/genre=4405/json',
   ];
 
   const feedResults = await Promise.allSettled(
@@ -509,7 +533,7 @@ async function getLiveExpandedCatalog(): Promise<MediaItem[]> {
       const images = entry?.['im:image'] || [];
       const rawImg = images[images.length - 1]?.label || '';
       const posterUrl = rawImg ? rawImg.replace(/\d+x\d+bb/, '600x900bb') : '';
-      const backdropUrl = rawImg ? rawImg.replace(/\d+x\d+bb/, '1200x675bb') : posterUrl;
+      const backdropUrl = '';
 
       const releaseLabel = entry?.['im:releaseDate']?.label || '';
       const year = releaseLabel ? parseInt(releaseLabel.slice(0, 4), 10) || 2024 : 2024;
@@ -562,19 +586,19 @@ async function getLiveExpandedCatalog(): Promise<MediaItem[]> {
     }
   }
 
-  // 3. Fetch live TV Shows from TVMaze API (Pages 0 and 1 -> up to 480 real shows)
+  // 3. Fetch live TV Shows from TVMaze API (Pages 0, 1, 2 -> up to 600 real shows)
   const tvPages = await Promise.allSettled([
     fetch('https://api.tvmaze.com/shows?page=0').then((r) => (r.ok ? r.json() : [])),
     fetch('https://api.tvmaze.com/shows?page=1').then((r) => (r.ok ? r.json() : [])),
+    fetch('https://api.tvmaze.com/shows?page=2').then((r) => (r.ok ? r.json() : [])),
   ]);
 
   let tvRankCounter = 25;
   for (const res of tvPages) {
     if (res.status !== 'fulfilled' || !Array.isArray(res.value)) continue;
-    // Take top rated / popular shows with valid images
     const validShows = res.value
-      .filter((s: any) => s?.name && s?.image?.original && (s?.rating?.average || 0) >= 7.2)
-      .slice(0, 140);
+      .filter((s: any) => s?.name && s?.image?.original && (s?.rating?.average || 0) >= 7.0)
+      .slice(0, 160);
 
     for (const show of validShows) {
       const title = show.name;
@@ -583,10 +607,16 @@ async function getLiveExpandedCatalog(): Promise<MediaItem[]> {
 
       const id = `tvmaze-tv-${show.id}`;
       const posterUrl = show.image?.original || show.image?.medium || '';
-      const backdropUrl = posterUrl;
+      const backdropUrl = '';
       const year = show.premiered ? parseInt(show.premiered.slice(0, 4), 10) || 2022 : 2022;
       const rawGenres: string[] = Array.isArray(show.genres) && show.genres.length > 0 ? show.genres : ['Drama'];
       const genres = Array.from(new Set(rawGenres.map(normalizeGenreName))).slice(0, 3);
+      if (String(show.type || '').toLowerCase() === 'documentary' && !genres.includes('Documentary')) {
+        genres.unshift('Documentary');
+      }
+      if (String(show.type || '').toLowerCase() === 'animation' && !genres.includes('Animation')) {
+        genres.unshift('Animation');
+      }
       const rating = Number((show.rating?.average || 7.8).toFixed(1));
       const synopsis = stripHtml(show.summary) || `${title} is an acclaimed television series.`;
       const networkName = show.network?.name || show.webChannel?.name || 'Max';
@@ -708,11 +738,12 @@ async function startServer() {
   app.get('/api/catalogue', async (req, res) => {
     const category = String(req.query.category || 'discover');
     const page = Math.max(1, parseInt(String(req.query.page || '1'), 10) || 1);
+    const bypassCache = req.query.refresh === 'true' || req.query.refresh === '1';
     const rawType = String(req.query.type || 'all') as 'all' | 'movie' | 'tv';
     const effectiveType: 'all' | 'movie' | 'tv' =
       rawType === 'movie' || rawType === 'tv'
         ? rawType
-        : category.includes('movies')
+        : category.includes('movies') || category === 'south_indian_cinema'
         ? 'movie'
         : category.includes('_tv')
         ? 'tv'
@@ -731,6 +762,51 @@ async function startServer() {
     const query = String(req.query.query || '').trim();
 
     const tmdbKey = getTmdbKey();
+    const tmdbOpts = { bypassCache };
+
+    // Helper to merge Movie + TV discover responses into a unified 20-item page
+    const mergeMovieAndTvResponses = (
+      movieData: any,
+      tvData: any,
+      fallbackSeedItems: MediaItem[] = []
+    ) => {
+      const mRes: any[] = (Array.isArray(movieData?.results) ? movieData.results : [])
+        .filter((r: any) => r.poster_path || r.backdrop_path)
+        .map((r: any) => ({ ...r, media_type: 'movie' as const }));
+      const tRes: any[] = (Array.isArray(tvData?.results) ? tvData.results : [])
+        .filter((r: any) => r.poster_path || r.backdrop_path)
+        .map((r: any) => ({ ...r, media_type: 'tv' as const }));
+      const combined = [...mRes, ...tRes].sort(
+        (a, b) => (b.popularity || 0) - (a.popularity || 0)
+      );
+      const mapped = combined.map((r, idx) =>
+        mapTmdbItemToMediaItem(r, r.media_type, (page - 1) * 20 + idx + 1)
+      );
+      const rawCombined =
+        mapped.length >= 6
+          ? mapped
+          : [...mapped, ...fallbackSeedItems];
+      const seenMergedIds = new Set<string>();
+      const finalItems = rawCombined
+        .filter((it) => {
+          if (!it?.id || seenMergedIds.has(it.id)) return false;
+          seenMergedIds.add(it.id);
+          return true;
+        })
+        .slice(0, 20);
+      return {
+        items: finalItems,
+        page,
+        totalPages: Math.min(
+          Math.max(movieData?.total_pages || 1, tvData?.total_pages || 1, 1),
+          500
+        ),
+        totalResults:
+          (movieData?.total_results || 0) + (tvData?.total_results || 0) || finalItems.length,
+        tmdbConfigured: true,
+        provider: 'tmdb' as const,
+      };
+    };
 
     // ========================================================================
     // PATH A: Official TMDB v3 API Integration (When TMDB_API_KEY is present)
@@ -739,6 +815,13 @@ async function startServer() {
       try {
         let data: any;
         let forcedType: 'movie' | 'tv' | undefined;
+        const todayIso = new Date().toISOString().slice(0, 10);
+        const ninetyDaysAgoIso = new Date(Date.now() - 1000 * 60 * 60 * 24 * 90)
+          .toISOString()
+          .slice(0, 10);
+        const sixMonthsAheadIso = new Date(Date.now() + 1000 * 60 * 60 * 24 * 180)
+          .toISOString()
+          .slice(0, 10);
 
         if (query) {
           const searchEndpoint =
@@ -749,73 +832,279 @@ async function startServer() {
               : '/search/multi';
           if (effectiveType === 'movie') forcedType = 'movie';
           if (effectiveType === 'tv') forcedType = 'tv';
-          data = await fetchFromTmdb(searchEndpoint, {
-            query,
-            page,
-            include_adult: 'false',
-          });
+          data = await fetchFromTmdb(
+            searchEndpoint,
+            {
+              query,
+              page,
+              include_adult: 'false',
+            },
+            tmdbOpts
+          );
         } else if (category === 'trending') {
-          data = await fetchFromTmdb('/trending/all/week', { page });
+          data = await fetchFromTmdb('/trending/all/week', { page }, tmdbOpts);
+        } else if (category === 'trending_movies') {
+          forcedType = 'movie';
+          data = await fetchFromTmdb('/trending/movie/week', { page }, tmdbOpts);
+        } else if (category === 'trending_tv') {
+          forcedType = 'tv';
+          data = await fetchFromTmdb('/trending/tv/week', { page }, tmdbOpts);
+        } else if (category === 'now_playing_movies') {
+          forcedType = 'movie';
+          data = await fetchFromTmdb('/movie/now_playing', { page, region: 'US' }, tmdbOpts);
+        } else if (category === 'recently_released') {
+          if (effectiveType === 'movie') {
+            forcedType = 'movie';
+            data = await fetchFromTmdb(
+              '/discover/movie',
+              {
+                page,
+                sort_by: 'popularity.desc',
+                'primary_release_date.gte': ninetyDaysAgoIso,
+                'primary_release_date.lte': todayIso,
+                'vote_count.gte': 15,
+              },
+              tmdbOpts
+            );
+          } else if (effectiveType === 'tv') {
+            forcedType = 'tv';
+            data = await fetchFromTmdb(
+              '/discover/tv',
+              {
+                page,
+                sort_by: 'popularity.desc',
+                'first_air_date.gte': ninetyDaysAgoIso,
+                'first_air_date.lte': todayIso,
+                'vote_count.gte': 10,
+              },
+              tmdbOpts
+            );
+          } else {
+            const [recMovies, recTv] = await Promise.all([
+              fetchFromTmdb(
+                '/discover/movie',
+                {
+                  page,
+                  sort_by: 'popularity.desc',
+                  'primary_release_date.gte': ninetyDaysAgoIso,
+                  'primary_release_date.lte': todayIso,
+                  'vote_count.gte': 15,
+                },
+                tmdbOpts
+              ),
+              fetchFromTmdb(
+                '/discover/tv',
+                {
+                  page,
+                  sort_by: 'popularity.desc',
+                  'first_air_date.gte': ninetyDaysAgoIso,
+                  'first_air_date.lte': todayIso,
+                  'vote_count.gte': 10,
+                },
+                tmdbOpts
+              ),
+            ]);
+            return res.json(mergeMovieAndTvResponses(recMovies, recTv));
+          }
         } else if (category === 'trending_india') {
           const [inMovies, inTv] = await Promise.all([
-            fetchFromTmdb('/discover/movie', {
+            fetchFromTmdb(
+              '/discover/movie',
+              {
+                page,
+                with_origin_country: 'IN',
+                sort_by: 'popularity.desc',
+                'vote_count.gte': 20,
+              },
+              tmdbOpts
+            ),
+            fetchFromTmdb(
+              '/discover/tv',
+              {
+                page,
+                with_origin_country: 'IN',
+                sort_by: 'popularity.desc',
+                'vote_count.gte': 10,
+              },
+              tmdbOpts
+            ),
+          ]);
+          return res.json(mergeMovieAndTvResponses(inMovies, inTv, INDIAN_TRENDING_ITEMS));
+        } else if (category === 'hindi_movies') {
+          if (effectiveType === 'tv') {
+            forcedType = 'tv';
+            data = await fetchFromTmdb(
+              '/discover/tv',
+              {
+                page,
+                with_original_language: 'hi',
+                sort_by: 'popularity.desc',
+                'vote_count.gte': 10,
+              },
+              tmdbOpts
+            );
+          } else {
+            forcedType = 'movie';
+            data = await fetchFromTmdb(
+              '/discover/movie',
+              {
+                page,
+                with_original_language: 'hi',
+                sort_by: 'popularity.desc',
+                'vote_count.gte': 20,
+              },
+              tmdbOpts
+            );
+          }
+        } else if (category === 'south_indian_cinema') {
+          forcedType = 'movie';
+          data = await fetchFromTmdb(
+            '/discover/movie',
+            {
               page,
-              with_origin_country: 'IN',
-              sort_by: 'popularity.desc',
-              'vote_count.gte': 25,
-            }),
-            fetchFromTmdb('/discover/tv', {
-              page,
-              with_origin_country: 'IN',
+              with_original_language: 'te|ta|ml|kn',
               sort_by: 'popularity.desc',
               'vote_count.gte': 15,
-            }),
-          ]);
-          const mRes: any[] = (Array.isArray(inMovies?.results) ? inMovies.results : [])
-            .filter((r: any) => r.poster_path || r.backdrop_path)
-            .map((r: any) => ({ ...r, media_type: 'movie' }));
-          const tRes: any[] = (Array.isArray(inTv?.results) ? inTv.results : [])
-            .filter((r: any) => r.poster_path || r.backdrop_path)
-            .map((r: any) => ({ ...r, media_type: 'tv' }));
-          const combined = [...mRes, ...tRes].sort(
-            (a, b) => (b.popularity || 0) - (a.popularity || 0)
+            },
+            tmdbOpts
           );
-          const mapped = combined.map((r, idx) =>
-            mapTmdbItemToMediaItem(r, r.media_type, idx + 1)
-          );
-          const finalItems =
-            mapped.length >= 6
-              ? mapped.slice(0, 20)
-              : [...mapped, ...INDIAN_TRENDING_ITEMS].slice(0, 15);
-          return res.json({
-            items: finalItems,
-            page,
-            totalPages: Math.max(inMovies?.total_pages || 1, inTv?.total_pages || 1, 1),
-            totalResults: (inMovies?.total_results || 0) + (inTv?.total_results || 0) || finalItems.length,
-            tmdbConfigured: true,
-            provider: 'tmdb',
-          });
+        } else if (category === 'anime') {
+          if (effectiveType === 'movie') {
+            forcedType = 'movie';
+            data = await fetchFromTmdb(
+              '/discover/movie',
+              {
+                page,
+                with_genres: '16',
+                with_original_language: 'ja',
+                sort_by: 'popularity.desc',
+                'vote_count.gte': 25,
+              },
+              tmdbOpts
+            );
+          } else if (effectiveType === 'tv') {
+            forcedType = 'tv';
+            data = await fetchFromTmdb(
+              '/discover/tv',
+              {
+                page,
+                with_genres: '16',
+                with_original_language: 'ja',
+                sort_by: 'popularity.desc',
+                'vote_count.gte': 25,
+              },
+              tmdbOpts
+            );
+          } else {
+            const [animeTv, animeMovies] = await Promise.all([
+              fetchFromTmdb(
+                '/discover/tv',
+                {
+                  page,
+                  with_genres: '16',
+                  with_original_language: 'ja',
+                  sort_by: 'popularity.desc',
+                  'vote_count.gte': 25,
+                },
+                tmdbOpts
+              ),
+              fetchFromTmdb(
+                '/discover/movie',
+                {
+                  page,
+                  with_genres: '16',
+                  with_original_language: 'ja',
+                  sort_by: 'popularity.desc',
+                  'vote_count.gte': 25,
+                },
+                tmdbOpts
+              ),
+            ]);
+            return res.json(mergeMovieAndTvResponses(animeMovies, animeTv));
+          }
+        } else if (category === 'documentaries') {
+          if (effectiveType === 'movie') {
+            forcedType = 'movie';
+            data = await fetchFromTmdb(
+              '/discover/movie',
+              {
+                page,
+                with_genres: '99',
+                sort_by: 'popularity.desc',
+                'vote_count.gte': 20,
+              },
+              tmdbOpts
+            );
+          } else if (effectiveType === 'tv') {
+            forcedType = 'tv';
+            data = await fetchFromTmdb(
+              '/discover/tv',
+              {
+                page,
+                with_genres: '99',
+                sort_by: 'popularity.desc',
+                'vote_count.gte': 15,
+              },
+              tmdbOpts
+            );
+          } else {
+            const [docMovies, docTv] = await Promise.all([
+              fetchFromTmdb(
+                '/discover/movie',
+                {
+                  page,
+                  with_genres: '99',
+                  sort_by: 'popularity.desc',
+                  'vote_count.gte': 20,
+                },
+                tmdbOpts
+              ),
+              fetchFromTmdb(
+                '/discover/tv',
+                {
+                  page,
+                  with_genres: '99',
+                  sort_by: 'popularity.desc',
+                  'vote_count.gte': 15,
+                },
+                tmdbOpts
+              ),
+            ]);
+            return res.json(mergeMovieAndTvResponses(docMovies, docTv));
+          }
         } else if (category === 'top_10_movies') {
           forcedType = 'movie';
-          data = await fetchFromTmdb('/trending/movie/week', { page: 1 });
+          data = await fetchFromTmdb('/trending/movie/week', { page: 1 }, tmdbOpts);
         } else if (category === 'top_10_tv') {
           forcedType = 'tv';
-          data = await fetchFromTmdb('/trending/tv/week', { page: 1 });
+          data = await fetchFromTmdb('/trending/tv/week', { page: 1 }, tmdbOpts);
         } else if (category === 'popular_movies') {
           forcedType = 'movie';
-          data = await fetchFromTmdb('/movie/popular', { page });
+          data = await fetchFromTmdb('/movie/popular', { page }, tmdbOpts);
         } else if (category === 'top_rated_movies') {
           forcedType = 'movie';
-          data = await fetchFromTmdb('/movie/top_rated', { page });
+          data = await fetchFromTmdb('/movie/top_rated', { page }, tmdbOpts);
         } else if (category === 'upcoming_movies') {
           forcedType = 'movie';
-          data = await fetchFromTmdb('/movie/upcoming', { page });
+          data = await fetchFromTmdb(
+            '/discover/movie',
+            {
+              page,
+              sort_by: 'popularity.desc',
+              'primary_release_date.gte': todayIso,
+              'primary_release_date.lte': sixMonthsAheadIso,
+            },
+            tmdbOpts
+          );
+          if (!Array.isArray(data?.results) || data.results.length < 6) {
+            data = await fetchFromTmdb('/movie/upcoming', { page }, tmdbOpts);
+          }
         } else if (category === 'popular_tv') {
           forcedType = 'tv';
-          data = await fetchFromTmdb('/tv/popular', { page });
+          data = await fetchFromTmdb('/tv/popular', { page }, tmdbOpts);
         } else if (category === 'top_rated_tv') {
           forcedType = 'tv';
-          data = await fetchFromTmdb('/tv/top_rated', { page });
+          data = await fetchFromTmdb('/tv/top_rated', { page }, tmdbOpts);
         } else {
           // Helper to build TMDB /discover/{movie|tv} parameters with genre, year, language, rating
           const buildDiscoverParams = (targetType: 'movie' | 'tv') => {
@@ -868,8 +1157,8 @@ async function startServer() {
 
           if (effectiveType === 'all') {
             const [movieData, tvData] = await Promise.all([
-              fetchFromTmdb('/discover/movie', buildDiscoverParams('movie')),
-              fetchFromTmdb('/discover/tv', buildDiscoverParams('tv')),
+              fetchFromTmdb('/discover/movie', buildDiscoverParams('movie'), tmdbOpts),
+              fetchFromTmdb('/discover/tv', buildDiscoverParams('tv'), tmdbOpts),
             ]);
 
             const movieResults: any[] = (Array.isArray(movieData?.results) ? movieData.results : [])
@@ -930,7 +1219,11 @@ async function startServer() {
           } else {
             const targetType: 'movie' | 'tv' = effectiveType === 'tv' ? 'tv' : 'movie';
             forcedType = targetType;
-            data = await fetchFromTmdb(`/discover/${targetType}`, buildDiscoverParams(targetType));
+            data = await fetchFromTmdb(
+              `/discover/${targetType}`,
+              buildDiscoverParams(targetType),
+              tmdbOpts
+            );
           }
         }
 
@@ -1024,8 +1317,9 @@ async function startServer() {
     // PATH B: Live Multi-Page Open Catalog (When TMDB_API_KEY is not yet set)
     // ========================================================================
     try {
-      const catalog = await getLiveExpandedCatalog();
-      let pool = category === 'trending_india' ? [...INDIAN_TRENDING_ITEMS, ...catalog] : [...catalog];
+      const catalog = await getLiveExpandedCatalog(bypassCache);
+      let pool =
+        category === 'trending_india' ? [...INDIAN_TRENDING_ITEMS, ...catalog] : [...catalog];
 
       // Deduplicate pool by id
       const seenIds = new Set<string>();
@@ -1079,7 +1373,7 @@ async function startServer() {
                 streamOn: [networkName],
                 themeColor: palette.themeColor,
                 posterUrl,
-                backdropUrl: posterUrl,
+                backdropUrl: '',
                 posterVisual: {
                   bgFrom: palette.bgFrom,
                   bgTo: palette.bgTo,
@@ -1099,11 +1393,31 @@ async function startServer() {
         pool = pool.filter((item) => item.type === effectiveType);
       }
 
+      // Apply preset category filters in PATH B
       if (category === 'trending_india') {
-        pool = pool.filter((item) =>
-          ['hi', 'te', 'ta', 'ml', 'kn'].includes((item.language || '').toLowerCase()) ||
-          INDIAN_TRENDING_ITEMS.some((ind) => ind.id === item.id)
+        pool = pool.filter(
+          (item) =>
+            ['hi', 'te', 'ta', 'ml', 'kn'].includes((item.language || '').toLowerCase()) ||
+            INDIAN_TRENDING_ITEMS.some((ind) => ind.id === item.id)
         );
+      } else if (category === 'hindi_movies') {
+        pool = pool.filter((item) => (item.language || '').toLowerCase() === 'hi');
+      } else if (category === 'south_indian_cinema') {
+        pool = pool.filter((item) =>
+          ['te', 'ta', 'ml', 'kn'].includes((item.language || '').toLowerCase())
+        );
+      } else if (category === 'anime') {
+        pool = pool.filter(
+          (item) =>
+            item.genres.some((g) => g.toLowerCase() === 'animation') ||
+            (item.language || '').toLowerCase() === 'ja'
+        );
+      } else if (category === 'documentaries') {
+        pool = pool.filter((item) =>
+          item.genres.some((g) => g.toLowerCase() === 'documentary' || g.toLowerCase() === 'history')
+        );
+      } else if (category === 'now_playing_movies' || category === 'recently_released') {
+        pool = pool.filter((item) => item.year >= 2023);
       }
 
       if (query) {
@@ -1170,7 +1484,11 @@ async function startServer() {
       if (!query || sortBy !== 'relevance') {
         if (category === 'top_rated_movies' || category === 'top_rated_tv') {
           pool.sort((a, b) => b.rating - a.rating);
-        } else if (category === 'upcoming_movies') {
+        } else if (
+          category === 'upcoming_movies' ||
+          category === 'now_playing_movies' ||
+          category === 'recently_released'
+        ) {
           pool.sort((a, b) => b.year - a.year || b.rating - a.rating);
         } else if (category !== 'trending_india') {
           pool.sort((a, b) => {
@@ -1474,65 +1792,91 @@ async function startServer() {
   // 4b. Official TMDB Trailer & Video Lookup Endpoint (/api/trailer/:type/:id)
   const resolvedTmdbIdCache = new Map<string, { mediaType: 'movie' | 'tv'; tmdbId: number }>();
   const trailerResultCache = new Map<string, { timestamp: number; data: TrailerLookupResult }>();
-  const TRAILER_CACHE_TTL_MS = 1000 * 60 * 30; // 30 minutes
+  const TRAILER_CACHE_TTL_MS = 1000 * 60 * 20; // 20 minutes for verified ok results only
 
   function rankTmdbVideos(rawVideos: any[], mediaTitle = ''): TrailerVideo[] {
     if (!Array.isArray(rawVideos)) return [];
     const youtubeKeyRegex = /^[A-Za-z0-9_-]{11}$/;
     const normMediaTitle = normalizeForSearch(mediaTitle);
 
+    const allowedTypes = new Set([
+      'Trailer',
+      'Teaser',
+      'Clip',
+      'Featurette',
+      'Opening Credits',
+    ]);
+
     const candidates = rawVideos.filter((v) => {
       if (!v || String(v.site || '').toLowerCase() !== 'youtube') return false;
       const key = String(v.key || '').trim();
       if (!youtubeKeyRegex.test(key)) return false;
-      const vType = String(v.type || '');
+      const vType = String(v.type || '').trim();
       const lowerName = String(v.name || '').toLowerCase();
-      if (vType === 'Trailer' || vType === 'Teaser') return true;
-      // Some TMDB TV entries store trailers under type "Clip" or "Featurette" with "Trailer" or "Teaser" in the title
-      return lowerName.includes('trailer') || lowerName.includes('teaser');
+      if (allowedTypes.has(vType)) return true;
+      return (
+        lowerName.includes('trailer') ||
+        lowerName.includes('teaser') ||
+        lowerName.includes('promo') ||
+        lowerName.includes('preview')
+      );
     });
 
     const scored = candidates.map((v, idx) => {
       const key = String(v.key).trim();
-      const rawType = String(v.type || '');
+      const rawType = String(v.type || '').trim();
       const name = String(v.name || rawType || 'Trailer').trim();
       const lowerName = name.toLowerCase();
-      const vType: 'Trailer' | 'Teaser' =
-        rawType === 'Trailer' || (rawType !== 'Teaser' && lowerName.includes('trailer'))
-          ? 'Trailer'
-          : 'Teaser';
+
+      let vType: 'Trailer' | 'Teaser' | 'Clip' | 'Featurette' = 'Trailer';
+      if (rawType === 'Trailer' || lowerName.includes('trailer')) {
+        vType = 'Trailer';
+      } else if (rawType === 'Teaser' || lowerName.includes('teaser') || lowerName.includes('prevue')) {
+        vType = 'Teaser';
+      } else if (rawType === 'Featurette') {
+        vType = 'Featurette';
+      } else {
+        vType = 'Clip';
+      }
+
       const official = Boolean(v.official);
       const isoLang = String(v.iso_639_1 || '').toLowerCase();
       const size = Number(v.size) || 0;
       const publishedMs = v.published_at ? Date.parse(String(v.published_at)) || 0 : 0;
 
       let score = 0;
-      // 1. Prefer explicit Trailer over Teaser over trailer-titled Clip
+      // 1. Prefer explicit Trailer > Teaser > Trailer-named Clip > Featurette / Clip
       if (rawType === 'Trailer') score += 1000;
-      else if (rawType === 'Teaser') score += 450;
-      else score += 250;
+      else if (rawType === 'Teaser') score += 600;
+      else if (lowerName.includes('trailer') || lowerName.includes('teaser')) score += 450;
+      else if (rawType === 'Featurette' || rawType === 'Opening Credits') score += 180;
+      else score += 140;
 
       // 2. Prefer official studio uploads
       if (official) score += 500;
-      // 3. Prefer English or language-neutral releases
-      if (!isoLang || isoLang === 'en') score += 200;
+
+      // 3. Language preference: English & Indian/Regional languages prioritized without excluding any language
+      if (!isoLang || isoLang === 'en') score += 220;
+      else if (['hi', 'te', 'ta', 'ml', 'kn'].includes(isoLang)) score += 200;
+      else if (['ja', 'ko', 'es', 'fr'].includes(isoLang)) score += 160;
+      else score += 90;
+
       // 4. Title relevance signals
-      if (lowerName.includes('official trailer')) score += 160;
-      else if (lowerName.includes('main trailer') || lowerName.includes('final trailer')) score += 130;
-      else if (lowerName.includes('official teaser')) score += 100;
-      else if (lowerName.includes('trailer')) score += 80;
+      if (lowerName.includes('official trailer')) score += 180;
+      else if (lowerName.includes('main trailer') || lowerName.includes('final trailer')) score += 140;
+      else if (lowerName.includes('official teaser')) score += 110;
+      else if (lowerName.includes('trailer')) score += 90;
 
       if (normMediaTitle && normalizeForSearch(name).includes(normMediaTitle)) {
         score += 35;
       }
 
-      // Deprioritize non-standard or localization-dubbed clips when standard trailers exist
+      // Deprioritize non-standard clips when full trailers exist
       if (
-        lowerName.includes('dub') ||
-        lowerName.includes('subtitled') ||
         lowerName.includes('recap') ||
         lowerName.includes('commentary') ||
-        lowerName.includes('vertical')
+        lowerName.includes('vertical') ||
+        lowerName.includes('reaction')
       ) {
         score -= 220;
       }
@@ -1571,6 +1915,28 @@ async function startServer() {
     return deduped;
   }
 
+  function lookupPreVerifiedTrailers(
+    rawId: string,
+    rawType: 'movie' | 'tv',
+    tmdbId: number | null,
+    titleHint?: string
+  ): TrailerVideo[] {
+    const cleanTitle = (titleHint || '').toLowerCase().trim();
+    const candidateKeys = [
+      `id:${rawId}`,
+      tmdbId ? `id:tmdb-${rawType}-${tmdbId}` : '',
+      cleanTitle ? `title:${rawType}:${cleanTitle}` : '',
+    ].filter(Boolean);
+
+    for (const k of candidateKeys) {
+      const record = VERIFIED_TMDB_TRAILERS[k];
+      if (record && Array.isArray(record.videos) && record.videos.length > 0) {
+        return record.videos;
+      }
+    }
+    return [];
+  }
+
   async function resolveNumericTmdbIdOnServer(
     rawId: string,
     rawType: 'movie' | 'tv',
@@ -1583,7 +1949,9 @@ async function startServer() {
     // 1. Check seed map first
     const seedMatch = SEED_TO_TMDB_ID[cleanId];
     if (seedMatch) {
-      const seedItem = MEDIA_ITEMS.find((m) => m.id === cleanId);
+      const seedItem =
+        MEDIA_ITEMS.find((m) => m.id === cleanId) ||
+        EXTRA_ANCHOR_ITEMS.find((m) => m.id === cleanId);
       return {
         mediaType: seedMatch.mediaType,
         tmdbId: parseInt(seedMatch.tmdbId, 10),
@@ -1598,11 +1966,14 @@ async function startServer() {
       const mType = tmdbPrefixMatch[1].toLowerCase() === 'tv' ? 'tv' : 'movie';
       const numId = parseInt(tmdbPrefixMatch[2], 10);
       if (Number.isFinite(numId) && numId > 0) {
+        const anchorItem =
+          EXTRA_ANCHOR_ITEMS.find((m) => m.id === cleanId) ||
+          MEDIA_ITEMS.find((m) => m.id === cleanId);
         return {
           mediaType: mType,
           tmdbId: numId,
-          resolvedTitle: titleHint || '',
-          resolvedYear: yearHint,
+          resolvedTitle: titleHint || anchorItem?.title || '',
+          resolvedYear: yearHint || anchorItem?.year,
         };
       }
     }
@@ -1630,7 +2001,10 @@ async function startServer() {
 
     if (!lookupTitle) {
       const catalog = await getLiveExpandedCatalog();
-      const found = catalog.find((m) => m.id === cleanId) || MEDIA_ITEMS.find((m) => m.id === cleanId);
+      const found =
+        catalog.find((m) => m.id === cleanId) ||
+        MEDIA_ITEMS.find((m) => m.id === cleanId) ||
+        EXTRA_ANCHOR_ITEMS.find((m) => m.id === cleanId);
       if (found) {
         lookupTitle = found.title;
         lookupYear = lookupYear || found.year;
@@ -1773,6 +2147,7 @@ async function startServer() {
     const rawId = String(req.params.id || '').trim();
     const titleHint = String(req.query.title || '').trim();
     const yearHint = parseInt(String(req.query.year || ''), 10) || undefined;
+    const bypassCache = req.query.refresh === 'true' || req.query.refresh === '1';
 
     const searchQueryParts = [
       titleHint || rawId.replace(/^(tmdb|tvmaze|live)-(movie|tv)-/i, '').replace(/-/g, ' '),
@@ -1784,13 +2159,30 @@ async function startServer() {
     )}`;
 
     const cacheKey = `${rawType}:${rawId}:${titleHint.toLowerCase()}:${yearHint || ''}`;
-    const cached = trailerResultCache.get(cacheKey);
-    if (cached && Date.now() - cached.timestamp < TRAILER_CACHE_TTL_MS) {
-      return res.json(cached.data);
+    if (!bypassCache) {
+      const cached = trailerResultCache.get(cacheKey);
+      if (
+        cached &&
+        cached.data.status === 'ok' &&
+        Date.now() - cached.timestamp < TRAILER_CACHE_TTL_MS
+      ) {
+        return res.json(cached.data);
+      }
     }
 
     const tmdbKey = getTmdbKey();
     if (!tmdbKey) {
+      const preVerified = lookupPreVerifiedTrailers(rawId, rawType, null, titleHint);
+      if (preVerified.length > 0) {
+        return res.json({
+          status: 'ok',
+          tmdbId: null,
+          mediaType: rawType,
+          primaryVideo: preVerified[0],
+          videos: preVerified,
+          youtubeSearchUrl,
+        } satisfies TrailerLookupResult);
+      }
       return res.json({
         status: 'unavailable',
         tmdbId: null,
@@ -1805,7 +2197,18 @@ async function startServer() {
     try {
       const resolved = await resolveNumericTmdbIdOnServer(rawId, rawType, titleHint, yearHint);
       if (!resolved || !Number.isFinite(resolved.tmdbId) || resolved.tmdbId <= 0) {
-        const unavailableResult: TrailerLookupResult = {
+        const preVerified = lookupPreVerifiedTrailers(rawId, rawType, null, titleHint);
+        if (preVerified.length > 0) {
+          return res.json({
+            status: 'ok',
+            tmdbId: null,
+            mediaType: rawType,
+            primaryVideo: preVerified[0],
+            videos: preVerified,
+            youtubeSearchUrl,
+          } satisfies TrailerLookupResult);
+        }
+        return res.json({
           status: 'unavailable',
           tmdbId: null,
           mediaType: rawType,
@@ -1813,16 +2216,38 @@ async function startServer() {
           videos: [],
           youtubeSearchUrl,
           reason: 'Could not match this title to a verified TMDB entry.',
-        };
-        trailerResultCache.set(cacheKey, { timestamp: Date.now(), data: unavailableResult });
-        return res.json(unavailableResult);
+        } satisfies TrailerLookupResult);
       }
 
       const { mediaType, tmdbId, resolvedTitle } = resolved;
-      const enVideosData = await fetchFromTmdb(`/${mediaType}/${tmdbId}/videos`, {
-        language: 'en-US',
-      });
-      let rawVideos: any[] = Array.isArray(enVideosData?.results) ? [...enVideosData.results] : [];
+
+      // Fetch multi-language videos (English + Hindi + Regional Indian + East Asian + European + language-neutral)
+      const multiLangVideosData = await fetchFromTmdb(
+        `/${mediaType}/${tmdbId}/videos`,
+        {
+          include_video_language: 'en,hi,te,ta,ml,kn,ja,ko,es,fr,null',
+        },
+        { bypassCache }
+      );
+      let rawVideos: any[] = Array.isArray(multiLangVideosData?.results)
+        ? [...multiLangVideosData.results]
+        : [];
+
+      // Also fetch unfiltered all-language videos if no explicit YouTube Trailer was returned yet
+      if (!rawVideos.some((v) => v?.site === 'YouTube' && v?.type === 'Trailer')) {
+        try {
+          const allLangVideosData = await fetchFromTmdb(
+            `/${mediaType}/${tmdbId}/videos`,
+            {},
+            { bypassCache }
+          );
+          if (Array.isArray(allLangVideosData?.results)) {
+            rawVideos.push(...allLangVideosData.results);
+          }
+        } catch {
+          // Ignore secondary language fetch error
+        }
+      }
 
       // For TV series, also check Season 1 videos if series-level videos lack an explicit Trailer
       if (
@@ -1830,9 +2255,13 @@ async function startServer() {
         !rawVideos.some((v) => v?.site === 'YouTube' && v?.type === 'Trailer')
       ) {
         try {
-          const s1Data = await fetchFromTmdb(`/tv/${tmdbId}/season/1/videos`, {
-            language: 'en-US',
-          });
+          const s1Data = await fetchFromTmdb(
+            `/tv/${tmdbId}/season/1/videos`,
+            {
+              include_video_language: 'en,hi,te,ta,ml,kn,ja,ko,es,fr,null',
+            },
+            { bypassCache }
+          );
           if (Array.isArray(s1Data?.results)) {
             rawVideos.push(...s1Data.results);
           }
@@ -1843,13 +2272,17 @@ async function startServer() {
 
       let ranked = rankTmdbVideos(rawVideos, resolvedTitle || titleHint);
 
-      // If no English trailer/teaser found, query all languages for that TMDB ID as fallback
+      // Merge any pre-verified official trailer records if TMDB returned none
       if (ranked.length === 0) {
-        const allLangVideosData = await fetchFromTmdb(`/${mediaType}/${tmdbId}/videos`);
-        const allRaw: any[] = Array.isArray(allLangVideosData?.results)
-          ? allLangVideosData.results
-          : [];
-        ranked = rankTmdbVideos(allRaw, resolvedTitle || titleHint);
+        const preVerified = lookupPreVerifiedTrailers(
+          rawId,
+          mediaType,
+          tmdbId,
+          resolvedTitle || titleHint
+        );
+        if (preVerified.length > 0) {
+          ranked = preVerified;
+        }
       }
 
       // Verify playability/embeddability of the top candidates via YouTube oEmbed
@@ -1870,7 +2303,11 @@ async function startServer() {
           })
         );
         const verifiedTop = toVerify.filter((_, i) => checks[i]);
-        ranked = [...verifiedTop, ...ranked.slice(4)];
+        // Only filter out failed candidates if at least one candidate succeeded, or keep remaining candidates
+        const remaining = [...verifiedTop, ...ranked.slice(4)];
+        if (remaining.length > 0) {
+          ranked = remaining;
+        }
       }
 
       const finalSearchUrl = resolvedTitle
@@ -1892,7 +2329,10 @@ async function startServer() {
             : undefined,
       };
 
-      trailerResultCache.set(cacheKey, { timestamp: Date.now(), data: payload });
+      // Cache only valid ('ok') trailer lookups so temporary misses never lock out retries
+      if (payload.status === 'ok') {
+        trailerResultCache.set(cacheKey, { timestamp: Date.now(), data: payload });
+      }
       return res.json(payload);
     } catch (err: any) {
       return res.status(502).json({

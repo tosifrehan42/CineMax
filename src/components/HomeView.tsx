@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   FranchiseCollection,
   HomeHubMode,
@@ -13,7 +13,11 @@ import { HeroSpotlight } from './HeroSpotlight';
 import { MediaCarouselRow } from './MediaCarouselRow';
 import { FranchiseModal } from './FranchiseModal';
 import { GENRES } from '../data/mediaData';
-import { FRANCHISE_COLLECTIONS, INDIAN_TRENDING_ITEMS } from '../data/franchiseData';
+import {
+  EXTRA_ANCHOR_ITEMS,
+  FRANCHISE_COLLECTIONS,
+  INDIAN_TRENDING_ITEMS,
+} from '../data/franchiseData';
 import { CatalogueCategory, fetchCatalogue } from '../services/mediaApi';
 import {
   Flame,
@@ -28,6 +32,8 @@ import {
   Layers,
   Check,
   Play,
+  RefreshCw,
+  Globe,
 } from 'lucide-react';
 
 interface HomeViewProps {
@@ -53,7 +59,32 @@ interface HomeViewProps {
   onRegisterMedia?: (items: MediaItem[]) => void;
 }
 
-export const HomeView: React.FC<HomeViewProps> = ({
+const dedupeById = (list: MediaItem[]): MediaItem[] => {
+  const seen = new Set<string>();
+  return list.filter((item) => {
+    if (!item?.id || seen.has(item.id)) return false;
+    seen.add(item.id);
+    return true;
+  });
+};
+
+interface OttRowsState {
+  trendingIndia: MediaItem[];
+  nowPlayingMovies: MediaItem[];
+  top10Movies: MediaItem[];
+  top10Series: MediaItem[];
+  popularMovies: MediaItem[];
+  popularSeries: MediaItem[];
+  topRatedMovies: MediaItem[];
+  topRatedSeries: MediaItem[];
+  upcomingItems: MediaItem[];
+  hindiMovies: MediaItem[];
+  southIndianCinema: MediaItem[];
+  animeItems: MediaItem[];
+  documentaryItems: MediaItem[];
+}
+
+const HomeViewComponent: React.FC<HomeViewProps> = ({
   initialItems,
   allMedia = initialItems,
   hubMode = 'all',
@@ -74,90 +105,208 @@ export const HomeView: React.FC<HomeViewProps> = ({
   onNavigateTab,
   onRegisterMedia,
 }) => {
-  const [trendingIndia, setTrendingIndia] = useState<MediaItem[]>(INDIAN_TRENDING_ITEMS);
-  const [top10Movies, setTop10Movies] = useState<MediaItem[]>(() =>
-    initialItems.filter((i) => i.type === 'movie').slice(0, 10)
-  );
-  const [top10Series, setTop10Series] = useState<MediaItem[]>(() =>
-    initialItems.filter((i) => i.type === 'tv').slice(0, 10)
-  );
-  const [popularMovies, setPopularMovies] = useState<MediaItem[]>(() =>
-    initialItems.filter((i) => i.type === 'movie')
-  );
-  const [popularSeries, setPopularSeries] = useState<MediaItem[]>(() =>
-    initialItems.filter((i) => i.type === 'tv')
-  );
-  const [topRatedMovies, setTopRatedMovies] = useState<MediaItem[]>(() =>
-    [...initialItems].filter((i) => i.type === 'movie').sort((a, b) => b.rating - a.rating)
-  );
-  const [topRatedSeries, setTopRatedSeries] = useState<MediaItem[]>(() =>
-    [...initialItems].filter((i) => i.type === 'tv').sort((a, b) => b.rating - a.rating)
-  );
-  const [upcomingItems, setUpcomingItems] = useState<MediaItem[]>(() =>
-    [...initialItems].sort((a, b) => b.year - a.year)
-  );
+  const [ottRows, setOttRows] = useState<OttRowsState>(() => ({
+    trendingIndia: dedupeById(INDIAN_TRENDING_ITEMS),
+    nowPlayingMovies: dedupeById(
+      initialItems.filter((i) => i.type === 'movie' && i.year >= 2023)
+    ),
+    top10Movies: dedupeById(initialItems.filter((i) => i.type === 'movie')).slice(0, 10),
+    top10Series: dedupeById(initialItems.filter((i) => i.type === 'tv')).slice(0, 10),
+    popularMovies: dedupeById(initialItems.filter((i) => i.type === 'movie')),
+    popularSeries: dedupeById(initialItems.filter((i) => i.type === 'tv')),
+    topRatedMovies: dedupeById(
+      [...initialItems].filter((i) => i.type === 'movie').sort((a, b) => b.rating - a.rating)
+    ),
+    topRatedSeries: dedupeById(
+      [...initialItems].filter((i) => i.type === 'tv').sort((a, b) => b.rating - a.rating)
+    ),
+    upcomingItems: dedupeById([...initialItems].sort((a, b) => b.year - a.year)),
+    hindiMovies: dedupeById(
+      [...INDIAN_TRENDING_ITEMS, ...EXTRA_ANCHOR_ITEMS].filter(
+        (i) => (i.language || '').toLowerCase() === 'hi'
+      )
+    ),
+    southIndianCinema: dedupeById(
+      [...INDIAN_TRENDING_ITEMS, ...EXTRA_ANCHOR_ITEMS].filter((i) =>
+        ['te', 'ta', 'ml', 'kn'].includes((i.language || '').toLowerCase())
+      )
+    ),
+    animeItems: dedupeById(
+      [...initialItems, ...EXTRA_ANCHOR_ITEMS].filter(
+        (i) =>
+          i.genres.some((g) => g.toLowerCase() === 'animation') ||
+          (i.language || '').toLowerCase() === 'ja'
+      )
+    ),
+    documentaryItems: dedupeById(
+      [...initialItems, ...EXTRA_ANCHOR_ITEMS].filter((i) =>
+        i.genres.some((g) => g.toLowerCase() === 'documentary')
+      )
+    ),
+  }));
+
+  const {
+    trendingIndia,
+    nowPlayingMovies,
+    top10Movies,
+    top10Series,
+    popularMovies,
+    popularSeries,
+    topRatedMovies,
+    topRatedSeries,
+    upcomingItems,
+    hindiMovies,
+    southIndianCinema,
+    animeItems,
+    documentaryItems,
+  } = ottRows;
 
   const [selectedBrowseGenre, setSelectedBrowseGenre] = useState<string>('Sci-Fi');
   const [activeFranchise, setActiveFranchise] = useState<FranchiseCollection | null>(null);
+  const [refreshSeed, setRefreshSeed] = useState(0);
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
   useEffect(() => {
     let active = true;
-    async function loadOttRows() {
+    let deferredTimer: ReturnType<typeof setTimeout> | null = null;
+    const forceRefresh = refreshSeed > 0;
+    if (forceRefresh) {
+      setIsRefreshing(true);
+    }
+
+    async function loadPriorityRows() {
       try {
-        const [
-          indiaRes,
-          topMovRes,
-          topTvRes,
-          popMovRes,
-          popTvRes,
-          ratedMovRes,
-          ratedTvRes,
-          upMovRes,
-        ] = await Promise.all([
-          fetchCatalogue({ category: 'trending_india', page: 1 }),
-          fetchCatalogue({ category: 'top_10_movies', page: 1 }),
-          fetchCatalogue({ category: 'top_10_tv', page: 1 }),
-          fetchCatalogue({ category: 'popular_movies', page: 1 }),
-          fetchCatalogue({ category: 'popular_tv', page: 1 }),
-          fetchCatalogue({ category: 'top_rated_movies', page: 1 }),
-          fetchCatalogue({ category: 'top_rated_tv', page: 1 }),
-          fetchCatalogue({ category: 'upcoming_movies', page: 1 }),
+        // Phase 1: Load priority above-the-fold rows first so initial interaction is fast
+        const [indiaRes, topMovRes, topTvRes, nowPlayRes] = await Promise.all([
+          fetchCatalogue({ category: 'trending_india', page: 1, refresh: forceRefresh }),
+          fetchCatalogue({ category: 'top_10_movies', page: 1, refresh: forceRefresh }),
+          fetchCatalogue({ category: 'top_10_tv', page: 1, refresh: forceRefresh }),
+          fetchCatalogue({ category: 'now_playing_movies', page: 1, refresh: forceRefresh }),
         ]);
 
         if (!active) return;
 
-        const allFetched = [
+        const priorityFetched = dedupeById([
           ...indiaRes.items,
           ...topMovRes.items,
           ...topTvRes.items,
-          ...popMovRes.items,
-          ...popTvRes.items,
-          ...ratedMovRes.items,
-          ...ratedTvRes.items,
-          ...upMovRes.items,
-        ];
-        if (onRegisterMedia && allFetched.length > 0) {
-          onRegisterMedia(allFetched);
+          ...nowPlayRes.items,
+        ]);
+
+        if (onRegisterMedia && priorityFetched.length > 0) {
+          onRegisterMedia(priorityFetched);
         }
 
-        if (indiaRes.items.length > 0) setTrendingIndia(indiaRes.items);
-        if (topMovRes.items.length > 0) setTop10Movies(topMovRes.items.slice(0, 10));
-        if (topTvRes.items.length > 0) setTop10Series(topTvRes.items.slice(0, 10));
-        if (popMovRes.items.length > 0) setPopularMovies(popMovRes.items);
-        if (popTvRes.items.length > 0) setPopularSeries(popTvRes.items);
-        if (ratedMovRes.items.length > 0) setTopRatedMovies(ratedMovRes.items);
-        if (ratedTvRes.items.length > 0) setTopRatedSeries(ratedTvRes.items);
-        if (upMovRes.items.length > 0) setUpcomingItems(upMovRes.items);
+        setOttRows((prev) => ({
+          ...prev,
+          trendingIndia:
+            indiaRes.items.length > 0 ? dedupeById(indiaRes.items) : prev.trendingIndia,
+          top10Movies:
+            topMovRes.items.length > 0
+              ? dedupeById(topMovRes.items).slice(0, 10)
+              : prev.top10Movies,
+          top10Series:
+            topTvRes.items.length > 0
+              ? dedupeById(topTvRes.items).slice(0, 10)
+              : prev.top10Series,
+          nowPlayingMovies:
+            nowPlayRes.items.length > 0
+              ? dedupeById(nowPlayRes.items)
+              : prev.nowPlayingMovies,
+        }));
+
+        // Phase 2: Defer below-the-fold rows slightly to avoid blocking main thread & image decode
+        deferredTimer = setTimeout(async () => {
+          if (!active) return;
+          try {
+            const [
+              popMovRes,
+              popTvRes,
+              ratedMovRes,
+              ratedTvRes,
+              upMovRes,
+              hindiRes,
+              southRes,
+              animeRes,
+              docRes,
+            ] = await Promise.all([
+              fetchCatalogue({ category: 'popular_movies', page: 1, refresh: forceRefresh }),
+              fetchCatalogue({ category: 'popular_tv', page: 1, refresh: forceRefresh }),
+              fetchCatalogue({ category: 'top_rated_movies', page: 1, refresh: forceRefresh }),
+              fetchCatalogue({ category: 'top_rated_tv', page: 1, refresh: forceRefresh }),
+              fetchCatalogue({ category: 'upcoming_movies', page: 1, refresh: forceRefresh }),
+              fetchCatalogue({ category: 'hindi_movies', page: 1, refresh: forceRefresh }),
+              fetchCatalogue({ category: 'south_indian_cinema', page: 1, refresh: forceRefresh }),
+              fetchCatalogue({ category: 'anime', page: 1, refresh: forceRefresh }),
+              fetchCatalogue({ category: 'documentaries', page: 1, refresh: forceRefresh }),
+            ]);
+
+            if (!active) return;
+
+            const secondaryFetched = dedupeById([
+              ...popMovRes.items,
+              ...popTvRes.items,
+              ...ratedMovRes.items,
+              ...ratedTvRes.items,
+              ...upMovRes.items,
+              ...hindiRes.items,
+              ...southRes.items,
+              ...animeRes.items,
+              ...docRes.items,
+            ]);
+
+            if (onRegisterMedia && secondaryFetched.length > 0) {
+              onRegisterMedia(secondaryFetched);
+            }
+
+            setOttRows((prev) => ({
+              ...prev,
+              popularMovies:
+                popMovRes.items.length > 0 ? dedupeById(popMovRes.items) : prev.popularMovies,
+              popularSeries:
+                popTvRes.items.length > 0 ? dedupeById(popTvRes.items) : prev.popularSeries,
+              topRatedMovies:
+                ratedMovRes.items.length > 0
+                  ? dedupeById(ratedMovRes.items)
+                  : prev.topRatedMovies,
+              topRatedSeries:
+                ratedTvRes.items.length > 0
+                  ? dedupeById(ratedTvRes.items)
+                  : prev.topRatedSeries,
+              upcomingItems:
+                upMovRes.items.length > 0 ? dedupeById(upMovRes.items) : prev.upcomingItems,
+              hindiMovies:
+                hindiRes.items.length > 0 ? dedupeById(hindiRes.items) : prev.hindiMovies,
+              southIndianCinema:
+                southRes.items.length > 0
+                  ? dedupeById(southRes.items)
+                  : prev.southIndianCinema,
+              animeItems:
+                animeRes.items.length > 0 ? dedupeById(animeRes.items) : prev.animeItems,
+              documentaryItems:
+                docRes.items.length > 0 ? dedupeById(docRes.items) : prev.documentaryItems,
+            }));
+          } catch {
+            // Keep seeded initial state if secondary network request fails
+          } finally {
+            if (active) {
+              setIsRefreshing(false);
+            }
+          }
+        }, 120);
       } catch {
-        // Keep seeded initial state if network request fails
+        if (active) {
+          setIsRefreshing(false);
+        }
       }
     }
 
-    loadOttRows();
+    loadPriorityRows();
     return () => {
       active = false;
+      if (deferredTimer) clearTimeout(deferredTimer);
     };
-  }, [onRegisterMedia]);
+  }, [onRegisterMedia, refreshSeed]);
 
   // Filter helper for hubMode ('all' | 'movies' | 'series')
   const filterByHub = useMemo(() => {
@@ -276,34 +425,44 @@ export const HomeView: React.FC<HomeViewProps> = ({
   const deduplicatedStandardRows = useMemo(() => {
     const usedIds = new Set<string>(featuredHeroItems.slice(0, 2).map((i) => i.id));
 
-    const takeDistinct = (source: MediaItem[], minKeep = 8, maxKeep = 14): MediaItem[] => {
+    const takeDistinct = (source: MediaItem[], minKeep = 6, maxKeep = 14): MediaItem[] => {
       const filtered = filterByHub(source);
       const fresh = filtered.filter((i) => !usedIds.has(i.id));
       const chosen = (fresh.length >= minKeep ? fresh : filtered).slice(0, maxKeep);
-      chosen.slice(0, 6).forEach((i) => usedIds.add(i.id));
+      chosen.slice(0, 5).forEach((i) => usedIds.add(i.id));
       return chosen;
     };
 
     return {
       india: filterByHub(trendingIndia).slice(0, 14),
+      nowPlaying: takeDistinct(nowPlayingMovies, 6, 14),
       popMovies: takeDistinct(popularMovies, 8, 14),
       popSeries: takeDistinct(popularSeries, 8, 14),
       topMovies: takeDistinct(topRatedMovies, 8, 14),
       topSeries: takeDistinct(topRatedSeries, 8, 14),
       upcoming: takeDistinct(upcomingItems, 8, 14),
+      hindi: filterByHub(hindiMovies).slice(0, 14),
+      southIndian: filterByHub(southIndianCinema).slice(0, 14),
+      anime: filterByHub(animeItems).slice(0, 14),
+      documentaries: filterByHub(documentaryItems).slice(0, 14),
     };
   }, [
     featuredHeroItems,
     trendingIndia,
+    nowPlayingMovies,
     popularMovies,
     popularSeries,
     topRatedMovies,
     topRatedSeries,
     upcomingItems,
+    hindiMovies,
+    southIndianCinema,
+    animeItems,
+    documentaryItems,
     filterByHub,
   ]);
 
-  // 11. Browse by Genre items
+  // Browse by Genre items
   const genreRowItems = useMemo(() => {
     const pool = filterByHub(allMedia);
     if (!selectedBrowseGenre || selectedBrowseGenre === 'All') {
@@ -330,6 +489,25 @@ export const HomeView: React.FC<HomeViewProps> = ({
         onSelectMedia={onSelectMedia}
         onPlayTrailer={onPlayTrailer}
       />
+
+      {/* Subtle Catalogue Freshness Bar */}
+      <div className="flex flex-wrap items-center justify-between gap-2 px-1 -my-4 text-xs text-slate-400">
+        <div className="flex items-center gap-2">
+          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+          <span>
+            Live OTT Discovery Feed · {allMedia.length}+ Curated &amp; TMDB Indexed Titles
+          </span>
+        </div>
+        <button
+          type="button"
+          onClick={() => setRefreshSeed((s) => s + 1)}
+          disabled={isRefreshing}
+          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#121721] hover:bg-[#19202E] border border-white/10 text-slate-300 hover:text-white font-medium transition-colors disabled:opacity-50"
+        >
+          <RefreshCw className={`w-3.5 h-3.5 text-amber-400 ${isRefreshing ? 'animate-spin' : ''}`} />
+          <span>{isRefreshing ? 'Refreshing Feeds…' : 'Refresh Catalogue'}</span>
+        </button>
+      </div>
 
       {/* 2. Continue Watching (Rendered ONLY when valid viewing progress exists) */}
       {continueWatchingItems.length > 0 && (
@@ -434,6 +612,27 @@ export const HomeView: React.FC<HomeViewProps> = ({
         />
       )}
 
+      {/* 5C. Now Playing in Theatres (Shown in 'all' and 'movies' hub) */}
+      {hubMode !== 'series' && deduplicatedStandardRows.nowPlaying.length > 0 && (
+        <MediaCarouselRow
+          title="Now Playing & Recent Premieres"
+          subtitle="Fresh theatrical releases and current box-office standouts"
+          badgeText="Fresh"
+          icon={<Film className="w-5 h-5" />}
+          items={deduplicatedStandardRows.nowPlaying}
+          isInWatchlist={isInWatchlist}
+          getWatchlistStatus={getWatchlistStatus}
+          onToggleWatchlist={onToggleWatchlist}
+          onUpdateStatus={onUpdateStatus}
+          onRemoveFromWatchlist={onRemoveFromWatchlist}
+          getWatchedEpisodesCount={getWatchedEpisodesCount}
+          onSelectMedia={onSelectMedia}
+          onPlayTrailer={onPlayTrailer}
+          onExploreAll={() => onExploreCategory('now_playing_movies')}
+          exploreLabel="All Now Playing"
+        />
+      )}
+
       {/* 6. Popular Movies */}
       {hubMode !== 'series' && (
         <MediaCarouselRow
@@ -514,7 +713,91 @@ export const HomeView: React.FC<HomeViewProps> = ({
         />
       )}
 
-      {/* 10. New & Upcoming */}
+      {/* 10A. Hindi Cinema & Series Spotlight */}
+      {deduplicatedStandardRows.hindi.length > 0 && (
+        <MediaCarouselRow
+          title="Hindi Cinema & Originals"
+          subtitle="Blockbuster Bollywood features and critically acclaimed Hindi series"
+          badgeText="Hindi"
+          icon={<Globe className="w-5 h-5" />}
+          items={deduplicatedStandardRows.hindi}
+          isInWatchlist={isInWatchlist}
+          getWatchlistStatus={getWatchlistStatus}
+          onToggleWatchlist={onToggleWatchlist}
+          onUpdateStatus={onUpdateStatus}
+          onRemoveFromWatchlist={onRemoveFromWatchlist}
+          getWatchedEpisodesCount={getWatchedEpisodesCount}
+          onSelectMedia={onSelectMedia}
+          onPlayTrailer={onPlayTrailer}
+          onExploreAll={() => onExploreCategory('hindi_movies')}
+          exploreLabel="Explore Hindi Catalogue"
+        />
+      )}
+
+      {/* 10B. South Indian Blockbusters (Telugu, Tamil, Malayalam, Kannada) */}
+      {deduplicatedStandardRows.southIndian.length > 0 && (
+        <MediaCarouselRow
+          title="South Indian Blockbusters"
+          subtitle="Essential Telugu, Tamil, Malayalam, and Kannada cinema"
+          badgeText="Regional"
+          icon={<Flame className="w-5 h-5" />}
+          items={deduplicatedStandardRows.southIndian}
+          isInWatchlist={isInWatchlist}
+          getWatchlistStatus={getWatchlistStatus}
+          onToggleWatchlist={onToggleWatchlist}
+          onUpdateStatus={onUpdateStatus}
+          onRemoveFromWatchlist={onRemoveFromWatchlist}
+          getWatchedEpisodesCount={getWatchedEpisodesCount}
+          onSelectMedia={onSelectMedia}
+          onPlayTrailer={onPlayTrailer}
+          onExploreAll={() => onExploreCategory('south_indian_cinema')}
+          exploreLabel="Explore South Indian"
+        />
+      )}
+
+      {/* 10C. Anime & Global Animation */}
+      {deduplicatedStandardRows.anime.length > 0 && (
+        <MediaCarouselRow
+          title="Anime & Global Animation"
+          subtitle="Iconic Japanese anime series, Studio Ghibli classics, and animated epics"
+          badgeText="Anime"
+          icon={<Sparkles className="w-5 h-5" />}
+          items={deduplicatedStandardRows.anime}
+          isInWatchlist={isInWatchlist}
+          getWatchlistStatus={getWatchlistStatus}
+          onToggleWatchlist={onToggleWatchlist}
+          onUpdateStatus={onUpdateStatus}
+          onRemoveFromWatchlist={onRemoveFromWatchlist}
+          getWatchedEpisodesCount={getWatchedEpisodesCount}
+          onSelectMedia={onSelectMedia}
+          onPlayTrailer={onPlayTrailer}
+          onExploreAll={() => onExploreCategory('anime')}
+          exploreLabel="All Anime & Animation"
+        />
+      )}
+
+      {/* 10D. Acclaimed Documentaries */}
+      {deduplicatedStandardRows.documentaries.length > 0 && (
+        <MediaCarouselRow
+          title="Acclaimed Documentaries & Docuseries"
+          subtitle="Landmark natural history, sports chronicles, and non-fiction storytelling"
+          badgeText="Non-Fiction"
+          icon={<Compass className="w-5 h-5" />}
+          items={deduplicatedStandardRows.documentaries}
+          isInWatchlist={isInWatchlist}
+          getWatchlistStatus={getWatchlistStatus}
+          onToggleWatchlist={onToggleWatchlist}
+          onUpdateStatus={onUpdateStatus}
+          onRemoveFromWatchlist={onRemoveFromWatchlist}
+          getWatchedEpisodesCount={getWatchedEpisodesCount}
+          onSelectMedia={onSelectMedia}
+          onPlayTrailer={onPlayTrailer}
+          onExploreAll={() => onExploreCategory('documentaries')}
+          exploreLabel="All Documentaries"
+        />
+      )}
+
+      {/* 11. New & Upcoming */}
       <MediaCarouselRow
         title="New & Upcoming Releases"
         subtitle="Recent theatrical premieres and anticipated arrivals"
@@ -702,3 +985,5 @@ export const HomeView: React.FC<HomeViewProps> = ({
     </div>
   );
 };
+
+export const HomeView = React.memo(HomeViewComponent);

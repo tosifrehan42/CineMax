@@ -50,7 +50,7 @@ export interface TrailerVideo {
   key: string;
   name: string;
   site: 'YouTube';
-  type: 'Trailer' | 'Teaser';
+  type: 'Trailer' | 'Teaser' | 'Clip' | 'Featurette';
   official: boolean;
   publishedAt?: string;
   iso639_1?: string;

@@ -38,11 +38,17 @@ const CATEGORY_TABS: Array<{ id: CatalogueCategory; label: string }> = [
   { id: 'discover', label: 'All Catalogue' },
   { id: 'trending', label: 'Trending Global' },
   { id: 'trending_india', label: 'Trending in India' },
+  { id: 'now_playing_movies', label: 'Now Playing' },
+  { id: 'recently_released', label: 'Recently Released' },
   { id: 'popular_movies', label: 'Popular Movies' },
   { id: 'popular_tv', label: 'Popular Series' },
   { id: 'top_rated_movies', label: 'Top Rated Movies' },
   { id: 'top_rated_tv', label: 'Top Rated Series' },
   { id: 'upcoming_movies', label: 'New & Upcoming' },
+  { id: 'hindi_movies', label: 'Hindi Cinema' },
+  { id: 'south_indian_cinema', label: 'South Indian Cinema' },
+  { id: 'anime', label: 'Anime & Animation' },
+  { id: 'documentaries', label: 'Documentaries' },
 ];
 
 const RELEASE_YEAR_OPTIONS: Array<{ value: string; label: string }> = [
@@ -61,6 +67,8 @@ const LANGUAGE_OPTIONS: Array<{ value: string; label: string }> = [
   { value: 'hi', label: 'Hindi' },
   { value: 'te', label: 'Telugu' },
   { value: 'ta', label: 'Tamil' },
+  { value: 'ml', label: 'Malayalam' },
+  { value: 'kn', label: 'Kannada' },
   { value: 'ko', label: 'Korean' },
   { value: 'ja', label: 'Japanese' },
   { value: 'es', label: 'Spanish' },
@@ -75,7 +83,7 @@ const RATING_OPTIONS: Array<{ value: number; label: string }> = [
   { value: 8.5, label: '8.5+ ★' },
 ];
 
-export const DiscoverView: React.FC<DiscoverViewProps> = ({
+const DiscoverViewComponent: React.FC<DiscoverViewProps> = ({
   isInWatchlist,
   getWatchlistStatus,
   onToggleWatchlist,
@@ -113,6 +121,7 @@ export const DiscoverView: React.FC<DiscoverViewProps> = ({
   const [totalResults, setTotalResults] = useState<number>(0);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [isLoadingMore, setIsLoadingMore] = useState<boolean>(false);
+  const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const requestIdRef = React.useRef(0);
 
@@ -155,9 +164,17 @@ export const DiscoverView: React.FC<DiscoverViewProps> = ({
   }, [searchInput, sortBy]);
 
   const loadCataloguePage = useCallback(
-    async (targetPage: number, mode: 'replace' | 'append', signal?: AbortSignal) => {
+    async (
+      targetPage: number,
+      mode: 'replace' | 'append',
+      signal?: AbortSignal,
+      forceRefresh = false
+    ) => {
       const currentReqId = ++requestIdRef.current;
       try {
+        if (forceRefresh) {
+          setIsRefreshing(true);
+        }
         if (mode === 'replace') {
           setIsLoading(true);
         } else {
@@ -177,6 +194,7 @@ export const DiscoverView: React.FC<DiscoverViewProps> = ({
             sortBy,
             minRating,
             query: debouncedQuery,
+            refresh: forceRefresh,
           },
           signal
         );
@@ -187,14 +205,23 @@ export const DiscoverView: React.FC<DiscoverViewProps> = ({
           onRegisterMedia(response.items);
         }
 
+        const uniqueResponseItems: MediaItem[] = [];
+        const responseSeen = new Set<string>();
+        for (const it of response.items) {
+          if (it?.id && !responseSeen.has(it.id)) {
+            responseSeen.add(it.id);
+            uniqueResponseItems.push(it);
+          }
+        }
+
         if (mode === 'append') {
           setItems((prev) => {
             const seen = new Set(prev.map((i) => i.id));
-            const uniqueNew = response.items.filter((i) => !seen.has(i.id));
+            const uniqueNew = uniqueResponseItems.filter((i) => !seen.has(i.id));
             return [...prev, ...uniqueNew];
           });
         } else {
-          setItems(response.items);
+          setItems(uniqueResponseItems);
         }
 
         setPage(response.page);
@@ -213,6 +240,7 @@ export const DiscoverView: React.FC<DiscoverViewProps> = ({
         if (!signal?.aborted && currentReqId === requestIdRef.current) {
           setIsLoading(false);
           setIsLoadingMore(false);
+          setIsRefreshing(false);
         }
       }
     },
@@ -625,15 +653,27 @@ export const DiscoverView: React.FC<DiscoverViewProps> = ({
 
       {/* Results Summary & Top Pagination */}
       <div className="flex flex-wrap items-center justify-between gap-3 text-xs text-slate-400">
-        <div>
-          Showing <strong className="text-white font-mono tabular-nums">{items.length}</strong> of{' '}
-          <strong className="text-white font-mono tabular-nums">{totalResults}</strong> matching
-          titles
-          <span className="mx-2 text-slate-600">·</span>
+        <div className="flex flex-wrap items-center gap-2">
+          <span>
+            Showing <strong className="text-white font-mono tabular-nums">{items.length}</strong> of{' '}
+            <strong className="text-white font-mono tabular-nums">{totalResults}</strong> matching
+            titles
+          </span>
+          <span className="text-slate-600">·</span>
           <span>
             Page <strong className="text-white font-mono tabular-nums">{page}</strong> of{' '}
             <strong className="text-white font-mono tabular-nums">{totalPages}</strong>
           </span>
+          <button
+            type="button"
+            onClick={() => loadCataloguePage(page, 'replace', undefined, true)}
+            disabled={isLoading || isRefreshing}
+            className="ml-1 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[#121721] hover:bg-[#19202E] border border-white/10 text-slate-300 hover:text-white transition-colors disabled:opacity-40"
+            title="Refresh live catalogue results"
+          >
+            <RotateCcw className={`w-3 h-3 text-amber-400 ${isRefreshing ? 'animate-spin' : ''}`} />
+            <span>{isRefreshing ? 'Refreshing…' : 'Refresh'}</span>
+          </button>
         </div>
 
         {totalPages > 1 && (
@@ -721,10 +761,8 @@ export const DiscoverView: React.FC<DiscoverViewProps> = ({
                 compact={true}
                 isInWatchlist={isInWatchlist(item.id)}
                 watchlistStatus={getWatchlistStatus?.(item.id)}
-                onToggleWatchlist={(id) => onToggleWatchlist(id, item)}
-                onUpdateStatus={
-                  onUpdateStatus ? (id, status) => onUpdateStatus(id, status, item) : undefined
-                }
+                onToggleWatchlist={onToggleWatchlist}
+                onUpdateStatus={onUpdateStatus}
                 onRemoveFromWatchlist={onRemoveFromWatchlist}
                 watchedEpisodesCount={getWatchedEpisodesCount?.(item.id)}
                 onClick={onSelectMedia}
@@ -793,3 +831,5 @@ export const DiscoverView: React.FC<DiscoverViewProps> = ({
     </div>
   );
 };
+
+export const DiscoverView = React.memo(DiscoverViewComponent);

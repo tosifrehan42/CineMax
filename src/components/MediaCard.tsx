@@ -23,7 +23,7 @@ interface MediaCardProps {
   media: MediaItem;
   isInWatchlist: boolean;
   watchlistStatus?: WatchStatus;
-  onToggleWatchlist: (mediaId: string) => void;
+  onToggleWatchlist: (mediaId: string, media?: MediaItem) => void;
   onUpdateStatus?: (mediaId: string, status: WatchStatus, media?: MediaItem) => void;
   onRemoveFromWatchlist?: (mediaId: string) => void;
   watchedEpisodesCount?: number;
@@ -34,7 +34,7 @@ interface MediaCardProps {
   compact?: boolean;
 }
 
-export const MediaCard: React.FC<MediaCardProps> = ({
+const MediaCardComponent: React.FC<MediaCardProps> = ({
   media,
   isInWatchlist,
   watchlistStatus = 'plan_to_watch',
@@ -84,7 +84,7 @@ export const MediaCard: React.FC<MediaCardProps> = ({
       if (onUpdateStatus) {
         onUpdateStatus(media.id, 'plan_to_watch', media);
       } else {
-        onToggleWatchlist(media.id);
+        onToggleWatchlist(media.id, media);
       }
       setMenuOpen(true);
     } else {
@@ -97,7 +97,7 @@ export const MediaCard: React.FC<MediaCardProps> = ({
     if (onUpdateStatus) {
       onUpdateStatus(media.id, status, media);
     } else if (!isInWatchlist) {
-      onToggleWatchlist(media.id);
+      onToggleWatchlist(media.id, media);
     }
     setMenuOpen(false);
   };
@@ -107,7 +107,7 @@ export const MediaCard: React.FC<MediaCardProps> = ({
     if (onRemoveFromWatchlist) {
       onRemoveFromWatchlist(media.id);
     } else if (isInWatchlist) {
-      onToggleWatchlist(media.id);
+      onToggleWatchlist(media.id, media);
     }
     setMenuOpen(false);
   };
@@ -130,20 +130,20 @@ export const MediaCard: React.FC<MediaCardProps> = ({
 
   const getButtonAppearance = () => {
     if (!isInWatchlist) {
-      return 'bg-black/70 text-white/80 border-white/15 hover:text-white hover:bg-black/90 hover:border-amber-400/50';
+      return 'bg-[#0B0E14]/90 md:bg-black/70 md:backdrop-blur-md text-white/85 border-white/15 hover:text-white hover:bg-black/90 hover:border-amber-400/50';
     }
     switch (watchlistStatus) {
       case 'completed':
-        return 'bg-emerald-500 text-slate-950 border-emerald-400 shadow-md shadow-emerald-500/30';
+        return 'bg-emerald-500 text-slate-950 border-emerald-400 shadow-sm';
       case 'watching':
-        return 'bg-sky-500 text-slate-950 border-sky-400 shadow-md shadow-sky-500/30';
+        return 'bg-sky-500 text-slate-950 border-sky-400 shadow-sm';
       case 'on_hold':
-        return 'bg-amber-500/90 text-slate-950 border-amber-300 shadow-md shadow-amber-500/20';
+        return 'bg-amber-500/95 text-slate-950 border-amber-300 shadow-sm';
       case 'dropped':
-        return 'bg-rose-500/90 text-white border-rose-400 shadow-md shadow-rose-500/20';
+        return 'bg-rose-500/95 text-white border-rose-400 shadow-sm';
       case 'plan_to_watch':
       default:
-        return 'bg-amber-500 text-slate-950 border-amber-400 shadow-md shadow-amber-500/30';
+        return 'bg-amber-500 text-slate-950 border-amber-400 shadow-sm';
     }
   };
 
@@ -161,7 +161,7 @@ export const MediaCard: React.FC<MediaCardProps> = ({
   return (
     <div
       onClick={() => onClick(media)}
-      className="group relative flex flex-col cursor-pointer transition-all duration-200 transform-gpu hover:-translate-y-1 focus:outline-none"
+      className="group relative flex flex-col cursor-pointer md:transition-transform md:duration-200 md:hover:-translate-y-1 focus:outline-none"
       role="button"
       tabIndex={0}
       onKeyDown={(e) => {
@@ -172,10 +172,10 @@ export const MediaCard: React.FC<MediaCardProps> = ({
       }}
     >
       {/* Portrait 2:3 Poster Surface */}
-      <div className="relative aspect-[2/3] w-full overflow-hidden rounded-xl border border-white/[0.08] bg-[#121721] shadow-md group-hover:border-amber-400/45 group-hover:shadow-xl group-hover:shadow-black/60 transition-all">
-        {/* Optional Rank Number Badge */}
+      <div className="relative aspect-[2/3] w-full overflow-hidden rounded-xl border border-white/[0.08] bg-[#121721] shadow-md md:group-hover:border-amber-400/45 md:group-hover:shadow-xl transition-colors">
+        {/* Optional Rank Number Badge (Solid on mobile, glassmorphic on desktop) */}
         {rankBadge && (
-          <div className="absolute top-2 left-2 z-20 px-2 py-0.5 rounded-md bg-black/80 backdrop-blur-md border border-amber-400/30 flex items-center justify-center text-[11px] font-mono font-bold text-amber-400 shadow-md">
+          <div className="absolute top-2 left-2 z-20 px-2 py-0.5 rounded-md bg-[#0B0E14]/95 md:bg-black/80 md:backdrop-blur-md border border-amber-400/30 flex items-center justify-center text-[11px] font-mono font-bold text-amber-400 shadow-sm">
             #{rankBadge}
           </div>
         )}
@@ -191,7 +191,7 @@ export const MediaCard: React.FC<MediaCardProps> = ({
                 : 'Add to Watchlist'
             }
             aria-expanded={menuOpen}
-            className={`p-1.5 sm:p-2 rounded-lg backdrop-blur-md border transition-all flex items-center justify-center ${getButtonAppearance()}`}
+            className={`p-1.5 sm:p-2 rounded-lg border transition-colors flex items-center justify-center ${getButtonAppearance()}`}
             title={
               isInWatchlist
                 ? `${WATCH_STATUS_LABELS[watchlistStatus]} (Click to change)`
@@ -209,7 +209,7 @@ export const MediaCard: React.FC<MediaCardProps> = ({
           {menuOpen && (
             <div
               onClick={(e) => e.stopPropagation()}
-              className="absolute right-0 mt-1.5 w-44 rounded-xl bg-[#0E121A]/95 backdrop-blur-xl border border-white/15 shadow-2xl p-1.5 z-40"
+              className="absolute right-0 mt-1.5 w-44 rounded-xl bg-[#0E121A] border border-white/15 shadow-2xl p-1.5 z-40"
             >
               <div className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-slate-400 border-b border-white/5 mb-1">
                 Watchlist Status
@@ -290,7 +290,7 @@ export const MediaCard: React.FC<MediaCardProps> = ({
               }}
               className={`${
                 onPlayTrailer ? 'px-2.5' : 'flex-1 px-2.5'
-              } flex items-center justify-center gap-1 py-1.5 rounded-lg bg-white/15 hover:bg-white/25 text-white font-semibold text-[11px] backdrop-blur-md border border-white/15 transition-colors`}
+              } flex items-center justify-center gap-1 py-1.5 rounded-lg bg-white/15 hover:bg-white/25 text-white font-semibold text-[11px] border border-white/15 transition-colors`}
               title="View Details"
             >
               <Info className="w-3 h-3" />
@@ -332,3 +332,22 @@ export const MediaCard: React.FC<MediaCardProps> = ({
     </div>
   );
 };
+
+export const MediaCard = React.memo(
+  MediaCardComponent,
+  (prev, next) =>
+    prev.media.id === next.media.id &&
+    prev.media.posterUrl === next.media.posterUrl &&
+    prev.media.rating === next.media.rating &&
+    prev.isInWatchlist === next.isInWatchlist &&
+    prev.watchlistStatus === next.watchlistStatus &&
+    prev.watchedEpisodesCount === next.watchedEpisodesCount &&
+    prev.totalEpisodesCount === next.totalEpisodesCount &&
+    prev.rankBadge === next.rankBadge &&
+    prev.compact === next.compact &&
+    prev.onClick === next.onClick &&
+    prev.onPlayTrailer === next.onPlayTrailer &&
+    prev.onToggleWatchlist === next.onToggleWatchlist &&
+    prev.onUpdateStatus === next.onUpdateStatus &&
+    prev.onRemoveFromWatchlist === next.onRemoveFromWatchlist
+);

@@ -96,13 +96,14 @@ export const TrailerModal: React.FC<TrailerModalProps> = ({ media, onClose }) =>
     setEmbedErrorCode(null);
     setThumbnailHighResFailed(false);
 
-    fetchMediaTrailers(media, controller.signal)
+    fetchMediaTrailers(media, controller.signal, { refresh: reloadCounter > 0 })
       .then((res) => {
         if (controller.signal.aborted) return;
         setLookupResult(res);
         const initialVideo = res.primaryVideo || res.videos[0] || null;
         setActiveVideo(initialVideo);
-        setIsPlayerActive(Boolean(initialVideo));
+        // Display the real YouTube trailer thumbnail first; open the embedded YouTube player when the user clicks Play
+        setIsPlayerActive(false);
       })
       .catch((err: any) => {
         if (controller.signal.aborted || err?.name === 'AbortError') return;
@@ -418,16 +419,26 @@ export const TrailerModal: React.FC<TrailerModalProps> = ({ media, onClose }) =>
                   {lookupResult?.reason ||
                     `No official YouTube trailer or teaser is currently listed in TMDB for "${media.title}".`}
                 </p>
-                <a
-                  href={fallbackSearchUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-semibold text-sm transition-colors shadow-lg shadow-amber-500/20"
-                >
-                  <Search className="w-4 h-4" />
-                  <span>Search on YouTube</span>
-                  <ExternalLink className="w-3.5 h-3.5" />
-                </a>
+                <div className="flex flex-wrap items-center justify-center gap-3">
+                  <a
+                    href={fallbackSearchUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-semibold text-sm transition-colors shadow-lg shadow-amber-500/20"
+                  >
+                    <Search className="w-4 h-4" />
+                    <span>Search on YouTube</span>
+                    <ExternalLink className="w-3.5 h-3.5" />
+                  </a>
+                  <button
+                    type="button"
+                    onClick={() => setReloadCounter((c) => c + 1)}
+                    className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-slate-300 hover:text-white text-sm font-medium transition-colors"
+                  >
+                    <RefreshCw className="w-4 h-4 text-amber-400" />
+                    <span>Retry Lookup</span>
+                  </button>
+                </div>
               </div>
             </div>
           )}

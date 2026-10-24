@@ -1,100 +1,76 @@
-# CineMax Premium OTT Redesign Plan
+# CineMax Performance & Responsiveness Optimization Plan
 
-## 1. Overview & Aesthetic Direction
-Redesign CineMax into a cohesive, dark-cinematic OTT discovery experience (`#0A0D12` obsidian canvas, `#121721` elevated surfaces, `#F59E0B` amber accents, Plus Jakarta Sans + Inter + JetBrains Mono typography) inspired by the usability patterns of Netflix, Prime Video, and JioHotstar while preserving all existing features, routes, and security rules.
+## 1. Audit Summary & Identified Bottlenecks
 
----
+1. **React Re-render Cascades & O(N) Card Lookups (`src/App.tsx`, `src/components/MediaCarouselRow.tsx`, `src/components/MediaCard.tsx`)**
+   - Every `MediaCard` across 13+ carousels calls `isInWatchlist(id)`, `getWatchlistStatus(id)`, and `getWatchedEpisodesCount(id)`, which execute linear `.some()`, `.find()`, and `.filter()` array scans on `activeWatchlist` and `activeWatchedEpisodes`.
+   - Inline arrow functions passed to `MediaCard` (`onToggleWatchlist={(id) => onToggleWatchlist(id, item)}`, `onUpdateStatus`) and non-memoized handlers in `App.tsx` create new function references on every render, defeating component memoization.
+   - `onRegisterMedia` in `App.tsx` creates a new `knownMedia` array reference even when all incoming media items are already registered, triggering redundant top-level `App` and `HomeView` re-renders.
 
-## 2. Information Architecture & Responsive Navigation (`Navbar.tsx` & `App.tsx`)
+2. **Home Mount 13-Request Burst & Redundant Catalogue Queries (`src/components/HomeView.tsx`, `src/services/mediaApi.ts`)**
+   - `HomeView` fires 13 concurrent `fetchCatalogue` requests via `Promise.all` on initial mount and updates 13 separate state variables sequentially, causing network contention and frame drops on mobile CPUs.
+   - `fetchCatalogue` and `fetchTitleDetails` in `mediaApi.ts` lack an in-memory client response cache and in-flight request deduplication for identical queries when switching tabs or hub modes.
 
-### Desktop Navigation (`md` and up)
-- Sticky, compact top navigation bar (`h-16`, `max-w-[1440px]` centered container) with:
-  - **CineMax** brand logo
-  - **Primary hubs**: `Home`, `Movies` (Home OTT hub filtered to Movies), `Series` (Home OTT hub filtered to Series), `Discover`, `Watchlist`, `Quality & File Size`
-  - **Utility & Account**: Compact inline `Search` trigger/input, `Surprise Me` action, `Profile / Account` controls, and `Admin` (shown only when `adminAccessStatus === 'allowed'` or cached for the verified admin user ID).
+3. **Poster & Backdrop Image Sizing, Decoding & Retry Loops (`src/components/MediaPoster.tsx`)**
+   - Default `src` attributes on TMDB `<img>` elements use `w500`/`w780`/`w1280` URLs directly instead of normalizing default poster `src` to `w342` (with `w342`, `w500`, `w780` in `srcSet`) and backdrop `src` to `w780` (with `w780`, `w1280` in `srcSet`).
+   - Images lack explicit `decoding="async"`, `fetchPriority={priority ? 'high' : 'auto'}`, and intrinsic `width`/`height` attributes.
+   - Failed image URLs are only stored in local component state (`hasPosterError`, `hasBackdropError`), so unmounting and remounting cards (e.g., switching tabs or filtering) triggers repeated network requests for broken image URLs.
+   - The loading placeholder uses a spinning border animation (`animate-spin`) on every uncached poster card simultaneously; replacing it with a lightweight static/shimmer surface reduces GPU paint overhead.
 
-### Mobile Navigation (`< md`)
-- **Compact Top Bar**: CineMax logo, quick Search input/trigger, Surprise Me button, and Account/Profile avatar button (plus Admin badge only for verified admins).
-- **Fixed Bottom Navigation Bar**: `Home`, `Discover`, `Watchlist`, and `Profile` (opens account/auth drawer or modal) with `pb-[env(safe-area-inset-bottom)]` and sufficient bottom page padding (`pb-24 md:pb-12`) so content is never obscured.
-- **Quality & File Size Access**: Prominently accessible via a compact banner/shortcut inside `Discover` and a quick-access pill in the mobile top bar/tools menu.
+4. **Mobile Scroll Stutter & Expensive CSS Effects (`src/components/MediaCard.tsx`, `src/components/MediaCarouselRow.tsx`, `src/index.css`)**
+   - Every `MediaCard` renders `backdrop-blur-md` on its top-right watchlist button and rank badge (`~180` blurred layers across the Home page), causing severe GPU compositing lag during touch scrolling on Android devices.
+   - `MediaCarouselRow` attaches a `scroll` listener that invokes `setState` (`setCanScrollLeft`, `setCanScrollRight`) on every scroll event without `requestAnimationFrame` throttling.
+   - Long lists of below-the-fold carousel rows and Discover grid cards lack CSS `content-visibility: auto` containment and `prefers-reduced-motion` guards.
 
----
-
-## 3. Home Page OTT Hierarchy (`HomeView.tsx`, `HeroSpotlight.tsx`, `MediaCarouselRow.tsx`, `FranchiseModal.tsx`)
-
-When on `Home` (or the `Movies` / `Series` hub tabs), sections render in this exact hierarchy using real API/TMDB and curated fallback datasets, with cross-row deduplication so the same title does not repeat endlessly:
-
-1. **Featured Cinematic Hero (`HeroSpotlight.tsx`)**
-   - Wide 16:9 / 21:9 backdrop artwork with multi-stop bottom and left vignette gradients (`from-[#0A0D12] via-[#0A0D12]/80 to-transparent`).
-   - Displays title, release year, content format badge (`MOVIE` / `SERIES`), runtime or seasons count, IMDb/TMDB rating, language, and genre metadata.
-   - Primary actions: **Watch Trailer** (opens real YouTube trailer modal) and **View Details**.
-   - Secondary action: **Add to Watchlist** (or current watchlist status badge).
-   - Safe featured-title rotation (`8s` interval paused on hover/focus) with compact indicator pills and previous/next controls. Compact height on mobile (`min-h-[380px] sm:min-h-[440px] lg:min-h-[540px]`) so the first content row peeks above the fold.
-
-2. **Continue Watching**
-   - Rendered **only** when the user has genuine viewing progress (`status === 'watching'` or non-empty `watchedEpisodes`). Hidden completely when empty—never populated with dummy progress bars.
-
-3. **Recommended For You**
-   - Clearly labeled personalized recommendations based on the user's `favoriteGenres`, watchlist items, and high-rated history (with a clear subtitle indicating which genres/titles power the row, or a "Popular picks for new viewers" subtitle when no history exists yet).
-
-4. **Trending in India**
-   - Dedicated dataset using TMDB India region discovery/trending (`region=IN` / Indian language & regional popularity) with verified fallback titles.
-
-5. **Top 10 Movies & Top 10 Series**
-   - Independently sourced movie and series datasets rendered with oversized typographic `#1`–`#10` rank numerals alongside each `2:3` poster card.
-
-6. **Popular Movies** (shown in `Home` and `Movies` hub)
-7. **Popular Series** (shown in `Home` and `Series` hub)
-8. **Top Rated Movies** (shown in `Home` and `Movies` hub)
-9. **Top Rated Series** (shown in `Home` and `Series` hub)
-10. **New & Upcoming** (recent and upcoming releases sorted by release date)
-11. **Browse by Genre** (interactive genre pills that dynamically load a genre carousel or jump to Discover)
-12. **Franchise Collections / Watch Order**
-    - Curated multi-film/series franchises (e.g., Marvel Infinity Saga, Dune, The Dark Knight, Spider-Verse, John Wick, Avatar, Harry Potter, MonsterVerse, Lord of the Rings) backed by real catalogue entries.
-    - Selecting a franchise opens the **Franchise Watch-Order Modal** (`FranchiseModal.tsx`) showing chronological/release order, overall completion progress (`X of Y watched`), and direct `Watch Trailer`, `View Details`, and `Watchlist` toggles for each installment.
+5. **Initial Bundle Size (`src/App.tsx`, `vite.config.ts`)**
+   - `App.tsx` eagerly imports all secondary views (`DiscoverView`, `WatchlistView`, `ProfileView`, `AdminDashboardView`, `QualityFileSizeEstimator`) and heavy modals (`DetailModal`, `TrailerModal`, `SurpriseMeModal`, `SearchOverlay`, `AuthModal`), parsing all code upfront before the Home view becomes interactive.
 
 ---
 
-## 4. Content Carousels & Portrait Title Cards (`MediaCarouselRow.tsx` & `MediaCard.tsx`)
+## 2. Planned Changes by File
 
-- **Portrait `2:3` Cards**:
-  - Desktop (`1440px` container): `5–7` cards visible per row (`w-[175px] sm:w-[190px] lg:w-[205px]`).
-  - Mobile (`360px–430px`): `2.3–3` cards visible per row (`w-[140px] sm:w-[160px]`) with horizontal peek and `snap-x snap-mandatory` touch scrolling.
-- **Horizontal Carousel Controls**:
-  - Smooth native horizontal touch scrolling + keyboard arrow navigation + hover-revealed left/right chevron buttons on desktop.
-- **Clean Unboxed Metadata**:
-  - Poster image with subtle top-right rating badge and status indicator.
-  - Below poster: single-line/two-line title + compact unboxed metadata line (`2024 · 2h 46m · ★ 8.5` or `2022 · 2 Seasons · ★ 8.7`).
-  - Desktop hover/focus reveals quick actions (`Watch Trailer`, `Details`, `Watchlist +`); mobile provides direct tap for Details and a clean visible Watchlist/Trailer action button without requiring hover.
+### A. React Rendering & State Optimization
+- **`src/App.tsx`**
+  - Replace linear array scans in `isInWatchlist`, `getWatchlistStatus`, and `getWatchedEpisodesCount` with `useMemo`-computed `Map<string, WatchStatus>` (`watchlistStatusMap`) and `Map<string, number>` (`watchedEpisodesCountMap`) for O(1) lookups.
+  - Wrap `handleRegisterMedia`, `handleToggleWatchlist`, `handleUpdateStatus`, `handleRemoveFromWatchlist`, `handlePlayTrailer`, `handleSelectMedia`, `handleExploreMood`, `handleExploreCategory`, `handleExploreGenre`, and `handleTabChange` in `useCallback`.
+  - Short-circuit `handleRegisterMedia` when no genuinely new or enriched `MediaItem` entries exist so `knownMedia` state does not trigger unnecessary re-renders.
+- **`src/components/MediaCard.tsx`**
+  - Wrap `MediaCard` in `React.memo` with a custom props comparator or stable callback signature (`onToggleWatchlist(mediaId, media)`, `onUpdateStatus(mediaId, status, media)`) so cards do not re-render unless their own `media`, `isInWatchlist`, `watchlistStatus`, `watchedEpisodesCount`, or `rankBadge` changes.
+- **`src/components/MediaCarouselRow.tsx` & `src/components/Navbar.tsx`**
+  - Wrap `MediaCarouselRow` and `Navbar` in `React.memo` and pass stable handlers directly to `MediaCard` without creating per-item inline arrow functions inside `.map()`.
+
+### B. Image Sizing, Lazy Loading & Failed-URL Deduplication
+- **`src/components/MediaPoster.tsx`**
+  - Add a module-level `Set<string>` (`failedImageUrls`) to remember failed poster and backdrop URLs across the session and prevent repeated network requests when cards remount.
+  - Normalize TMDB poster default `src` to `w342` (with `w342`, `w500`, `w780` in `srcSet`) and backdrop default `src` to `w780` (with `w780`, `w1280` in `srcSet`).
+  - Add `decoding={priority ? 'sync' : 'async'}`, `fetchPriority={priority ? 'high' : 'auto'}`, and explicit `width`/`height` dimensions (`width={342} height={513}` for posters, `width={1280} height={720}` for backdrops) to prevent layout shifts.
+  - Replace the per-card spinning loader inside poster placeholders with a lightweight, zero-layout-shift gradient skeleton surface.
+  - Wrap `MediaPoster` in `React.memo`.
+
+### C. Scrolling, Animations & Mobile Compositing
+- **`src/components/MediaCard.tsx`**
+  - Replace mobile per-card `backdrop-blur-md` on the watchlist trigger button and rank badge with high-contrast solid/semi-opaque surfaces on mobile (`bg-[#0B0E14]/90 md:backdrop-blur-md`), preserving desktop glassmorphism while eliminating mobile GPU overdraw.
+- **`src/components/MediaCarouselRow.tsx`**
+  - Throttle `updateScrollButtons` inside a `requestAnimationFrame` guard and only call `setState` when boolean scroll-boundary states actually flip.
+  - Add smooth touch momentum and containment classes (`touch-pan-x`, `overscroll-x-contain`) to horizontal scroll tracks.
+- **`src/index.css`**
+  - Add `@media (prefers-reduced-motion: reduce)` rules to disable non-essential transitions, animations, and smooth-scroll behavior when requested by the operating system.
+  - Add a `.cv-auto` utility (`content-visibility: auto; contain-intrinsic-size: auto 340px;`) for below-the-fold carousel sections to reduce initial layout and paint work on mobile.
+
+### D. Staggered Catalogue Loading & Client API Caching
+- **`src/services/mediaApi.ts`**
+  - Add an in-memory TTL cache (`clientCatalogueCache`, 5-minute TTL) and in-flight request deduplication (`inFlightCatalogueRequests`) for `fetchCatalogue` and `fetchTitleDetails`, bypassed when `refresh: true` is passed.
+- **`src/components/HomeView.tsx`**
+  - Consolidate the 13 row state slices into a single batched `ottRows` state object so updates commit in at most 2 renders instead of 13 separate state updates.
+  - Load above-the-fold priority rows first (`trending_india`, `top_10_movies`, `top_10_tv`, `now_playing_movies`), then defer below-the-fold rows (`popular_movies`, `popular_tv`, `top_rated_movies`, `top_rated_tv`, `upcoming_movies`, `hindi_movies`, `south_indian_cinema`, `anime`, `documentaries`) using `requestIdleCallback` / a short timer with proper cleanup on unmount.
+
+### E. Bundle Splitting with `React.lazy` & `Suspense`
+- **`src/App.tsx`**
+  - Lazy-load secondary views (`DiscoverView`, `WatchlistView`, `ProfileView`, `AdminDashboardView`, `QualityFileSizeEstimator`) and heavy modals (`DetailModal`, `TrailerModal`, `SurpriseMeModal`, `SearchOverlay`, `AuthModal`) using `React.lazy` and lightweight `Suspense` fallbacks so the Home view loads and becomes interactive with minimal upfront JS execution.
 
 ---
 
-## 5. Discover Workspace (`DiscoverView.tsx`, `server.ts`, `mediaApi.ts`)
-
-- **Compact Inline Filter Bar**:
-  - **Search input** with `250ms` debounce and clear button.
-  - **Format segmented toggle**: `All`, `Movies`, `Series`.
-  - **Genre dropdown**: All genres (`Action`, `Sci-Fi`, `Drama`, `Thriller`, `Animation`, `Crime`, `Comedy`, `Fantasy`, `Horror`, `Romance`, `Mystery`, `Adventure`).
-  - **Release Year dropdown**: `All Years`, `2025–2026`, `2024`, `2020–2023`, `2010–2019`, `2000–2009`, `Classic (<2000)`.
-  - **Language dropdown**: `All Languages`, `English`, `Hindi`, `Korean`, `Japanese`, `Spanish`, `Tamil`, `Telugu`, `French`.
-  - **Minimum Rating dropdown**: `Any Rating`, `7.0+`, `7.5+`, `8.0+`, `8.5+`.
-  - **Sort By dropdown**: `Relevance` (auto-selected when a search query is active), `Popularity`, `Highest Rated`, `Release Year (Newest)`, `Title (A–Z)`.
-- **Active Filter Chips & Shortcut**:
-  - Dismissible chips for every active filter + `Clear All` action + total results counter.
-  - Prominent **Quality & File Size Estimator** shortcut card/button right in the Discover header.
-- **End-to-End Backend & Static Filtering**:
-  - Update `/api/catalogue` in `server.ts` and `resolveClientCatalogue()` in `src/services/mediaApi.ts` so `year`, `language`, `genre`, `minRating`, `type`, `search`, and `sortBy` work seamlessly with both live TMDB API discovery and the static GitHub Pages catalogue fallback.
-
----
-
-## 6. Preserved Features & Verification Plan
-- **Preserved Functionality**:
-  - Supabase Auth, session persistence, and profile avatar upload/removal (`ProfileModal.tsx`).
-  - Verified Admin Dashboard (`/admin` and `/CineMax/admin`) with server-side Supabase Edge Function authorization.
-  - Watchlist management across all 5 statuses (`watchlist`, `watching`, `completed`, `on_hold`, `dropped`), TV episode tracker, and Viewing Journal.
-  - Real YouTube Trailer Modal (`TrailerModal.tsx`) with official trailer ranking and verified fallback keys.
-  - Quality & File Size Estimator (`QualityGuide.tsx`) and Surprise Me modal (`SurpriseMeModal.tsx`).
-- **Verification**:
-  - Run `lint_applet` and `compile_applet` (`npm run build`).
-  - Test API endpoints for Home categories, Trending in India, Top 10 Movies/Series, and multi-filter Discover queries.
-  - Verify responsive layouts across `360px`, `390px`, `768px`, `1024px`, and `1440px` viewports and confirm `/CineMax/` GitHub Pages asset paths.
+## 3. Verification Plan
+1. Run `lint_applet` (`npm run lint`) to verify zero TypeScript or syntax errors.
+2. Run `compile_applet` (`npm run build`) to verify production bundle chunking and clean compilation.
+3. Verify that all existing features (Home hub modes, Discover filters & debounced search, Watchlist status & episode tracking, Trailer playback & fallbacks, Quality & File Size Estimator, Profile, and Admin dashboard) remain intact.

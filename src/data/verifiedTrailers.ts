@@ -11552,5 +11552,639 @@ export const VERIFIED_TMDB_TRAILERS: Record<string, VerifiedTrailerRecord> = {
         "size": 1080
       }
     ]
+  },
+  "id:tmdb-movie-579974": {
+    "tmdbId": 579974,
+    "mediaType": "movie",
+    "videos": [
+      {
+        "id": "rrr-official-trailer-1",
+        "key": "f_vbAtFSEc0",
+        "name": "RRR Official Trailer",
+        "site": "YouTube",
+        "type": "Trailer",
+        "official": true,
+        "publishedAt": "2021-12-09T05:30:00.000Z",
+        "iso639_1": "te",
+        "size": 1080
+      },
+      {
+        "id": "rrr-us-trailer-2",
+        "key": "NgBoMJy386M",
+        "name": "RRR Official US Trailer",
+        "site": "YouTube",
+        "type": "Trailer",
+        "official": true,
+        "publishedAt": "2022-05-20T16:00:00.000Z",
+        "iso639_1": "en",
+        "size": 1080
+      }
+    ]
+  },
+  "title:movie:rrr": {
+    "tmdbId": 579974,
+    "mediaType": "movie",
+    "videos": [
+      {
+        "id": "rrr-official-trailer-1",
+        "key": "f_vbAtFSEc0",
+        "name": "RRR Official Trailer",
+        "site": "YouTube",
+        "type": "Trailer",
+        "official": true,
+        "publishedAt": "2021-12-09T05:30:00.000Z",
+        "iso639_1": "te",
+        "size": 1080
+      },
+      {
+        "id": "rrr-us-trailer-2",
+        "key": "NgBoMJy386M",
+        "name": "RRR Official US Trailer",
+        "site": "YouTube",
+        "type": "Trailer",
+        "official": true,
+        "publishedAt": "2022-05-20T16:00:00.000Z",
+        "iso639_1": "en",
+        "size": 1080
+      }
+    ]
+  },
+  "id:tmdb-movie-801688": {
+    "tmdbId": 801688,
+    "mediaType": "movie",
+    "videos": [
+      {
+        "id": "kalki-official-trailer-1",
+        "key": "kQDd1AhGIHk",
+        "name": "Kalki 2898 AD Official Trailer",
+        "site": "YouTube",
+        "type": "Trailer",
+        "official": true,
+        "publishedAt": "2024-06-10T13:30:00.000Z",
+        "iso639_1": "te",
+        "size": 2160
+      },
+      {
+        "id": "kalki-release-trailer-2",
+        "key": "Bf6x7t3t53c",
+        "name": "Kalki 2898 AD Release Trailer",
+        "site": "YouTube",
+        "type": "Trailer",
+        "official": true,
+        "publishedAt": "2024-06-21T14:30:00.000Z",
+        "iso639_1": "hi",
+        "size": 2160
+      }
+    ]
+  },
+  "title:movie:kalki 2898 ad": {
+    "tmdbId": 801688,
+    "mediaType": "movie",
+    "videos": [
+      {
+        "id": "kalki-official-trailer-1",
+        "key": "kQDd1AhGIHk",
+        "name": "Kalki 2898 AD Official Trailer",
+        "site": "YouTube",
+        "type": "Trailer",
+        "official": true,
+        "publishedAt": "2024-06-10T13:30:00.000Z",
+        "iso639_1": "te",
+        "size": 2160
+      }
+    ]
+  },
+  "id:tmdb-movie-1197306": {
+    "tmdbId": 1197306,
+    "mediaType": "movie",
+    "videos": [
+      {
+        "id": "maharaja-official-trailer-1",
+        "key": "z34g9H1iR9w",
+        "name": "Maharaja Official Trailer",
+        "site": "YouTube",
+        "type": "Trailer",
+        "official": true,
+        "publishedAt": "2024-05-30T11:30:00.000Z",
+        "iso639_1": "ta",
+        "size": 2160
+      }
+    ]
+  },
+  "title:movie:maharaja": {
+    "tmdbId": 1197306,
+    "mediaType": "movie",
+    "videos": [
+      {
+        "id": "maharaja-official-trailer-1",
+        "key": "z34g9H1iR9w",
+        "name": "Maharaja Official Trailer",
+        "site": "YouTube",
+        "type": "Trailer",
+        "official": true,
+        "publishedAt": "2024-05-30T11:30:00.000Z",
+        "iso639_1": "ta",
+        "size": 2160
+      }
+    ]
+  },
+  "id:tmdb-tv-93352": {
+    "tmdbId": 93352,
+    "mediaType": "tv",
+    "videos": [
+      {
+        "id": "family-man-official-trailer-1",
+        "key": "XatRGut65VI",
+        "name": "The Family Man Official Trailer",
+        "site": "YouTube",
+        "type": "Trailer",
+        "official": true,
+        "publishedAt": "2019-09-05T06:30:00.000Z",
+        "iso639_1": "hi",
+        "size": 1080
+      },
+      {
+        "id": "family-man-s2-trailer-2",
+        "key": "NGf_B81Hc2M",
+        "name": "The Family Man Season 2 Official Trailer",
+        "site": "YouTube",
+        "type": "Trailer",
+        "official": true,
+        "publishedAt": "2021-05-19T05:30:00.000Z",
+        "iso639_1": "hi",
+        "size": 1080
+      }
+    ]
+  },
+  "title:tv:the family man": {
+    "tmdbId": 93352,
+    "mediaType": "tv",
+    "videos": [
+      {
+        "id": "family-man-official-trailer-1",
+        "key": "XatRGut65VI",
+        "name": "The Family Man Official Trailer",
+        "site": "YouTube",
+        "type": "Trailer",
+        "official": true,
+        "publishedAt": "2019-09-05T06:30:00.000Z",
+        "iso639_1": "hi",
+        "size": 1080
+      }
+    ]
+  },
+  "id:tmdb-movie-538858": {
+    "tmdbId": 538858,
+    "mediaType": "movie",
+    "videos": [
+      {
+        "id": "tumbbad-official-trailer-1",
+        "key": "sN75MPxgvX8",
+        "name": "Tumbbad Official Trailer",
+        "site": "YouTube",
+        "type": "Trailer",
+        "official": true,
+        "publishedAt": "2018-09-25T07:00:00.000Z",
+        "iso639_1": "hi",
+        "size": 1080
+      }
+    ]
+  },
+  "title:movie:tumbbad": {
+    "tmdbId": 538858,
+    "mediaType": "movie",
+    "videos": [
+      {
+        "id": "tumbbad-official-trailer-1",
+        "key": "sN75MPxgvX8",
+        "name": "Tumbbad Official Trailer",
+        "site": "YouTube",
+        "type": "Trailer",
+        "official": true,
+        "publishedAt": "2018-09-25T07:00:00.000Z",
+        "iso639_1": "hi",
+        "size": 1080
+      }
+    ]
+  },
+  "id:tmdb-tv-79352": {
+    "tmdbId": 79352,
+    "mediaType": "tv",
+    "videos": [
+      {
+        "id": "sacred-games-official-trailer-1",
+        "key": "RWpuZXhCEkQ",
+        "name": "Sacred Games Official Trailer",
+        "site": "YouTube",
+        "type": "Trailer",
+        "official": true,
+        "publishedAt": "2018-06-05T04:30:00.000Z",
+        "iso639_1": "hi",
+        "size": 1080
+      }
+    ]
+  },
+  "title:tv:sacred games": {
+    "tmdbId": 79352,
+    "mediaType": "tv",
+    "videos": [
+      {
+        "id": "sacred-games-official-trailer-1",
+        "key": "RWpuZXhCEkQ",
+        "name": "Sacred Games Official Trailer",
+        "site": "YouTube",
+        "type": "Trailer",
+        "official": true,
+        "publishedAt": "2018-06-05T04:30:00.000Z",
+        "iso639_1": "hi",
+        "size": 1080
+      }
+    ]
+  },
+  "id:tmdb-movie-872906": {
+    "tmdbId": 872906,
+    "mediaType": "movie",
+    "videos": [
+      {
+        "id": "jawan-official-trailer-1",
+        "key": "COv52Qyctws",
+        "name": "Jawan Official Trailer",
+        "site": "YouTube",
+        "type": "Trailer",
+        "official": true,
+        "publishedAt": "2023-08-31T06:30:00.000Z",
+        "iso639_1": "hi",
+        "size": 2160
+      },
+      {
+        "id": "jawan-prevue-teaser-2",
+        "key": "MWOlnZSnXJo",
+        "name": "Jawan Official Prevue",
+        "site": "YouTube",
+        "type": "Teaser",
+        "official": true,
+        "publishedAt": "2023-07-10T05:00:00.000Z",
+        "iso639_1": "hi",
+        "size": 2160
+      }
+    ]
+  },
+  "title:movie:jawan": {
+    "tmdbId": 872906,
+    "mediaType": "movie",
+    "videos": [
+      {
+        "id": "jawan-official-trailer-1",
+        "key": "COv52Qyctws",
+        "name": "Jawan Official Trailer",
+        "site": "YouTube",
+        "type": "Trailer",
+        "official": true,
+        "publishedAt": "2023-08-31T06:30:00.000Z",
+        "iso639_1": "hi",
+        "size": 2160
+      }
+    ]
+  },
+  "id:tmdb-tv-90228": {
+    "tmdbId": 90228,
+    "mediaType": "tv",
+    "videos": [
+      {
+        "id": "dune-prophecy-official-trailer-1",
+        "key": "CzVHWNosS2o",
+        "name": "Dune: Prophecy Official Trailer",
+        "site": "YouTube",
+        "type": "Trailer",
+        "official": true,
+        "publishedAt": "2024-10-17T19:00:00.000Z",
+        "iso639_1": "en",
+        "size": 1080
+      }
+    ]
+  },
+  "title:tv:dune: prophecy": {
+    "tmdbId": 90228,
+    "mediaType": "tv",
+    "videos": [
+      {
+        "id": "dune-prophecy-official-trailer-1",
+        "key": "CzVHWNosS2o",
+        "name": "Dune: Prophecy Official Trailer",
+        "site": "YouTube",
+        "type": "Trailer",
+        "official": true,
+        "publishedAt": "2024-10-17T19:00:00.000Z",
+        "iso639_1": "en",
+        "size": 1080
+      }
+    ]
+  },
+  "id:tmdb-movie-858414": {
+    "tmdbId": 858414,
+    "mediaType": "movie",
+    "videos": [
+      {
+        "id": "kantara-official-trailer-1",
+        "key": "8mrVmf239GU",
+        "name": "Kantara Official Trailer",
+        "site": "YouTube",
+        "type": "Trailer",
+        "official": true,
+        "publishedAt": "2022-09-05T06:19:00.000Z",
+        "iso639_1": "kn",
+        "size": 2160
+      }
+    ]
+  },
+  "title:movie:kantara": {
+    "tmdbId": 858414,
+    "mediaType": "movie",
+    "videos": [
+      {
+        "id": "kantara-official-trailer-1",
+        "key": "8mrVmf239GU",
+        "name": "Kantara Official Trailer",
+        "site": "YouTube",
+        "type": "Trailer",
+        "official": true,
+        "publishedAt": "2022-09-05T06:19:00.000Z",
+        "iso639_1": "kn",
+        "size": 2160
+      }
+    ]
+  },
+  "id:tmdb-movie-714888": {
+    "tmdbId": 714888,
+    "mediaType": "movie",
+    "videos": [
+      {
+        "id": "vikram-official-trailer-1",
+        "key": "OKBMCL-frPU",
+        "name": "Vikram Official Trailer",
+        "site": "YouTube",
+        "type": "Trailer",
+        "official": true,
+        "publishedAt": "2022-05-15T14:30:00.000Z",
+        "iso639_1": "ta",
+        "size": 2160
+      }
+    ]
+  },
+  "title:movie:vikram": {
+    "tmdbId": 714888,
+    "mediaType": "movie",
+    "videos": [
+      {
+        "id": "vikram-official-trailer-1",
+        "key": "OKBMCL-frPU",
+        "name": "Vikram Official Trailer",
+        "site": "YouTube",
+        "type": "Trailer",
+        "official": true,
+        "publishedAt": "2022-05-15T14:30:00.000Z",
+        "iso639_1": "ta",
+        "size": 2160
+      }
+    ]
+  },
+  "id:tmdb-movie-1156593": {
+    "tmdbId": 1156593,
+    "mediaType": "movie",
+    "videos": [
+      {
+        "id": "aavesham-official-teaser-1",
+        "key": "L0yEMl8PXnw",
+        "name": "Aavesham Official Teaser",
+        "site": "YouTube",
+        "type": "Trailer",
+        "official": true,
+        "publishedAt": "2024-01-26T12:30:00.000Z",
+        "iso639_1": "ml",
+        "size": 2160
+      }
+    ]
+  },
+  "title:movie:aavesham": {
+    "tmdbId": 1156593,
+    "mediaType": "movie",
+    "videos": [
+      {
+        "id": "aavesham-official-teaser-1",
+        "key": "L0yEMl8PXnw",
+        "name": "Aavesham Official Teaser",
+        "site": "YouTube",
+        "type": "Trailer",
+        "official": true,
+        "publishedAt": "2024-01-26T12:30:00.000Z",
+        "iso639_1": "ml",
+        "size": 2160
+      }
+    ]
+  },
+  "id:tmdb-movie-1214509": {
+    "tmdbId": 1214509,
+    "mediaType": "movie",
+    "videos": [
+      {
+        "id": "12th-fail-official-trailer-1",
+        "key": "WeMJo701MvQ",
+        "name": "12th Fail Official Trailer",
+        "site": "YouTube",
+        "type": "Trailer",
+        "official": true,
+        "publishedAt": "2023-10-03T06:30:00.000Z",
+        "iso639_1": "hi",
+        "size": 2160
+      }
+    ]
+  },
+  "title:movie:12th fail": {
+    "tmdbId": 1214509,
+    "mediaType": "movie",
+    "videos": [
+      {
+        "id": "12th-fail-official-trailer-1",
+        "key": "WeMJo701MvQ",
+        "name": "12th Fail Official Trailer",
+        "site": "YouTube",
+        "type": "Trailer",
+        "official": true,
+        "publishedAt": "2023-10-03T06:30:00.000Z",
+        "iso639_1": "hi",
+        "size": 2160
+      }
+    ]
+  },
+  "id:tmdb-movie-372058": {
+    "tmdbId": 372058,
+    "mediaType": "movie",
+    "videos": [
+      {
+        "id": "your-name-official-trailer-1",
+        "key": "xU47nhruN-Q",
+        "name": "Your Name. Official Trailer",
+        "site": "YouTube",
+        "type": "Trailer",
+        "official": true,
+        "publishedAt": "2016-11-08T18:00:00.000Z",
+        "iso639_1": "en",
+        "size": 1080
+      }
+    ]
+  },
+  "title:movie:your name.": {
+    "tmdbId": 372058,
+    "mediaType": "movie",
+    "videos": [
+      {
+        "id": "your-name-official-trailer-1",
+        "key": "xU47nhruN-Q",
+        "name": "Your Name. Official Trailer",
+        "site": "YouTube",
+        "type": "Trailer",
+        "official": true,
+        "publishedAt": "2016-11-08T18:00:00.000Z",
+        "iso639_1": "en",
+        "size": 1080
+      }
+    ]
+  },
+  "id:tmdb-tv-1429": {
+    "tmdbId": 1429,
+    "mediaType": "tv",
+    "videos": [
+      {
+        "id": "attack-on-titan-official-trailer-1",
+        "key": "MGRm4IzK1SQ",
+        "name": "Attack on Titan Official Trailer",
+        "site": "YouTube",
+        "type": "Trailer",
+        "official": true,
+        "publishedAt": "2014-04-02T16:00:00.000Z",
+        "iso639_1": "en",
+        "size": 1080
+      }
+    ]
+  },
+  "title:tv:attack on titan": {
+    "tmdbId": 1429,
+    "mediaType": "tv",
+    "videos": [
+      {
+        "id": "attack-on-titan-official-trailer-1",
+        "key": "MGRm4IzK1SQ",
+        "name": "Attack on Titan Official Trailer",
+        "site": "YouTube",
+        "type": "Trailer",
+        "official": true,
+        "publishedAt": "2014-04-02T16:00:00.000Z",
+        "iso639_1": "en",
+        "size": 1080
+      }
+    ]
+  },
+  "id:tmdb-tv-85937": {
+    "tmdbId": 85937,
+    "mediaType": "tv",
+    "videos": [
+      {
+        "id": "demon-slayer-official-trailer-1",
+        "key": "VQGCKyvzIM4",
+        "name": "Demon Slayer: Kimetsu no Yaiba Official Trailer",
+        "site": "YouTube",
+        "type": "Trailer",
+        "official": true,
+        "publishedAt": "2019-03-29T18:00:00.000Z",
+        "iso639_1": "en",
+        "size": 1080
+      }
+    ]
+  },
+  "title:tv:demon slayer: kimetsu no yaiba": {
+    "tmdbId": 85937,
+    "mediaType": "tv",
+    "videos": [
+      {
+        "id": "demon-slayer-official-trailer-1",
+        "key": "VQGCKyvzIM4",
+        "name": "Demon Slayer: Kimetsu no Yaiba Official Trailer",
+        "site": "YouTube",
+        "type": "Trailer",
+        "official": true,
+        "publishedAt": "2019-03-29T18:00:00.000Z",
+        "iso639_1": "en",
+        "size": 1080
+      }
+    ]
+  },
+  "id:tmdb-tv-68595": {
+    "tmdbId": 68595,
+    "mediaType": "tv",
+    "videos": [
+      {
+        "id": "planet-earth-ii-official-trailer-1",
+        "key": "c8aFcHFu8QM",
+        "name": "Planet Earth II Official Extended Trailer",
+        "site": "YouTube",
+        "type": "Trailer",
+        "official": true,
+        "publishedAt": "2016-10-17T19:00:00.000Z",
+        "iso639_1": "en",
+        "size": 1080
+      }
+    ]
+  },
+  "title:tv:planet earth ii": {
+    "tmdbId": 68595,
+    "mediaType": "tv",
+    "videos": [
+      {
+        "id": "planet-earth-ii-official-trailer-1",
+        "key": "c8aFcHFu8QM",
+        "name": "Planet Earth II Official Extended Trailer",
+        "site": "YouTube",
+        "type": "Trailer",
+        "official": true,
+        "publishedAt": "2016-10-17T19:00:00.000Z",
+        "iso639_1": "en",
+        "size": 1080
+      }
+    ]
+  },
+  "id:tmdb-tv-88046": {
+    "tmdbId": 88046,
+    "mediaType": "tv",
+    "videos": [
+      {
+        "id": "the-last-dance-official-trailer-1",
+        "key": "JQk2hJs2ToA",
+        "name": "The Last Dance Official Trailer",
+        "site": "YouTube",
+        "type": "Trailer",
+        "official": true,
+        "publishedAt": "2019-12-24T17:00:00.000Z",
+        "iso639_1": "en",
+        "size": 1080
+      }
+    ]
+  },
+  "title:tv:the last dance": {
+    "tmdbId": 88046,
+    "mediaType": "tv",
+    "videos": [
+      {
+        "id": "the-last-dance-official-trailer-1",
+        "key": "JQk2hJs2ToA",
+        "name": "The Last Dance Official Trailer",
+        "site": "YouTube",
+        "type": "Trailer",
+        "official": true,
+        "publishedAt": "2019-12-24T17:00:00.000Z",
+        "iso639_1": "en",
+        "size": 1080
+      }
+    ]
   }
 };
+

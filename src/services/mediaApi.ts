@@ -12,7 +12,11 @@ import {
 
 export type CatalogueCategory =
   | 'trending'
+  | 'trending_movies'
+  | 'trending_tv'
   | 'trending_india'
+  | 'now_playing_movies'
+  | 'recently_released'
   | 'top_10_movies'
   | 'top_10_tv'
   | 'popular_movies'
@@ -20,6 +24,10 @@ export type CatalogueCategory =
   | 'upcoming_movies'
   | 'popular_tv'
   | 'top_rated_tv'
+  | 'hindi_movies'
+  | 'south_indian_cinema'
+  | 'anime'
+  | 'documentaries'
   | 'discover';
 
 export interface CatalogueQueryParams {
@@ -33,6 +41,7 @@ export interface CatalogueQueryParams {
   sortBy?: 'relevance' | 'popularity' | 'rating' | 'year' | 'title';
   minRating?: number;
   query?: string;
+  refresh?: boolean;
 }
 
 export interface CatalogueResponse {
@@ -42,9 +51,11 @@ export interface CatalogueResponse {
   totalResults: number;
   tmdbConfigured: boolean;
   provider: 'tmdb' | 'live_open_catalog';
+  refreshedAt?: string;
 }
 
 const API_BASE_URL = String((import.meta as any).env?.VITE_API_BASE_URL || '').replace(/\/$/, '');
+const CLIENT_TMDB_API_KEY = String((import.meta as any).env?.VITE_TMDB_API_KEY || '').trim();
 
 // Tracks whether the current host is a static file server (e.g. GitHub Pages) without /api/* routes
 let staticHostWithoutApi = false;
@@ -132,8 +143,10 @@ function deriveMoodsFromGenres(genres: string[]): string[] {
 
 function normalizeGenreName(g: string): string {
   const lower = (g || '').toLowerCase();
+  if (lower.includes('documentary') || lower.includes('docuseries') || lower.includes('non-fiction')) return 'Documentary';
   if (lower.includes('sci-fi') || lower.includes('science fiction')) return 'Sci-Fi';
-  if (lower.includes('action') || lower.includes('adventure')) return 'Action';
+  if (lower.includes('adventure')) return 'Adventure';
+  if (lower.includes('action')) return 'Action';
   if (lower.includes('thriller') || lower.includes('suspense')) return 'Thriller';
   if (lower.includes('crime')) return 'Crime';
   if (lower.includes('mystery')) return 'Mystery';
@@ -201,24 +214,25 @@ let cachedLiveCatalog: MediaItem[] | null = null;
 let lastCacheTimestamp = 0;
 let catalogLoadPromise: Promise<MediaItem[]> | null = null;
 
-async function getClientLiveExpandedCatalog(): Promise<MediaItem[]> {
+async function getClientLiveExpandedCatalog(forceRefresh = false): Promise<MediaItem[]> {
   const now = Date.now();
   if (
+    !forceRefresh &&
     cachedLiveCatalog &&
     cachedLiveCatalog.length > 60 &&
-    now - lastCacheTimestamp < 1000 * 60 * 30
+    now - lastCacheTimestamp < 1000 * 60 * 10
   ) {
     return cachedLiveCatalog;
   }
 
-  if (catalogLoadPromise) {
+  if (!forceRefresh && catalogLoadPromise) {
     return catalogLoadPromise;
   }
 
   catalogLoadPromise = (async () => {
     const byTitleKey = new Map<string, MediaItem>();
 
-    // 1. Seed with the 20 rich TMDB-poster anchor titles + franchise/regional anchor items
+    // 1. Seed with the rich TMDB-poster anchor titles + franchise/regional anchor items
     for (const item of [...MEDIA_ITEMS, ...EXTRA_ANCHOR_ITEMS]) {
       const k = `${item.type}:${item.title.toLowerCase()}`;
       if (!byTitleKey.has(k)) {
@@ -237,6 +251,8 @@ async function getClientLiveExpandedCatalog(): Promise<MediaItem[]> {
       'https://itunes.apple.com/us/rss/topmovies/limit=80/genre=4413/json',
       'https://itunes.apple.com/us/rss/topmovies/limit=80/genre=4416/json',
       'https://itunes.apple.com/us/rss/topmovies/limit=60/genre=4404/json',
+      'https://itunes.apple.com/us/rss/topmovies/limit=60/genre=4405/json',
+      'https://itunes.apple.com/in/rss/topmovies/limit=80/json',
     ];
 
     const feedResults = await Promise.allSettled(
@@ -262,14 +278,15 @@ async function getClientLiveExpandedCatalog(): Promise<MediaItem[]> {
         const images = entry?.['im:image'] || [];
         const rawImg = images[images.length - 1]?.label || '';
         const posterUrl = rawImg ? rawImg.replace(/\d+x\d+bb/, '600x900bb') : '';
-        const backdropUrl = rawImg ? rawImg.replace(/\d+x\d+bb/, '1200x675bb') : posterUrl;
+        // Do not reuse a vertical 2:3 poster as a 16:9 backdrop; MediaPoster renders an ambient blurred poster backdrop
+        const backdropUrl = '';
 
         const releaseLabel = entry?.['im:releaseDate']?.label || '';
         const year = releaseLabel ? parseInt(releaseLabel.slice(0, 4), 10) || 2024 : 2024;
         const rawGenre = entry?.category?.attributes?.label || 'Drama';
         const normalizedGenre = normalizeGenreName(rawGenre);
         const genres = Array.from(
-          new Set([normalizedGenre, rawGenre !== normalizedGenre ? rawGenre : 'Drama'])
+          new Set([normalizedGenre, rawGenre !== normalizedGenre ? normalizeGenreName(rawGenre) : 'Drama'])
         ).slice(0, 2);
 
         const director = entry?.['im:artist']?.label || 'Visionary Director';
@@ -319,18 +336,20 @@ async function getClientLiveExpandedCatalog(): Promise<MediaItem[]> {
       }
     }
 
-    // 3. Fetch live TV Shows from TVMaze API (Pages 0 and 1 -> CORS-enabled)
+    // 3. Fetch live TV Shows from TVMaze API (Pages 0 to 3 -> CORS-enabled)
     const tvPages = await Promise.allSettled([
       fetch('https://api.tvmaze.com/shows?page=0').then((r) => (r.ok ? r.json() : [])),
       fetch('https://api.tvmaze.com/shows?page=1').then((r) => (r.ok ? r.json() : [])),
+      fetch('https://api.tvmaze.com/shows?page=2').then((r) => (r.ok ? r.json() : [])),
+      fetch('https://api.tvmaze.com/shows?page=3').then((r) => (r.ok ? r.json() : [])),
     ]);
 
     let tvRankCounter = 25;
     for (const res of tvPages) {
       if (res.status !== 'fulfilled' || !Array.isArray(res.value)) continue;
       const validShows = res.value
-        .filter((s: any) => s?.name && s?.image?.original && (s?.rating?.average || 0) >= 7.2)
-        .slice(0, 140);
+        .filter((s: any) => s?.name && s?.image?.original && (s?.rating?.average || 0) >= 7.0)
+        .slice(0, 160);
 
       for (const show of validShows) {
         const title = show.name;
@@ -339,11 +358,17 @@ async function getClientLiveExpandedCatalog(): Promise<MediaItem[]> {
 
         const id = `tvmaze-tv-${show.id}`;
         const posterUrl = show.image?.original || show.image?.medium || '';
-        const backdropUrl = posterUrl;
+        const backdropUrl = '';
         const year = show.premiered ? parseInt(show.premiered.slice(0, 4), 10) || 2022 : 2022;
         const rawGenres: string[] =
           Array.isArray(show.genres) && show.genres.length > 0 ? show.genres : ['Drama'];
-        const genres = Array.from(new Set(rawGenres.map(normalizeGenreName))).slice(0, 3);
+        const showTypeStr = String(show.type || '').toLowerCase();
+        const combinedRawGenres = showTypeStr.includes('documentary')
+          ? ['Documentary', ...rawGenres]
+          : showTypeStr.includes('animation')
+          ? ['Animation', ...rawGenres]
+          : rawGenres;
+        const genres = Array.from(new Set(combinedRawGenres.map(normalizeGenreName))).slice(0, 3);
         const rating = Number((show.rating?.average || 7.8).toFixed(1));
         const synopsis =
           stripHtml(show.summary) || `${title} is an acclaimed television series.`;
@@ -425,7 +450,7 @@ async function resolveClientCatalogue(
   const effectiveType: 'all' | 'movie' | 'tv' =
     rawType === 'movie' || rawType === 'tv'
       ? rawType
-      : category.includes('movies')
+      : category.includes('movies') || category === 'hindi_movies'
       ? 'movie'
       : category.includes('_tv')
       ? 'tv'
@@ -443,9 +468,11 @@ async function resolveClientCatalogue(
   const minRating = Number(params.minRating) || 0;
   const query = String(params.query || '').trim();
 
-  const catalog = await getClientLiveExpandedCatalog();
+  const catalog = await getClientLiveExpandedCatalog(Boolean(params.refresh));
   let pool: MediaItem[] =
-    category === 'trending_india' ? [...INDIAN_TRENDING_ITEMS, ...catalog] : [...catalog];
+    category === 'trending_india' || category === 'hindi_movies' || category === 'south_indian_cinema'
+      ? [...INDIAN_TRENDING_ITEMS, ...EXTRA_ANCHOR_ITEMS, ...catalog]
+      : [...catalog];
 
   // Deduplicate by id
   const seenIds = new Set<string>();
@@ -500,7 +527,7 @@ async function resolveClientCatalogue(
             streamOn: [networkName],
             themeColor: palette.themeColor,
             posterUrl,
-            backdropUrl: posterUrl,
+            backdropUrl: '',
             posterVisual: {
               bgFrom: palette.bgFrom,
               bgTo: palette.bgTo,
@@ -526,6 +553,24 @@ async function resolveClientCatalogue(
         ['hi', 'te', 'ta', 'ml', 'kn'].includes((item.language || '').toLowerCase()) ||
         INDIAN_TRENDING_ITEMS.some((ind) => ind.id === item.id)
     );
+  } else if (category === 'hindi_movies') {
+    pool = pool.filter((item) => (item.language || '').toLowerCase() === 'hi');
+  } else if (category === 'south_indian_cinema') {
+    pool = pool.filter((item) =>
+      ['te', 'ta', 'ml', 'kn'].includes((item.language || '').toLowerCase())
+    );
+  } else if (category === 'anime') {
+    pool = pool.filter(
+      (item) =>
+        item.genres.some((g) => g.toLowerCase() === 'animation') ||
+        (item.language || '').toLowerCase() === 'ja'
+    );
+  } else if (category === 'documentaries') {
+    pool = pool.filter((item) =>
+      item.genres.some((g) => g.toLowerCase() === 'documentary')
+    );
+  } else if (category === 'now_playing_movies' || category === 'recently_released') {
+    pool = pool.filter((item) => item.year >= 2023);
   }
 
   if (query) {
@@ -594,7 +639,11 @@ async function resolveClientCatalogue(
   if (!query || sortBy !== 'relevance') {
     if (category === 'top_rated_movies' || category === 'top_rated_tv') {
       pool.sort((a, b) => b.rating - a.rating);
-    } else if (category === 'upcoming_movies') {
+    } else if (
+      category === 'upcoming_movies' ||
+      category === 'now_playing_movies' ||
+      category === 'recently_released'
+    ) {
       pool.sort((a, b) => b.year - a.year || b.rating - a.rating);
     } else if (category !== 'trending_india') {
       pool.sort((a, b) => {
@@ -615,6 +664,7 @@ async function resolveClientCatalogue(
       totalResults: top10.length,
       tmdbConfigured: false,
       provider: 'live_open_catalog',
+      refreshedAt: new Date().toISOString(),
     };
   }
 
@@ -631,8 +681,19 @@ async function resolveClientCatalogue(
     totalResults,
     tmdbConfigured: false,
     provider: 'live_open_catalog',
+    refreshedAt: new Date().toISOString(),
   };
 }
+
+const clientCatalogueCache = new Map<string, { timestamp: number; data: CatalogueResponse }>();
+const inFlightCatalogueRequests = new Map<string, Promise<CatalogueResponse>>();
+const CLIENT_CATALOGUE_CACHE_TTL_MS = 1000 * 60 * 5; // 5 minutes
+
+const clientTitleDetailsCache = new Map<
+  string,
+  { timestamp: number; data: { item: MediaItem; similar: MediaItem[] } }
+>();
+const CLIENT_TITLE_DETAILS_CACHE_TTL_MS = 1000 * 60 * 10; // 10 minutes
 
 export async function fetchCatalogue(
   params: CatalogueQueryParams = {},
@@ -656,28 +717,69 @@ export async function fetchCatalogue(
     searchParams.set('query', params.query.trim());
   }
 
-  // 1. Try remote API first (Node / Express or configured VITE_API_BASE_URL)
-  const apiResult = await fetchApiJson<CatalogueResponse>(
-    `/api/catalogue?${searchParams.toString()}`,
-    { signal }
-  );
+  const cacheKey = searchParams.toString();
+  const forceRefresh = Boolean(params.refresh);
 
-  if (apiResult && Array.isArray(apiResult.items)) {
-    return apiResult;
+  if (!forceRefresh) {
+    const cached = clientCatalogueCache.get(cacheKey);
+    if (cached && Date.now() - cached.timestamp < CLIENT_CATALOGUE_CACHE_TTL_MS) {
+      return cached.data;
+    }
+
+    if (!signal) {
+      const existingInFlight = inFlightCatalogueRequests.get(cacheKey);
+      if (existingInFlight) {
+        return existingInFlight;
+      }
+    }
+  } else {
+    searchParams.set('refresh', 'true');
   }
 
-  // 2. Client-side live expanded catalogue fallback for static hosts (GitHub Pages)
-  return resolveClientCatalogue(params, signal);
+  const executeRequest = async (): Promise<CatalogueResponse> => {
+    // 1. Try remote API first (Node / Express or configured VITE_API_BASE_URL)
+    const apiResult = await fetchApiJson<CatalogueResponse>(
+      `/api/catalogue?${searchParams.toString()}`,
+      { signal }
+    );
+
+    if (apiResult && Array.isArray(apiResult.items)) {
+      clientCatalogueCache.set(cacheKey, { timestamp: Date.now(), data: apiResult });
+      return apiResult;
+    }
+
+    // 2. Client-side live expanded catalogue fallback for static hosts (GitHub Pages)
+    const clientResult = await resolveClientCatalogue(params, signal);
+    clientCatalogueCache.set(cacheKey, { timestamp: Date.now(), data: clientResult });
+    return clientResult;
+  };
+
+  if (signal || forceRefresh) {
+    return executeRequest();
+  }
+
+  const requestPromise = executeRequest().finally(() => {
+    inFlightCatalogueRequests.delete(cacheKey);
+  });
+  inFlightCatalogueRequests.set(cacheKey, requestPromise);
+  return requestPromise;
 }
 
 export async function fetchTitleDetails(
   media: MediaItem
 ): Promise<{ item: MediaItem; similar: MediaItem[] }> {
+  const cacheKey = `${media.type}:${media.id}`;
+  const cached = clientTitleDetailsCache.get(cacheKey);
+  if (cached && Date.now() - cached.timestamp < CLIENT_TITLE_DETAILS_CACHE_TTL_MS) {
+    return cached.data;
+  }
+
   const apiResult = await fetchApiJson<{ item: MediaItem; similar: MediaItem[] }>(
     `/api/title/${media.type}/${encodeURIComponent(media.id)}`
   );
 
   if (apiResult && apiResult.item) {
+    clientTitleDetailsCache.set(cacheKey, { timestamp: Date.now(), data: apiResult });
     return apiResult;
   }
 
@@ -686,6 +788,7 @@ export async function fetchTitleDetails(
   const found =
     catalog.find((m) => m.id === media.id) ||
     MEDIA_ITEMS.find((m) => m.id === media.id) ||
+    EXTRA_ANCHOR_ITEMS.find((m) => m.id === media.id) ||
     media;
 
   const enriched: MediaItem = { ...found };
@@ -761,7 +864,9 @@ export async function fetchTitleDetails(
     )
     .slice(0, 4);
 
-  return { item: enriched, similar };
+  const fallbackResult = { item: enriched, similar };
+  clientTitleDetailsCache.set(cacheKey, { timestamp: Date.now(), data: fallbackResult });
+  return fallbackResult;
 }
 
 export async function fetchTvSeasonEpisodes(
@@ -815,7 +920,9 @@ export async function fetchTvSeasonEpisodes(
   // 3. Seed or Open Catalog Fallback
   const catalog = await getClientLiveExpandedCatalog();
   const found =
-    catalog.find((m) => m.id === mediaId) || MEDIA_ITEMS.find((m) => m.id === mediaId);
+    catalog.find((m) => m.id === mediaId) ||
+    MEDIA_ITEMS.find((m) => m.id === mediaId) ||
+    EXTRA_ANCHOR_ITEMS.find((m) => m.id === mediaId);
   const matchingSeason = found?.seasonsList?.find((s) => s.seasonNumber === seasonNumber);
   const epCount = matchingSeason?.episodeCount || 8;
   const baseYear = found?.year || 2024;
@@ -843,10 +950,12 @@ export async function fetchTvSeasonEpisodes(
 
 export const SEED_TO_TMDB_ID: Record<string, { mediaType: 'movie' | 'tv'; tmdbId: number }> = {
   'dune-part-two': { mediaType: 'movie', tmdbId: 693134 },
+  'dune-part-one': { mediaType: 'movie', tmdbId: 438631 },
   severance: { mediaType: 'tv', tmdbId: 95396 },
   oppenheimer: { mediaType: 'movie', tmdbId: 872585 },
   shogun: { mediaType: 'tv', tmdbId: 126308 },
   'blade-runner-2049': { mediaType: 'movie', tmdbId: 335984 },
+  'blade-runner-1982': { mediaType: 'movie', tmdbId: 78 },
   succession: { mediaType: 'tv', tmdbId: 76331 },
   interstellar: { mediaType: 'movie', tmdbId: 157336 },
   'the-bear': { mediaType: 'tv', tmdbId: 136315 },
@@ -856,6 +965,8 @@ export const SEED_TO_TMDB_ID: Record<string, { mediaType: 'movie' | 'tv'; tmdbId
   'poor-things': { mediaType: 'movie', tmdbId: 792307 },
   dark: { mediaType: 'tv', tmdbId: 70523 },
   'the-batman': { mediaType: 'movie', tmdbId: 414906 },
+  'the-dark-knight': { mediaType: 'movie', tmdbId: 155 },
+  'joker-2019': { mediaType: 'movie', tmdbId: 475557 },
   chernobyl: { mediaType: 'tv', tmdbId: 87108 },
   arrival: { mediaType: 'movie', tmdbId: 329865 },
   'spirited-away': { mediaType: 'movie', tmdbId: 129 },
@@ -878,8 +989,21 @@ export function rankTmdbVideos(rawVideos: any[], mediaTitle = ''): TrailerVideo[
     if (!youtubeKeyRegex.test(key)) return false;
     const vType = String(v.type || '');
     const lowerName = String(v.name || '').toLowerCase();
-    if (vType === 'Trailer' || vType === 'Teaser') return true;
-    return lowerName.includes('trailer') || lowerName.includes('teaser');
+    if (
+      vType === 'Trailer' ||
+      vType === 'Teaser' ||
+      vType === 'Clip' ||
+      vType === 'Featurette' ||
+      vType === 'Opening Credits'
+    ) {
+      return true;
+    }
+    return (
+      lowerName.includes('trailer') ||
+      lowerName.includes('teaser') ||
+      lowerName.includes('promo') ||
+      lowerName.includes('preview')
+    );
   });
 
   const scored = candidates.map((v, idx) => {
@@ -887,27 +1011,34 @@ export function rankTmdbVideos(rawVideos: any[], mediaTitle = ''): TrailerVideo[
     const rawType = String(v.type || '');
     const name = String(v.name || rawType || 'Trailer').trim();
     const lowerName = name.toLowerCase();
-    const vType: 'Trailer' | 'Teaser' =
+    const vType: TrailerVideo['type'] =
       rawType === 'Trailer' || (rawType !== 'Teaser' && lowerName.includes('trailer'))
         ? 'Trailer'
-        : 'Teaser';
+        : rawType === 'Teaser' || lowerName.includes('teaser')
+        ? 'Teaser'
+        : rawType === 'Featurette'
+        ? 'Featurette'
+        : 'Clip';
     const official = Boolean(v.official);
     const isoLang = String(v.iso_639_1 || '').toLowerCase();
     const size = Number(v.size) || 0;
     const publishedMs = v.published_at ? Date.parse(String(v.published_at)) || 0 : 0;
 
     let score = 0;
-    if (rawType === 'Trailer') score += 1000;
-    else if (rawType === 'Teaser') score += 450;
-    else score += 250;
+    if (vType === 'Trailer') score += 1000;
+    else if (vType === 'Teaser') score += 500;
+    else if (vType === 'Clip') score += 200;
+    else score += 150;
 
     if (official) score += 500;
-    if (!isoLang || isoLang === 'en') score += 200;
+    if (!isoLang || isoLang === 'en') score += 220;
+    else if (['hi', 'te', 'ta', 'ml', 'kn'].includes(isoLang)) score += 190;
+    else if (['ja', 'ko', 'es', 'fr'].includes(isoLang)) score += 160;
 
-    if (lowerName.includes('official trailer')) score += 160;
-    else if (lowerName.includes('main trailer') || lowerName.includes('final trailer')) score += 130;
-    else if (lowerName.includes('official teaser')) score += 100;
-    else if (lowerName.includes('trailer')) score += 80;
+    if (lowerName.includes('official trailer')) score += 180;
+    else if (lowerName.includes('main trailer') || lowerName.includes('final trailer')) score += 140;
+    else if (lowerName.includes('official teaser')) score += 110;
+    else if (lowerName.includes('trailer')) score += 90;
 
     if (normMediaTitle && normalizeForSearch(name).includes(normMediaTitle)) {
       score += 35;
@@ -988,8 +1119,7 @@ export function extractDirectTmdbId(
 
 /**
  * Resolves verified TMDB trailers on static hosts (such as GitHub Pages)
- * where Express server routes (/api/trailer/*) are unavailable and secret API keys
- * must never be exposed in client-side bundles.
+ * where Express server routes (/api/trailer/*) are unavailable.
  */
 export async function resolveStaticHostTrailers(
   media: MediaItem,
@@ -1020,6 +1150,67 @@ export async function resolveStaticHostTrailers(
     }
   }
 
+  // If VITE_TMDB_API_KEY is configured for client-side static builds, query TMDB videos directly
+  if (CLIENT_TMDB_API_KEY) {
+    try {
+      const headers: Record<string, string> = { Accept: 'application/json' };
+      const buildTmdbUrl = (path: string, params: Record<string, string>) => {
+        const u = new URL(`https://api.themoviedb.org/3${path}`);
+        if (CLIENT_TMDB_API_KEY.startsWith('eyJ')) {
+          headers.Authorization = `Bearer ${CLIENT_TMDB_API_KEY}`;
+        } else {
+          u.searchParams.set('api_key', CLIENT_TMDB_API_KEY);
+        }
+        for (const [k, v] of Object.entries(params)) {
+          if (v) u.searchParams.set(k, v);
+        }
+        return u.toString();
+      };
+
+      let resolved = direct;
+      if (!resolved && media.title) {
+        const searchPath = media.type === 'tv' ? '/search/tv' : '/search/movie';
+        const sRes = await fetch(
+          buildTmdbUrl(searchPath, { query: media.title, include_adult: 'false' }),
+          { headers, signal }
+        );
+        if (sRes.ok) {
+          const sData = await sRes.json();
+          const first = sData?.results?.[0];
+          if (first?.id) {
+            resolved = { mediaType: media.type, tmdbId: Number(first.id) };
+          }
+        }
+      }
+
+      if (resolved) {
+        const vRes = await fetch(
+          buildTmdbUrl(`/${resolved.mediaType}/${resolved.tmdbId}/videos`, {
+            language: 'en-US',
+            include_video_language: 'en,hi,te,ta,ml,kn,ja,ko,es,fr,null',
+          }),
+          { headers, signal }
+        );
+        if (vRes.ok) {
+          const vData = await vRes.json();
+          const ranked = rankTmdbVideos(vData?.results || [], media.title);
+          if (ranked.length > 0) {
+            return {
+              status: 'ok',
+              tmdbId: resolved.tmdbId,
+              mediaType: resolved.mediaType,
+              primaryVideo: ranked[0],
+              videos: ranked,
+              youtubeSearchUrl,
+            };
+          }
+        }
+      }
+    } catch (err: any) {
+      if (err?.name === 'AbortError') throw err;
+    }
+  }
+
   // Optional keyless public Wikidata lookup by IMDb ID for TVMaze shows not in pre-verified index
   if (media.id.startsWith('tvmaze-tv-')) {
     const showId = media.id.replace('tvmaze-tv-', '');
@@ -1043,7 +1234,7 @@ export async function resolveStaticHostTrailers(
               const bindings: any[] = wdData?.results?.bindings || [];
               const ytKeyRegex = /^[A-Za-z0-9_-]{11}$/;
               const videos: TrailerVideo[] = bindings
-                .map((b, idx) => String(b?.video?.value || '').trim())
+                .map((b) => String(b?.video?.value || '').trim())
                 .filter((key) => ytKeyRegex.test(key))
                 .map((key, idx) => ({
                   id: `wd-${imdbId}-${idx}`,
@@ -1086,12 +1277,19 @@ export async function resolveStaticHostTrailers(
 
 export async function fetchMediaTrailers(
   media: MediaItem,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  options?: { refresh?: boolean }
 ): Promise<TrailerLookupResult> {
   const cacheKey = `${media.type}:${media.id}`;
-  const cached = clientTrailerCache.get(cacheKey);
-  if (cached && Date.now() - cached.timestamp < CLIENT_TRAILER_CACHE_TTL_MS) {
-    return cached.data;
+  if (!options?.refresh) {
+    const cached = clientTrailerCache.get(cacheKey);
+    if (
+      cached &&
+      cached.data.status === 'ok' &&
+      Date.now() - cached.timestamp < CLIENT_TRAILER_CACHE_TTL_MS
+    ) {
+      return cached.data;
+    }
   }
 
   // 1. Try server proxy endpoint (/api/trailer/:type/:id) first
@@ -1099,21 +1297,33 @@ export async function fetchMediaTrailers(
     title: media.title,
     year: media.year ? String(media.year) : '',
   });
+  if (options?.refresh) {
+    queryParams.set('refresh', 'true');
+  }
   const serverResult = await fetchApiJson<TrailerLookupResult>(
     `/api/trailer/${media.type}/${encodeURIComponent(media.id)}?${queryParams.toString()}`,
     { signal }
   );
 
   if (serverResult) {
-    if (serverResult.status === 'ok' || serverResult.status === 'unavailable') {
+    if (serverResult.status === 'ok') {
       clientTrailerCache.set(cacheKey, { timestamp: Date.now(), data: serverResult });
+      return serverResult;
+    }
+    // If server returned unavailable, also check client static verified index before giving up
+    const staticFallback = await resolveStaticHostTrailers(media, signal);
+    if (staticFallback.status === 'ok') {
+      clientTrailerCache.set(cacheKey, { timestamp: Date.now(), data: staticFallback });
+      return staticFallback;
     }
     return serverResult;
   }
 
   // 2. Static host (GitHub Pages) fallback when Express server route is unavailable
   const fallbackResult = await resolveStaticHostTrailers(media, signal);
-  clientTrailerCache.set(cacheKey, { timestamp: Date.now(), data: fallbackResult });
+  if (fallbackResult.status === 'ok') {
+    clientTrailerCache.set(cacheKey, { timestamp: Date.now(), data: fallbackResult });
+  }
   return fallbackResult;
 }
 

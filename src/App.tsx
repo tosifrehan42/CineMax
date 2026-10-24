@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, useRef, Suspense } from 'react';
 import type { User } from '@supabase/supabase-js';
 import {
   TabView,
@@ -35,16 +35,6 @@ import {
 } from './services/supabaseClient';
 import { Navbar } from './components/Navbar';
 import { HomeView } from './components/HomeView';
-import { DiscoverView } from './components/DiscoverView';
-import { WatchlistView } from './components/WatchlistView';
-import { ProfileView } from './components/ProfileView';
-import { DetailModal } from './components/DetailModal';
-import { TrailerModal } from './components/TrailerModal';
-import { SurpriseMeModal } from './components/SurpriseMeModal';
-import { SearchOverlay } from './components/SearchOverlay';
-import { AuthModal } from './components/AuthModal';
-import { QualityFileSizeEstimator } from './components/QualityFileSizeEstimator';
-import { AdminDashboardView } from './components/AdminDashboardView';
 import {
   AdminAccessState,
   checkAdminAccess,
@@ -55,7 +45,41 @@ import {
   setCachedVerifiedAdminUid,
   shouldShowAdminTab,
 } from './services/adminApi';
-import { Film } from 'lucide-react';
+import { Film, Loader2 } from 'lucide-react';
+
+// Lazy-loaded secondary views and modals to keep the initial Home bundle fast
+const DiscoverView = React.lazy(() =>
+  import('./components/DiscoverView').then((m) => ({ default: m.DiscoverView }))
+);
+const WatchlistView = React.lazy(() =>
+  import('./components/WatchlistView').then((m) => ({ default: m.WatchlistView }))
+);
+const ProfileView = React.lazy(() =>
+  import('./components/ProfileView').then((m) => ({ default: m.ProfileView }))
+);
+const QualityFileSizeEstimator = React.lazy(() =>
+  import('./components/QualityFileSizeEstimator').then((m) => ({
+    default: m.QualityFileSizeEstimator,
+  }))
+);
+const AdminDashboardView = React.lazy(() =>
+  import('./components/AdminDashboardView').then((m) => ({ default: m.AdminDashboardView }))
+);
+const DetailModal = React.lazy(() =>
+  import('./components/DetailModal').then((m) => ({ default: m.DetailModal }))
+);
+const TrailerModal = React.lazy(() =>
+  import('./components/TrailerModal').then((m) => ({ default: m.TrailerModal }))
+);
+const SurpriseMeModal = React.lazy(() =>
+  import('./components/SurpriseMeModal').then((m) => ({ default: m.SurpriseMeModal }))
+);
+const SearchOverlay = React.lazy(() =>
+  import('./components/SearchOverlay').then((m) => ({ default: m.SearchOverlay }))
+);
+const AuthModal = React.lazy(() =>
+  import('./components/AuthModal').then((m) => ({ default: m.AuthModal }))
+);
 
 function isUrlAdminRoute(): boolean {
   if (typeof window === 'undefined') return false;
@@ -581,27 +605,42 @@ export default function App() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
+  // Precompute O(1) lookup Maps for watchlist status and episode counts across 150+ cards
+  const watchlistStatusMap = useMemo(() => {
+    const map = new Map<string, WatchStatus>();
+    for (const item of activeWatchlist) {
+      map.set(item.mediaId, item.status);
+    }
+    return map;
+  }, [activeWatchlist]);
+
+  const watchedEpisodesCountMap = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const ep of activeWatchedEpisodes) {
+      map.set(ep.mediaId, (map.get(ep.mediaId) || 0) + 1);
+    }
+    return map;
+  }, [activeWatchedEpisodes]);
+
   const isInWatchlist = useCallback(
-    (id: string) => activeWatchlist.some((item) => item.mediaId === id),
-    [activeWatchlist]
+    (id: string) => watchlistStatusMap.has(id),
+    [watchlistStatusMap]
   );
 
   const getWatchlistStatus = useCallback(
-    (id: string): WatchStatus | undefined =>
-      activeWatchlist.find((item) => item.mediaId === id)?.status,
-    [activeWatchlist]
+    (id: string): WatchStatus | undefined => watchlistStatusMap.get(id),
+    [watchlistStatusMap]
   );
 
   const getWatchedEpisodesCount = useCallback(
-    (mediaId: string): number =>
-      activeWatchedEpisodes.filter((ep) => ep.mediaId === mediaId).length,
-    [activeWatchedEpisodes]
+    (mediaId: string): number => watchedEpisodesCountMap.get(mediaId) || 0,
+    [watchedEpisodesCountMap]
   );
 
-  const handleOpenAuthModal = (mode: 'signin' | 'signup' = 'signin') => {
+  const handleOpenAuthModal = useCallback((mode: 'signin' | 'signup' = 'signin') => {
     setAuthModalMode(mode);
     setIsAuthModalOpen(true);
-  };
+  }, []);
 
   const handleSignOut = async () => {
     activeAuthUserIdRef.current = null;
@@ -1173,29 +1212,58 @@ export default function App() {
     setIsCloudLoading(false);
   };
 
-  const handleExploreMood = (moodId: string) => {
+  const handleExploreMood = useCallback((moodId: string) => {
     setDiscoverInitialMood(moodId);
     setDiscoverInitialGenre('All');
     setDiscoverInitialCategory('discover');
     setCurrentTab('discover');
     window.scrollTo({ top: 0, behavior: 'smooth' });
-  };
+  }, []);
 
-  const handleExploreCategory = (category: CatalogueCategory) => {
+  const handleExploreCategory = useCallback((category: CatalogueCategory) => {
     setDiscoverInitialCategory(category);
     setDiscoverInitialMood('all');
     setDiscoverInitialGenre('All');
     setCurrentTab('discover');
     window.scrollTo({ top: 0, behavior: 'smooth' });
-  };
+  }, []);
 
-  const handleExploreGenre = (genre: string) => {
+  const handleExploreGenre = useCallback((genre: string) => {
     setDiscoverInitialGenre(genre);
     setDiscoverInitialCategory('discover');
     setDiscoverInitialMood('all');
     setCurrentTab('discover');
     window.scrollTo({ top: 0, behavior: 'smooth' });
-  };
+  }, []);
+
+  const handleSelectMedia = useCallback((media: MediaItem) => {
+    setSelectedMedia(media);
+  }, []);
+
+  const handlePlayTrailer = useCallback((media: MediaItem) => {
+    setTrailerMedia(media);
+  }, []);
+
+  const handleNavbarTabChange = useCallback(
+    (tab: TabView, hubMode?: HomeHubMode) => {
+      navigateToTab(tab, hubMode);
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    },
+    [navigateToTab]
+  );
+
+  const handleOpenSurprise = useCallback(() => {
+    setIsSurpriseOpen(true);
+  }, []);
+
+  const handleQuickSearchClick = useCallback(() => {
+    setIsSearchOpen(true);
+  }, []);
+
+  const handleOpenEstimatorFromDiscover = useCallback(() => {
+    navigateToTab('estimator');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }, [navigateToTab]);
 
   const selectedWatchlistEntry = selectedMedia
     ? activeWatchlist.find((item) => item.mediaId === selectedMedia.id)
@@ -1206,24 +1274,35 @@ export default function App() {
     : undefined;
 
   // Build local fallback watchHistory when signed out so ProfileView shows local completed items with runtime
-  const effectiveWatchHistory: WatchHistoryEntry[] = isAuthenticated
-    ? watchHistory
-    : localWatchlist
-        .filter((w) => w.status === 'completed')
-        .map((w) => {
-          const media = knownMedia.find((m) => m.id === w.mediaId) || w.mediaSnapshot;
-          return {
-            id: `local-${w.mediaId}`,
-            mediaId: w.mediaId,
-            tmdbId: 0,
-            mediaType: media?.type || 'movie',
-            watchedAt: w.updatedAt || w.addedAt,
-            personalRating: w.personalRating,
-            reviewNotes: w.personalNotes,
-            runtimeMinutes: parseRuntimeMinutes(media),
-            mediaSnapshot: media,
-          };
-        });
+  const effectiveWatchHistory: WatchHistoryEntry[] = useMemo(
+    () =>
+      isAuthenticated
+        ? watchHistory
+        : localWatchlist
+            .filter((w) => w.status === 'completed')
+            .map((w) => {
+              const media = knownMedia.find((m) => m.id === w.mediaId) || w.mediaSnapshot;
+              return {
+                id: `local-${w.mediaId}`,
+                mediaId: w.mediaId,
+                tmdbId: 0,
+                mediaType: media?.type || 'movie',
+                watchedAt: w.updatedAt || w.addedAt,
+                personalRating: w.personalRating,
+                reviewNotes: w.personalNotes,
+                runtimeMinutes: parseRuntimeMinutes(media),
+                mediaSnapshot: media,
+              };
+            }),
+    [isAuthenticated, watchHistory, localWatchlist, knownMedia]
+  );
+
+  const viewFallback = (
+    <div className="py-24 flex flex-col items-center justify-center gap-3 text-slate-400">
+      <Loader2 className="w-6 h-6 text-amber-400 animate-spin" />
+      <span className="text-xs font-medium">Loading view…</span>
+    </div>
+  );
 
   return (
     <div className="min-h-screen bg-[#0A0D12] text-slate-100 flex flex-col font-['Plus_Jakarta_Sans'] pb-16 md:pb-0">
@@ -1231,13 +1310,10 @@ export default function App() {
       <Navbar
         currentTab={currentTab}
         homeHubMode={homeHubMode}
-        onTabChange={(tab, hubMode) => {
-          navigateToTab(tab, hubMode);
-          window.scrollTo({ top: 0, behavior: 'smooth' });
-        }}
+        onTabChange={handleNavbarTabChange}
         watchlistCount={activeWatchlist.length}
-        onOpenSurprise={() => setIsSurpriseOpen(true)}
-        onQuickSearchClick={() => setIsSearchOpen(true)}
+        onOpenSurprise={handleOpenSurprise}
+        onQuickSearchClick={handleQuickSearchClick}
         isAuthenticated={isAuthenticated}
         isAdmin={showAdminTab}
         userProfile={userProfile}
@@ -1263,178 +1339,189 @@ export default function App() {
             onUpdateStatus={handleUpdateStatus}
             onRemoveFromWatchlist={handleRemoveFromWatchlist}
             getWatchedEpisodesCount={getWatchedEpisodesCount}
-            onSelectMedia={(media) => setSelectedMedia(media)}
-            onPlayTrailer={(media) => setTrailerMedia(media)}
+            onSelectMedia={handleSelectMedia}
+            onPlayTrailer={handlePlayTrailer}
             onExploreMood={handleExploreMood}
             onExploreCategory={handleExploreCategory}
             onExploreGenre={handleExploreGenre}
-            onNavigateTab={(tab) => navigateToTab(tab)}
+            onNavigateTab={navigateToTab}
             onRegisterMedia={handleRegisterMedia}
           />
         )}
 
-        {currentTab === 'discover' && (
-          <DiscoverView
-            isInWatchlist={isInWatchlist}
-            getWatchlistStatus={getWatchlistStatus}
-            onToggleWatchlist={handleToggleWatchlist}
-            onUpdateStatus={handleUpdateStatus}
-            onRemoveFromWatchlist={handleRemoveFromWatchlist}
-            getWatchedEpisodesCount={getWatchedEpisodesCount}
-            onSelectMedia={(media) => setSelectedMedia(media)}
-            onPlayTrailer={(media) => setTrailerMedia(media)}
-            onOpenEstimator={() => {
-              navigateToTab('estimator');
-              window.scrollTo({ top: 0, behavior: 'smooth' });
-            }}
-            initialMood={discoverInitialMood}
-            initialCategory={discoverInitialCategory}
-            initialGenre={discoverInitialGenre}
-            onRegisterMedia={handleRegisterMedia}
-          />
-        )}
+        <Suspense fallback={viewFallback}>
+          {currentTab === 'discover' && (
+            <DiscoverView
+              isInWatchlist={isInWatchlist}
+              getWatchlistStatus={getWatchlistStatus}
+              onToggleWatchlist={handleToggleWatchlist}
+              onUpdateStatus={handleUpdateStatus}
+              onRemoveFromWatchlist={handleRemoveFromWatchlist}
+              getWatchedEpisodesCount={getWatchedEpisodesCount}
+              onSelectMedia={handleSelectMedia}
+              onPlayTrailer={handlePlayTrailer}
+              onOpenEstimator={handleOpenEstimatorFromDiscover}
+              initialMood={discoverInitialMood}
+              initialCategory={discoverInitialCategory}
+              initialGenre={discoverInitialGenre}
+              onRegisterMedia={handleRegisterMedia}
+            />
+          )}
 
-        {currentTab === 'watchlist' && (
-          <WatchlistView
-            watchlist={activeWatchlist}
-            allMedia={knownMedia}
-            watchedEpisodes={activeWatchedEpisodes}
-            onRemoveFromWatchlist={handleRemoveFromWatchlist}
-            onUpdateStatus={(mediaId, status) => handleUpdateStatus(mediaId, status)}
-            onToggleFavourite={handleToggleFavourite}
-            onSelectMedia={(media) => setSelectedMedia(media)}
-            onNavigateHome={() => setCurrentTab('discover')}
-            isAuthenticated={isAuthenticated}
-            isLoading={isCloudLoading}
-            error={cloudError}
-            schemaMissing={schemaMissing}
-            migrationNeeded={migrationNeeded}
-            onRetry={authUser ? () => loadCloudUserData(authUser) : undefined}
-            onOpenAuthModal={handleOpenAuthModal}
-            pendingLocalCount={pendingLocalItems.length}
-            onImportLocalWatchlist={handleImportLocalWatchlist}
-          />
-        )}
+          {currentTab === 'watchlist' && (
+            <WatchlistView
+              watchlist={activeWatchlist}
+              allMedia={knownMedia}
+              watchedEpisodes={activeWatchedEpisodes}
+              onRemoveFromWatchlist={handleRemoveFromWatchlist}
+              onUpdateStatus={(mediaId, status) => handleUpdateStatus(mediaId, status)}
+              onToggleFavourite={handleToggleFavourite}
+              onSelectMedia={handleSelectMedia}
+              onNavigateHome={() => setCurrentTab('discover')}
+              isAuthenticated={isAuthenticated}
+              isLoading={isCloudLoading}
+              error={cloudError}
+              schemaMissing={schemaMissing}
+              migrationNeeded={migrationNeeded}
+              onRetry={authUser ? () => loadCloudUserData(authUser) : undefined}
+              onOpenAuthModal={handleOpenAuthModal}
+              pendingLocalCount={pendingLocalItems.length}
+              onImportLocalWatchlist={handleImportLocalWatchlist}
+            />
+          )}
 
-        {currentTab === 'estimator' && (
-          <QualityFileSizeEstimator
-            allMedia={knownMedia}
-            initialMedia={estimatorInitialMedia}
-            initialSeasonNumber={estimatorInitialSeason}
-            onClearInitialMedia={() => {
-              setEstimatorInitialMedia(null);
-              setEstimatorInitialSeason(undefined);
-            }}
-            onSelectMediaDetail={(media) => setSelectedMedia(media)}
-            onRegisterMedia={handleRegisterMedia}
-          />
-        )}
+          {currentTab === 'estimator' && (
+            <QualityFileSizeEstimator
+              allMedia={knownMedia}
+              initialMedia={estimatorInitialMedia}
+              initialSeasonNumber={estimatorInitialSeason}
+              onClearInitialMedia={() => {
+                setEstimatorInitialMedia(null);
+                setEstimatorInitialSeason(undefined);
+              }}
+              onSelectMediaDetail={handleSelectMedia}
+              onRegisterMedia={handleRegisterMedia}
+            />
+          )}
 
-        {currentTab === 'profile' && (
-          <ProfileView
-            watchlist={activeWatchlist}
-            watchHistory={effectiveWatchHistory}
-            userProfile={userProfile}
-            userEmail={authUser?.email}
-            isAuthenticated={isAuthenticated}
-            isLoading={isCloudLoading}
-            error={cloudError}
-            schemaMissing={schemaMissing}
-            onRetry={authUser ? () => loadCloudUserData(authUser) : undefined}
-            onOpenAuthModal={handleOpenAuthModal}
-            onSignOut={handleSignOut}
-            onUpdateProfile={handleUpdateProfile}
-            onUploadAvatar={handleUploadAvatar}
-            onRemoveAvatar={handleRemoveAvatar}
-            onDeleteHistoryEntry={handleDeleteHistoryEntry}
-            allMedia={knownMedia}
-            onSelectMedia={(media) => setSelectedMedia(media)}
-            onNavigateTab={(tab) => navigateToTab(tab)}
-          />
-        )}
+          {currentTab === 'profile' && (
+            <ProfileView
+              watchlist={activeWatchlist}
+              watchHistory={effectiveWatchHistory}
+              userProfile={userProfile}
+              userEmail={authUser?.email}
+              isAuthenticated={isAuthenticated}
+              isLoading={isCloudLoading}
+              error={cloudError}
+              schemaMissing={schemaMissing}
+              onRetry={authUser ? () => loadCloudUserData(authUser) : undefined}
+              onOpenAuthModal={handleOpenAuthModal}
+              onSignOut={handleSignOut}
+              onUpdateProfile={handleUpdateProfile}
+              onUploadAvatar={handleUploadAvatar}
+              onRemoveAvatar={handleRemoveAvatar}
+              onDeleteHistoryEntry={handleDeleteHistoryEntry}
+              allMedia={knownMedia}
+              onSelectMedia={handleSelectMedia}
+              onNavigateTab={navigateToTab}
+            />
+          )}
 
-        {currentTab === 'admin' && (
-          <AdminDashboardView
-            isAuthenticated={isAuthenticated}
-            isAuthInitializing={isAuthInitializing}
-            adminAccessState={adminAccessState}
-            adminCheckError={adminCheckError}
-            currentUserId={authUserId}
-            currentUserEmail={authUser?.email || null}
-            onOpenAuthModal={handleOpenAuthModal}
-            onExitAdmin={() => navigateToTab('home')}
-            onRetryAdminAccess={() =>
-              authUserId
-                ? verifyCurrentUserAdminAccess(authUserId, true)
-                : undefined
-            }
-            onAdminVerified={handleAdminVerifiedFromDashboard}
-            onAdminExplicitlyDenied={handleAdminExplicitlyDeniedFromDashboard}
-          />
-        )}
+          {currentTab === 'admin' && (
+            <AdminDashboardView
+              isAuthenticated={isAuthenticated}
+              isAuthInitializing={isAuthInitializing}
+              adminAccessState={adminAccessState}
+              adminCheckError={adminCheckError}
+              currentUserId={authUserId}
+              currentUserEmail={authUser?.email || null}
+              onOpenAuthModal={handleOpenAuthModal}
+              onExitAdmin={() => navigateToTab('home')}
+              onRetryAdminAccess={() =>
+                authUserId
+                  ? verifyCurrentUserAdminAccess(authUserId, true)
+                  : undefined
+              }
+              onAdminVerified={handleAdminVerifiedFromDashboard}
+              onAdminExplicitlyDenied={handleAdminExplicitlyDeniedFromDashboard}
+            />
+          )}
+        </Suspense>
       </main>
 
-      {/* Global Modals & Overlays */}
-      <DetailModal
-        media={selectedMedia}
-        onClose={() => setSelectedMedia(null)}
-        isInWatchlist={selectedMedia ? isInWatchlist(selectedMedia.id) : false}
-        isFavourite={Boolean(selectedWatchlistEntry?.isFavourite)}
-        watchlistStatus={selectedWatchlistEntry?.status}
-        personalRating={
-          selectedWatchlistEntry?.personalRating || selectedHistoryEntry?.personalRating
-        }
-        personalNotes={
-          selectedWatchlistEntry?.personalNotes || selectedHistoryEntry?.reviewNotes
-        }
-        watchedAtDate={selectedHistoryEntry?.watchedAt || selectedWatchlistEntry?.updatedAt}
-        onToggleWatchlist={handleToggleWatchlist}
-        onRemoveFromWatchlist={handleRemoveFromWatchlist}
-        onToggleFavourite={handleToggleFavourite}
-        onUpdateWatchlistDetails={handleUpdateWatchlistDetails}
-        watchedEpisodes={activeWatchedEpisodes}
-        onToggleEpisodeWatched={handleToggleEpisodeWatched}
-        onToggleSeasonWatched={handleToggleSeasonWatched}
-        onPlayTrailer={(media) => setTrailerMedia(media)}
-        allMedia={knownMedia}
-        onSelectSimilar={(media) => setSelectedMedia(media)}
-        onRegisterMedia={handleRegisterMedia}
-        onOpenEstimator={(media, seasonNum) => {
-          setSelectedMedia(null);
-          setEstimatorInitialMedia(media);
-          setEstimatorInitialSeason(seasonNum);
-          setCurrentTab('estimator');
-          window.scrollTo({ top: 0, behavior: 'smooth' });
-        }}
-      />
+      {/* Global Modals & Overlays (Lazy Mounted when active) */}
+      <Suspense fallback={null}>
+        {selectedMedia && (
+          <DetailModal
+            media={selectedMedia}
+            onClose={() => setSelectedMedia(null)}
+            isInWatchlist={isInWatchlist(selectedMedia.id)}
+            isFavourite={Boolean(selectedWatchlistEntry?.isFavourite)}
+            watchlistStatus={selectedWatchlistEntry?.status}
+            personalRating={
+              selectedWatchlistEntry?.personalRating || selectedHistoryEntry?.personalRating
+            }
+            personalNotes={
+              selectedWatchlistEntry?.personalNotes || selectedHistoryEntry?.reviewNotes
+            }
+            watchedAtDate={selectedHistoryEntry?.watchedAt || selectedWatchlistEntry?.updatedAt}
+            onToggleWatchlist={handleToggleWatchlist}
+            onRemoveFromWatchlist={handleRemoveFromWatchlist}
+            onToggleFavourite={handleToggleFavourite}
+            onUpdateWatchlistDetails={handleUpdateWatchlistDetails}
+            watchedEpisodes={activeWatchedEpisodes}
+            onToggleEpisodeWatched={handleToggleEpisodeWatched}
+            onToggleSeasonWatched={handleToggleSeasonWatched}
+            onPlayTrailer={handlePlayTrailer}
+            allMedia={knownMedia}
+            onSelectSimilar={handleSelectMedia}
+            onRegisterMedia={handleRegisterMedia}
+            onOpenEstimator={(media, seasonNum) => {
+              setSelectedMedia(null);
+              setEstimatorInitialMedia(media);
+              setEstimatorInitialSeason(seasonNum);
+              setCurrentTab('estimator');
+              window.scrollTo({ top: 0, behavior: 'smooth' });
+            }}
+          />
+        )}
 
-      <TrailerModal
-        media={trailerMedia}
-        onClose={() => setTrailerMedia(null)}
-      />
+        {trailerMedia && (
+          <TrailerModal
+            media={trailerMedia}
+            onClose={() => setTrailerMedia(null)}
+          />
+        )}
 
-      <SurpriseMeModal
-        isOpen={isSurpriseOpen}
-        onClose={() => setIsSurpriseOpen(false)}
-        items={knownMedia}
-        onSelectMedia={(media) => setSelectedMedia(media)}
-      />
+        {isSurpriseOpen && (
+          <SurpriseMeModal
+            isOpen={isSurpriseOpen}
+            onClose={() => setIsSurpriseOpen(false)}
+            items={knownMedia}
+            onSelectMedia={handleSelectMedia}
+          />
+        )}
 
-      <SearchOverlay
-        isOpen={isSearchOpen}
-        onClose={() => setIsSearchOpen(false)}
-        items={knownMedia}
-        onSelectMedia={(media) => setSelectedMedia(media)}
-        onRegisterMedia={handleRegisterMedia}
-      />
+        {isSearchOpen && (
+          <SearchOverlay
+            isOpen={isSearchOpen}
+            onClose={() => setIsSearchOpen(false)}
+            items={knownMedia}
+            onSelectMedia={handleSelectMedia}
+            onRegisterMedia={handleRegisterMedia}
+          />
+        )}
 
-      <AuthModal
-        isOpen={isAuthModalOpen}
-        onClose={() => setIsAuthModalOpen(false)}
-        supabaseConfigured={supabaseConfigured}
-        securityWarning={securityWarning}
-        initialMode={authModalMode}
-      />
+        {isAuthModalOpen && (
+          <AuthModal
+            isOpen={isAuthModalOpen}
+            onClose={() => setIsAuthModalOpen(false)}
+            supabaseConfigured={supabaseConfigured}
+            securityWarning={securityWarning}
+            initialMode={authModalMode}
+          />
+        )}
+      </Suspense>
 
       {/* Clean OTT Footer */}
       <footer className="border-t border-white/[0.06] bg-[#07090E] mt-auto">

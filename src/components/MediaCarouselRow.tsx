@@ -1,4 +1,4 @@
-import React, { useRef, useState, useEffect, useCallback } from 'react';
+import React, { useRef, useState, useEffect, useCallback, useMemo } from 'react';
 import { MediaItem, WatchStatus } from '../types';
 import { MediaCard } from './MediaCard';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
@@ -22,7 +22,7 @@ interface MediaCarouselRowProps {
   exploreLabel?: string;
 }
 
-export const MediaCarouselRow: React.FC<MediaCarouselRowProps> = ({
+const MediaCarouselRowComponent: React.FC<MediaCarouselRowProps> = ({
   title,
   subtitle,
   badgeText,
@@ -41,15 +41,32 @@ export const MediaCarouselRow: React.FC<MediaCarouselRowProps> = ({
   exploreLabel = 'See All',
 }) => {
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const rafIdRef = useRef<number | null>(null);
   const [canScrollLeft, setCanScrollLeft] = useState(false);
   const [canScrollRight, setCanScrollRight] = useState(true);
 
+  const uniqueItems = useMemo(() => {
+    if (!items || items.length === 0) return [];
+    const seen = new Set<string>();
+    return items.filter((item) => {
+      if (!item?.id || seen.has(item.id)) return false;
+      seen.add(item.id);
+      return true;
+    });
+  }, [items]);
+
   const updateScrollButtons = useCallback(() => {
-    const el = scrollContainerRef.current;
-    if (!el) return;
-    const { scrollLeft, scrollWidth, clientWidth } = el;
-    setCanScrollLeft(scrollLeft > 8);
-    setCanScrollRight(scrollLeft + clientWidth < scrollWidth - 8);
+    if (rafIdRef.current !== null) return;
+    rafIdRef.current = window.requestAnimationFrame(() => {
+      rafIdRef.current = null;
+      const el = scrollContainerRef.current;
+      if (!el) return;
+      const { scrollLeft, scrollWidth, clientWidth } = el;
+      const nextLeft = scrollLeft > 8;
+      const nextRight = scrollLeft + clientWidth < scrollWidth - 8;
+      setCanScrollLeft((prev) => (prev === nextLeft ? prev : nextLeft));
+      setCanScrollRight((prev) => (prev === nextRight ? prev : nextRight));
+    });
   }, []);
 
   useEffect(() => {
@@ -57,12 +74,16 @@ export const MediaCarouselRow: React.FC<MediaCarouselRowProps> = ({
     const el = scrollContainerRef.current;
     if (!el) return;
     el.addEventListener('scroll', updateScrollButtons, { passive: true });
-    window.addEventListener('resize', updateScrollButtons);
+    window.addEventListener('resize', updateScrollButtons, { passive: true });
     return () => {
       el.removeEventListener('scroll', updateScrollButtons);
       window.removeEventListener('resize', updateScrollButtons);
+      if (rafIdRef.current !== null) {
+        window.cancelAnimationFrame(rafIdRef.current);
+        rafIdRef.current = null;
+      }
     };
-  }, [items.length, updateScrollButtons]);
+  }, [uniqueItems.length, updateScrollButtons]);
 
   const handleScrollBy = (direction: 'left' | 'right') => {
     const el = scrollContainerRef.current;
@@ -84,10 +105,10 @@ export const MediaCarouselRow: React.FC<MediaCarouselRowProps> = ({
     }
   };
 
-  if (!items || items.length === 0) return null;
+  if (uniqueItems.length === 0) return null;
 
   return (
-    <section className="relative space-y-3 group/row">
+    <section className="relative space-y-3 group/row cv-auto">
       {/* Row Header */}
       <div className="flex items-end justify-between gap-4">
         <div className="min-w-0">
@@ -115,7 +136,7 @@ export const MediaCarouselRow: React.FC<MediaCarouselRowProps> = ({
               onClick={() => handleScrollBy('left')}
               disabled={!canScrollLeft}
               aria-label={`Scroll ${title} left`}
-              className="p-1.5 rounded-lg bg-white/[0.05] hover:bg-white/[0.12] border border-white/[0.08] text-slate-300 hover:text-white disabled:opacity-25 disabled:pointer-events-none transition-all"
+              className="p-1.5 rounded-lg bg-white/[0.05] hover:bg-white/[0.12] border border-white/[0.08] text-slate-300 hover:text-white disabled:opacity-25 disabled:pointer-events-none transition-colors"
             >
               <ChevronLeft className="w-4 h-4" />
             </button>
@@ -124,7 +145,7 @@ export const MediaCarouselRow: React.FC<MediaCarouselRowProps> = ({
               onClick={() => handleScrollBy('right')}
               disabled={!canScrollRight}
               aria-label={`Scroll ${title} right`}
-              className="p-1.5 rounded-lg bg-white/[0.05] hover:bg-white/[0.12] border border-white/[0.08] text-slate-300 hover:text-white disabled:opacity-25 disabled:pointer-events-none transition-all"
+              className="p-1.5 rounded-lg bg-white/[0.05] hover:bg-white/[0.12] border border-white/[0.08] text-slate-300 hover:text-white disabled:opacity-25 disabled:pointer-events-none transition-colors"
             >
               <ChevronRight className="w-4 h-4" />
             </button>
@@ -150,9 +171,9 @@ export const MediaCarouselRow: React.FC<MediaCarouselRowProps> = ({
         tabIndex={0}
         role="region"
         aria-label={title}
-        className="flex items-stretch gap-3.5 sm:gap-4 overflow-x-auto pb-2 pt-1 scroll-smooth snap-x snap-mandatory focus:outline-none [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
+        className="flex items-stretch gap-3.5 sm:gap-4 overflow-x-auto pb-2 pt-1 scroll-smooth snap-x snap-mandatory touch-pan-x overscroll-x-contain focus:outline-none [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden"
       >
-        {items.map((item, idx) => {
+        {uniqueItems.map((item, idx) => {
           const rankNum = idx + 1;
           if (isTop10) {
             return (
@@ -177,12 +198,8 @@ export const MediaCarouselRow: React.FC<MediaCarouselRowProps> = ({
                     rankBadge={rankNum}
                     isInWatchlist={isInWatchlist(item.id)}
                     watchlistStatus={getWatchlistStatus?.(item.id)}
-                    onToggleWatchlist={(id) => onToggleWatchlist(id, item)}
-                    onUpdateStatus={
-                      onUpdateStatus
-                        ? (id, status) => onUpdateStatus(id, status, item)
-                        : undefined
-                    }
+                    onToggleWatchlist={onToggleWatchlist}
+                    onUpdateStatus={onUpdateStatus}
                     onRemoveFromWatchlist={onRemoveFromWatchlist}
                     watchedEpisodesCount={getWatchedEpisodesCount?.(item.id)}
                     onClick={onSelectMedia}
@@ -203,12 +220,8 @@ export const MediaCarouselRow: React.FC<MediaCarouselRowProps> = ({
                 compact={true}
                 isInWatchlist={isInWatchlist(item.id)}
                 watchlistStatus={getWatchlistStatus?.(item.id)}
-                onToggleWatchlist={(id) => onToggleWatchlist(id, item)}
-                onUpdateStatus={
-                  onUpdateStatus
-                    ? (id, status) => onUpdateStatus(id, status, item)
-                    : undefined
-                }
+                onToggleWatchlist={onToggleWatchlist}
+                onUpdateStatus={onUpdateStatus}
                 onRemoveFromWatchlist={onRemoveFromWatchlist}
                 watchedEpisodesCount={getWatchedEpisodesCount?.(item.id)}
                 onClick={onSelectMedia}
@@ -221,3 +234,5 @@ export const MediaCarouselRow: React.FC<MediaCarouselRowProps> = ({
     </section>
   );
 };
+
+export const MediaCarouselRow = React.memo(MediaCarouselRowComponent);
