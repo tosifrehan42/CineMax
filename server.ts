@@ -7,8 +7,22 @@ import { createServer as createViteServer } from 'vite';
 import { MEDIA_ITEMS } from './src/data/mediaData.ts';
 import { EXTRA_ANCHOR_ITEMS, INDIAN_TRENDING_ITEMS } from './src/data/franchiseData.ts';
 import { VERIFIED_TMDB_TRAILERS } from './src/data/verifiedTrailers.ts';
-import { dedupeMediaItems } from './src/utils/mediaIntegrity.ts';
+import {
+  dedupeMediaItems,
+  extractCanonicalTmdbIdentity,
+  SEED_TO_TMDB_ID,
+} from './src/utils/mediaIntegrity.ts';
+import {
+  normalizeTmdbWatchProviders,
+  buildUnconfiguredWatchProviders,
+} from './src/utils/watchProviders.ts';
+import {
+  lookupOnlinePlaybackSources,
+  PERMITTED_YOUTUBE_CHANNELS,
+  registerDiscoveredOnlineSources,
+} from './src/data/onlinePlaybackSources.ts';
 import type {
+  AuthorizedOnlineSource,
   MediaItem,
   CastMember,
   SeasonSummary,
@@ -355,7 +369,7 @@ function mapTmdbItemToMediaItem(raw: any, forcedType?: 'movie' | 'tv', indexOffs
     moods: deriveMoodsFromGenres(genres),
     contentRating: mediaType === 'tv' ? 'TV-MA' : raw.adult ? 'R' : 'PG-13',
     trendingRank: indexOffset > 0 ? indexOffset : undefined,
-    streamOn: ['Max', 'Prime Video', 'Apple TV'],
+    streamOn: [],
     themeColor: palette.themeColor,
     posterUrl,
     backdropUrl,
@@ -1537,49 +1551,19 @@ async function startServer() {
     }
   });
 
-  // 3. Detailed Title Endpoint (Enriches cast, director, runtime, similar titles)
-  const SEED_TO_TMDB_ID: Record<string, { mediaType: 'movie' | 'tv'; tmdbId: string }> = {
-    'dune-part-two': { mediaType: 'movie', tmdbId: '693134' },
-    severance: { mediaType: 'tv', tmdbId: '95396' },
-    oppenheimer: { mediaType: 'movie', tmdbId: '872585' },
-    shogun: { mediaType: 'tv', tmdbId: '126308' },
-    'blade-runner-2049': { mediaType: 'movie', tmdbId: '335984' },
-    succession: { mediaType: 'tv', tmdbId: '76331' },
-    interstellar: { mediaType: 'movie', tmdbId: '157336' },
-    'the-bear': { mediaType: 'tv', tmdbId: '136315' },
-    arcane: { mediaType: 'tv', tmdbId: '94605' },
-    mindhunter: { mediaType: 'tv', tmdbId: '67744' },
-    'past-lives': { mediaType: 'movie', tmdbId: '666277' },
-    'poor-things': { mediaType: 'movie', tmdbId: '792307' },
-    dark: { mediaType: 'tv', tmdbId: '70523' },
-    'the-batman': { mediaType: 'movie', tmdbId: '414906' },
-    chernobyl: { mediaType: 'tv', tmdbId: '87108' },
-    arrival: { mediaType: 'movie', tmdbId: '329865' },
-    'spirited-away': { mediaType: 'movie', tmdbId: '129' },
-    fallout: { mediaType: 'tv', tmdbId: '106379' },
-    'true-detective-s1': { mediaType: 'tv', tmdbId: '46648' },
-    'everything-everywhere-all-at-once': { mediaType: 'movie', tmdbId: '545611' },
-  };
-
+  // 3. Detailed Title Endpoint (Enriches cast, director, runtime, India watch providers, similar titles)
   app.get('/api/title/:type/:id', async (req, res) => {
     const { id } = req.params;
+    const requestedType: 'movie' | 'tv' = req.params.type === 'tv' ? 'tv' : 'movie';
     const tmdbKey = getTmdbKey();
 
-    // If TMDB_API_KEY is configured and ID is either tmdb-* or one of the 20 seed titles
+    const canonicalIdentity = extractCanonicalTmdbIdentity(id, requestedType);
     const seedMatch = SEED_TO_TMDB_ID[id];
-    if (tmdbKey && (id.startsWith('tmdb-') || seedMatch)) {
-      try {
-        let mediaType: 'movie' | 'tv';
-        let rawTmdbId: string;
 
-        if (seedMatch) {
-          mediaType = seedMatch.mediaType;
-          rawTmdbId = seedMatch.tmdbId;
-        } else {
-          const parts = id.split('-');
-          mediaType = (parts[1] === 'tv' ? 'tv' : 'movie') as 'movie' | 'tv';
-          rawTmdbId = parts[2];
-        }
+    if (tmdbKey && canonicalIdentity) {
+      try {
+        const mediaType = canonicalIdentity.mediaType;
+        const rawTmdbId = String(canonicalIdentity.tmdbId);
 
         const detail = await fetchFromTmdb(`/${mediaType}/${rawTmdbId}`, {
           append_to_response: 'credits,recommendations,watch/providers',
@@ -1605,11 +1589,16 @@ async function startServer() {
           role: c.character || 'Principal Role',
         }));
 
-        const usProviders = detail?.['watch/providers']?.results?.US;
-        const flatrate: any[] = usProviders?.flatrate || usProviders?.buy || [];
-        if (flatrate.length > 0) {
-          baseItem.streamOn = flatrate.slice(0, 4).map((p) => p.provider_name);
-        }
+        const watchProviders = normalizeTmdbWatchProviders(
+          detail?.['watch/providers'],
+          mediaType,
+          canonicalIdentity.tmdbId,
+          'IN'
+        );
+        baseItem.watchProviders = watchProviders;
+        baseItem.streamOn = Array.from(
+          new Set(watchProviders.offers.map((o) => o.providerName))
+        );
 
         const similarRaw: any[] = detail?.recommendations?.results || [];
         const similar = similarRaw
@@ -1623,14 +1612,20 @@ async function startServer() {
       }
     }
 
-    // Enrich TVMaze show cast if it's a tvmaze-tv-* item
+    // Fallback when TMDB_API_KEY is not configured or item is a TVMaze / Open Catalog record
     const catalog = await getLiveExpandedCatalog();
-    const found = catalog.find((m) => m.id === id) || MEDIA_ITEMS.find((m) => m.id === id);
+    const found =
+      catalog.find((m) => m.id === id) ||
+      MEDIA_ITEMS.find((m) => m.id === id) ||
+      EXTRA_ANCHOR_ITEMS.find((m) => m.id === id);
     if (!found) {
       return res.status(404).json({ error: 'Title not found' });
     }
 
-    const enriched = { ...found };
+    const enriched: MediaItem = {
+      ...found,
+      watchProviders: buildUnconfiguredWatchProviders('IN'),
+    };
     if (id.startsWith('tvmaze-tv-')) {
       const showId = id.replace('tvmaze-tv-', '');
       try {
@@ -1680,17 +1675,6 @@ async function startServer() {
       }
     }
 
-    if (enriched.type === 'tv' && (!enriched.seasonsList || enriched.seasonsList.length === 0)) {
-      const numSeasons = Math.max(1, enriched.seasons || 1);
-      const fallbackSeasons: SeasonSummary[] = Array.from({ length: numSeasons }, (_, i) => ({
-        seasonNumber: i + 1,
-        name: `Season ${i + 1}`,
-        episodeCount: 8,
-      }));
-      enriched.seasonsList = fallbackSeasons;
-      enriched.totalEpisodes = fallbackSeasons.reduce((acc, s) => acc + s.episodeCount, 0);
-    }
-
     const similar = catalog
       .filter(
         (m) =>
@@ -1708,12 +1692,12 @@ async function startServer() {
     const { id } = req.params;
     const seasonNumber = Math.max(1, parseInt(String(req.params.seasonNumber || '1'), 10) || 1);
     const tmdbKey = getTmdbKey();
-    const seedMatch = SEED_TO_TMDB_ID[id];
+    const canonicalIdentity = extractCanonicalTmdbIdentity(id, 'tv');
 
     // Path A: Official TMDB /tv/{id}/season/{season_number}
-    if (tmdbKey && (id.startsWith('tmdb-tv-') || (seedMatch && seedMatch.mediaType === 'tv'))) {
+    if (tmdbKey && canonicalIdentity && canonicalIdentity.mediaType === 'tv') {
       try {
-        const rawTmdbId = seedMatch ? seedMatch.tmdbId : id.replace('tmdb-tv-', '');
+        const rawTmdbId = String(canonicalIdentity.tmdbId);
         const seasonData = await fetchFromTmdb(`/tv/${rawTmdbId}/season/${seasonNumber}`);
         const rawEpisodes: any[] = Array.isArray(seasonData?.episodes) ? seasonData.episodes : [];
 
@@ -1732,8 +1716,13 @@ async function startServer() {
           name: seasonData?.name || `Season ${seasonNumber}`,
           episodes,
         });
-      } catch {
-        // Fall through to open catalog / seed fallback if season call fails
+      } catch (err: any) {
+        return res.status(502).json({
+          error: err?.message || `Failed to load Season ${seasonNumber} episodes from TMDB.`,
+          seasonNumber,
+          name: `Season ${seasonNumber}`,
+          episodes: [],
+        });
       }
     }
 
@@ -1746,48 +1735,40 @@ async function startServer() {
           const allEps = await epRes.json();
           if (Array.isArray(allEps)) {
             const seasonEps = allEps.filter((e: any) => Number(e?.season) === seasonNumber);
-            if (seasonEps.length > 0) {
-              const episodes: EpisodeInfo[] = seasonEps.map((ep: any, idx: number) => ({
-                episodeNumber: Number(ep.number) || idx + 1,
-                seasonNumber,
-                name: ep.name || `Episode ${idx + 1}`,
-                airDate: ep.airdate || undefined,
-                runtime: typeof ep.runtime === 'number' && ep.runtime > 0 ? ep.runtime : 50,
-                overview: stripHtml(ep.summary || ''),
-                stillUrl: ep.image?.medium || ep.image?.original || undefined,
-              }));
-              return res.json({
-                seasonNumber,
-                name: `Season ${seasonNumber}`,
-                episodes,
-              });
-            }
+            const episodes: EpisodeInfo[] = seasonEps.map((ep: any, idx: number) => ({
+              episodeNumber: Number(ep.number) || idx + 1,
+              seasonNumber,
+              name: ep.name || `Episode ${idx + 1}`,
+              airDate: ep.airdate || undefined,
+              runtime: typeof ep.runtime === 'number' && ep.runtime > 0 ? ep.runtime : undefined,
+              overview: stripHtml(ep.summary || '') || undefined,
+              stillUrl: ep.image?.medium || ep.image?.original || undefined,
+            }));
+            return res.json({
+              seasonNumber,
+              name: `Season ${seasonNumber}`,
+              episodes,
+            });
           }
         }
-      } catch {
-        // Fall through to deterministic fallback
+      } catch (err: any) {
+        return res.status(502).json({
+          error: err?.message || `Failed to load Season ${seasonNumber} episodes from TVMaze.`,
+          seasonNumber,
+          name: `Season ${seasonNumber}`,
+          episodes: [],
+        });
       }
     }
 
-    // Path C: Seed or Open Catalog Fallback
-    const catalog = await getLiveExpandedCatalog();
-    const found = catalog.find((m) => m.id === id) || MEDIA_ITEMS.find((m) => m.id === id);
-    const matchingSeason = found?.seasonsList?.find((s) => s.seasonNumber === seasonNumber);
-    const epCount = matchingSeason?.episodeCount || 8;
-    const baseYear = found?.year || 2024;
-
-    const episodes: EpisodeInfo[] = Array.from({ length: epCount }, (_, idx) => ({
-      episodeNumber: idx + 1,
+    // Do not fabricate generic 8-episode lists or synthetic release dates/runtimes
+    return res.status(503).json({
+      error: tmdbKey
+        ? `No verified episode catalogue is available for Season ${seasonNumber} of this series.`
+        : 'TMDB API key is not configured to load verified season and episode metadata.',
       seasonNumber,
-      name: `Chapter ${idx + 1}`,
-      airDate: matchingSeason?.airDate || `${baseYear}-01-${String((idx % 28) + 1).padStart(2, '0')}`,
-      runtime: 52,
-    }));
-
-    return res.json({
-      seasonNumber,
-      name: matchingSeason?.name || `Season ${seasonNumber}`,
-      episodes,
+      name: `Season ${seasonNumber}`,
+      episodes: [],
     });
   });
 
@@ -1956,7 +1937,7 @@ async function startServer() {
         EXTRA_ANCHOR_ITEMS.find((m) => m.id === cleanId);
       return {
         mediaType: seedMatch.mediaType,
-        tmdbId: parseInt(seedMatch.tmdbId, 10),
+        tmdbId: Number(seedMatch.tmdbId),
         resolvedTitle: titleHint || seedItem?.title || cleanId,
         resolvedYear: yearHint || seedItem?.year,
       };
@@ -2346,6 +2327,202 @@ async function startServer() {
         youtubeSearchUrl,
         reason: err?.message || 'Failed to fetch trailer metadata from TMDB.',
       } satisfies TrailerLookupResult);
+    }
+  });
+
+  // 4c. Server-Side Authorized Online Playback Discovery (/api/online-sources/:type/:id)
+  // Queries YouTube Data API v3 ONLY when YOUTUBE_DATA_API_KEY is configured on the server,
+  // strictly filtering to PERMITTED_YOUTUBE_CHANNELS and verifying embeddability & full duration.
+  const onlineSourceDiscoveryCache = new Map<
+    string,
+    { timestamp: number; discovered: AuthorizedOnlineSource[] }
+  >();
+  const ONLINE_DISCOVERY_TTL_MS = 1000 * 60 * 30; // 30 minutes
+
+  function parseIso8601DurationMinutes(isoDuration: string): number {
+    if (!isoDuration) return 0;
+    const match = isoDuration.match(/PT(?:(\d+)H)?(?:(\d+)M)?(?:(\d+)S)?/i);
+    if (!match) return 0;
+    const hours = parseInt(match[1] || '0', 10);
+    const minutes = parseInt(match[2] || '0', 10);
+    const seconds = parseInt(match[3] || '0', 10);
+    return Math.round(hours * 60 + minutes + seconds / 60);
+  }
+
+  app.get('/api/online-sources/:type/:id', async (req, res) => {
+    const rawType: 'movie' | 'tv' = req.params.type === 'tv' ? 'tv' : 'movie';
+    const rawId = String(req.params.id || '').trim();
+    const titleHint = String(req.query.title || '').trim();
+
+    const canonical = extractCanonicalTmdbIdentity(rawId, rawType);
+    const baseLookup = lookupOnlinePlaybackSources({
+      id: rawId,
+      type: canonical?.mediaType || rawType,
+      title: titleHint || rawId,
+    });
+
+    const youtubeApiKey = String(process.env.YOUTUBE_DATA_API_KEY || '').trim();
+    if (!youtubeApiKey || !titleHint) {
+      return res.json(baseLookup);
+    }
+
+    const cacheKey = `${canonical?.mediaType || rawType}:${canonical?.tmdbId || rawId}:${titleHint.toLowerCase()}`;
+    const cached = onlineSourceDiscoveryCache.get(cacheKey);
+    if (cached && Date.now() - cached.timestamp < ONLINE_DISCOVERY_TTL_MS) {
+      if (cached.discovered.length > 0) {
+        registerDiscoveredOnlineSources(cached.discovered);
+      }
+      return res.json(
+        lookupOnlinePlaybackSources({
+          id: rawId,
+          type: canonical?.mediaType || rawType,
+          title: titleHint,
+        })
+      );
+    }
+
+    try {
+      const searchUrl = new URL('https://www.googleapis.com/youtube/v3/search');
+      searchUrl.searchParams.set('part', 'snippet');
+      searchUrl.searchParams.set('type', 'video');
+      searchUrl.searchParams.set('videoEmbeddable', 'true');
+      searchUrl.searchParams.set('videoDuration', 'long');
+      searchUrl.searchParams.set('maxResults', '12');
+      searchUrl.searchParams.set(
+        'q',
+        `${titleHint} ${rawType === 'tv' ? 'full episode' : 'full movie'}`
+      );
+      searchUrl.searchParams.set('key', youtubeApiKey);
+
+      const sRes = await fetch(searchUrl.toString());
+      if (!sRes.ok) {
+        return res.json(baseLookup);
+      }
+      const sData = await sRes.json();
+      const rawItems: any[] = Array.isArray(sData?.items) ? sData.items : [];
+      const permittedItems = rawItems.filter(
+        (it) =>
+          it?.id?.videoId &&
+          it?.snippet?.channelId &&
+          PERMITTED_YOUTUBE_CHANNELS.some(
+            (ch) => ch.channelId === String(it.snippet.channelId)
+          )
+      );
+
+      if (permittedItems.length === 0) {
+        onlineSourceDiscoveryCache.set(cacheKey, { timestamp: Date.now(), discovered: [] });
+        return res.json(baseLookup);
+      }
+
+      const videoIds = permittedItems.map((it) => String(it.id.videoId)).join(',');
+      const detailsUrl = new URL('https://www.googleapis.com/youtube/v3/videos');
+      detailsUrl.searchParams.set('part', 'snippet,contentDetails,status');
+      detailsUrl.searchParams.set('id', videoIds);
+      detailsUrl.searchParams.set('key', youtubeApiKey);
+
+      const vRes = await fetch(detailsUrl.toString());
+      if (!vRes.ok) {
+        return res.json(baseLookup);
+      }
+      const vData = await vRes.json();
+      const videoDetails: any[] = Array.isArray(vData?.items) ? vData.items : [];
+
+      const trailerExcludeRegex =
+        /\b(trailer|teaser|preview|clip|opening|ending|op\b|ed\b|ost|promo|reaction|review|highlight)\b/i;
+      const normTargetTitle = normalizeForSearch(titleHint);
+
+      const discovered: AuthorizedOnlineSource[] = [];
+      for (const vid of videoDetails) {
+        const videoId = String(vid?.id || '').trim();
+        const channelId = String(vid?.snippet?.channelId || '').trim();
+        const permittedChannel = PERMITTED_YOUTUBE_CHANNELS.find(
+          (ch) => ch.channelId === channelId
+        );
+        if (!videoId || !permittedChannel) continue;
+
+        if (vid?.status?.privacyStatus !== 'public' || vid?.status?.embeddable !== true) {
+          continue;
+        }
+
+        const vTitle = String(vid?.snippet?.title || '').trim();
+        if (!vTitle || trailerExcludeRegex.test(vTitle)) continue;
+        if (normTargetTitle && !normalizeForSearch(vTitle).includes(normTargetTitle)) {
+          continue;
+        }
+
+        const durationMinutes = parseIso8601DurationMinutes(
+          String(vid?.contentDetails?.duration || '')
+        );
+        const minMinutes = rawType === 'tv' ? 12 : 45;
+        if (durationMinutes < minMinutes) continue;
+
+        // Parse Episode / Season numbers for TV series
+        let seasonNumber = 1;
+        let episodeNumber: number | undefined;
+        if (rawType === 'tv') {
+          const seMatch =
+            vTitle.match(/S(\d{1,2})\s*E(\d{1,3})/i) ||
+            vTitle.match(/Season\s*(\d{1,2}).*?(?:Episode|Ep\.?)\s*(\d{1,3})/i);
+          const epOnlyMatch = vTitle.match(/(?:Episode|Ep\.?|#)\s*(\d{1,3})\b/i);
+          if (seMatch) {
+            seasonNumber = parseInt(seMatch[1], 10) || 1;
+            episodeNumber = parseInt(seMatch[2], 10);
+          } else if (epOnlyMatch) {
+            episodeNumber = parseInt(epOnlyMatch[1], 10);
+          }
+          if (!episodeNumber || episodeNumber < 1) continue;
+        }
+
+        // Verify oEmbed 200 OK
+        try {
+          const oembedRes = await fetch(
+            `https://www.youtube.com/oembed?url=${encodeURIComponent(
+              `https://www.youtube.com/watch?v=${videoId}`
+            )}&format=json`
+          );
+          if (!oembedRes.ok) continue;
+        } catch {
+          continue;
+        }
+
+        discovered.push({
+          id: `yt-discovered-${videoId}`,
+          mediaId: rawId,
+          tmdbId: canonical?.tmdbId || 0,
+          mediaType: canonical?.mediaType || rawType,
+          title: titleHint,
+          contentKind: rawType === 'tv' ? 'full_episode' : 'full_movie',
+          providerName: `YouTube (${permittedChannel.channelName})`,
+          channelName: permittedChannel.channelName,
+          channelUrl: permittedChannel.channelUrl,
+          youtubeVideoId: videoId,
+          officialWatchUrl: `https://www.youtube.com/watch?v=${videoId}`,
+          language: 'en',
+          languageLabel: 'Official Release (Sub/Dub)',
+          durationMinutes,
+          resolutionLabel: '1080p HD',
+          licenseStatus: permittedChannel.licenseCategory,
+          seasonNumber: rawType === 'tv' ? seasonNumber : undefined,
+          episodeNumber: rawType === 'tv' ? episodeNumber : undefined,
+          episodeTitle: rawType === 'tv' ? vTitle : undefined,
+          embedAllowed: true,
+        });
+      }
+
+      onlineSourceDiscoveryCache.set(cacheKey, { timestamp: Date.now(), discovered });
+      if (discovered.length > 0) {
+        registerDiscoveredOnlineSources(discovered);
+      }
+
+      return res.json(
+        lookupOnlinePlaybackSources({
+          id: rawId,
+          type: canonical?.mediaType || rawType,
+          title: titleHint,
+        })
+      );
+    } catch {
+      return res.json(baseLookup);
     }
   });
 

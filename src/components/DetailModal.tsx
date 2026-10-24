@@ -9,8 +9,13 @@ import {
   WATCH_STATUS_ORDER,
 } from '../types';
 import { MediaPoster } from './MediaPoster';
-import { fetchTitleDetails, fetchTvSeasonEpisodes } from '../services/mediaApi';
 import {
+  fetchOnlinePlaybackSources,
+  fetchTitleDetails,
+  fetchTvSeasonEpisodes,
+} from '../services/mediaApi';
+import {
+  buildEpisodeYoutubeSearchUrl,
   getAuthorizedEpisodeSource,
   lookupOnlinePlaybackSources,
 } from '../data/onlinePlaybackSources';
@@ -31,6 +36,9 @@ import {
   Trash2,
   HardDrive,
   MonitorPlay,
+  ExternalLink,
+  AlertCircle,
+  RefreshCw,
 } from 'lucide-react';
 
 interface DetailModalProps {
@@ -119,6 +127,10 @@ export const DetailModal: React.FC<DetailModalProps> = ({
   const [selectedSeason, setSelectedSeason] = useState<number>(1);
   const [seasonEpisodes, setSeasonEpisodes] = useState<EpisodeInfo[]>([]);
   const [isLoadingEpisodes, setIsLoadingEpisodes] = useState<boolean>(false);
+  const [episodeError, setEpisodeError] = useState<string | null>(null);
+  const [episodeRetryTick, setEpisodeRetryTick] = useState<number>(0);
+  const [isLoadingDetails, setIsLoadingDetails] = useState<boolean>(false);
+  const [onlineSourceTick, setOnlineSourceTick] = useState<number>(0);
 
   useEffect(() => {
     setEnrichedMedia(media);
@@ -127,6 +139,8 @@ export const DetailModal: React.FC<DetailModalProps> = ({
     setCurrentRating(personalRating || 0);
     setNotes(personalNotes || '');
     setSelectedSeason(1);
+    setSeasonEpisodes([]);
+    setEpisodeError(null);
     setWatchedDate(
       watchedAtDate
         ? watchedAtDate.split('T')[0]
@@ -135,12 +149,21 @@ export const DetailModal: React.FC<DetailModalProps> = ({
 
     if (!media) return;
     let active = true;
+    setIsLoadingDetails(true);
     fetchTitleDetails(media)
       .then((res) => {
         if (!active) return;
         if (res.item) {
           setEnrichedMedia(res.item);
           onRegisterMedia?.([res.item]);
+          if (
+            res.item.type === 'tv' &&
+            Array.isArray(res.item.seasonsList) &&
+            res.item.seasonsList.length > 0
+          ) {
+            const firstSeasonNum = res.item.seasonsList[0].seasonNumber || 1;
+            setSelectedSeason(firstSeasonNum);
+          }
         }
         if (Array.isArray(res.similar) && res.similar.length > 0) {
           setApiSimilar(res.similar);
@@ -149,7 +172,19 @@ export const DetailModal: React.FC<DetailModalProps> = ({
       })
       .catch(() => {
         // Keep base media item
+      })
+      .finally(() => {
+        if (active) setIsLoadingDetails(false);
       });
+
+    fetchOnlinePlaybackSources(media)
+      .then(() => {
+        if (active) setOnlineSourceTick((t) => t + 1);
+      })
+      .catch(() => {
+        // Ignore optional server-side discovery error
+      });
+
     return () => {
       active = false;
     };
@@ -172,10 +207,10 @@ export const DetailModal: React.FC<DetailModalProps> = ({
 
   const onlinePlayback = useMemo(
     () => (activeMedia ? lookupOnlinePlaybackSources(activeMedia) : null),
-    [activeMedia]
+    [activeMedia, onlineSourceTick]
   );
 
-  // Compute seasons list for TV shows
+  // Compute seasons list for TV shows from verified metadata (never fabricate 8-episode seasons)
   const seasonsList: SeasonSummary[] = useMemo(() => {
     if (!activeMedia || activeMedia.type !== 'tv') return [];
     if (activeMedia.seasonsList && activeMedia.seasonsList.length > 0) {
@@ -185,7 +220,7 @@ export const DetailModal: React.FC<DetailModalProps> = ({
     return Array.from({ length: count }, (_, idx) => ({
       seasonNumber: idx + 1,
       name: `Season ${idx + 1}`,
-      episodeCount: 8,
+      episodeCount: 0,
     }));
   }, [activeMedia]);
 
@@ -194,34 +229,34 @@ export const DetailModal: React.FC<DetailModalProps> = ({
     if (activeMedia.totalEpisodes && activeMedia.totalEpisodes > 0) {
       return activeMedia.totalEpisodes;
     }
-    return seasonsList.reduce((acc, s) => acc + s.episodeCount, 0);
-  }, [activeMedia, seasonsList]);
+    const fromSeasons = seasonsList.reduce((acc, s) => acc + (s.episodeCount || 0), 0);
+    if (fromSeasons > 0) return fromSeasons;
+    return seasonEpisodes.length;
+  }, [activeMedia, seasonsList, seasonEpisodes.length]);
 
-  // Load episodes when TV show or selectedSeason changes
+  // Load real episodes when TV show, selectedSeason, or retry tick changes
   useEffect(() => {
     if (!activeMedia || activeMedia.type !== 'tv') {
       setSeasonEpisodes([]);
+      setEpisodeError(null);
       return;
     }
     const controller = new AbortController();
     setIsLoadingEpisodes(true);
+    setEpisodeError(null);
     fetchTvSeasonEpisodes(activeMedia.id, selectedSeason, controller.signal)
       .then((res) => {
         if (!controller.signal.aborted) {
-          setSeasonEpisodes(res.episodes || []);
+          setSeasonEpisodes(Array.isArray(res.episodes) ? res.episodes : []);
+          setEpisodeError(null);
         }
       })
-      .catch(() => {
+      .catch((err: any) => {
         if (!controller.signal.aborted) {
-          const fallbackCount =
-            seasonsList.find((s) => s.seasonNumber === selectedSeason)?.episodeCount || 8;
-          setSeasonEpisodes(
-            Array.from({ length: fallbackCount }, (_, idx) => ({
-              episodeNumber: idx + 1,
-              seasonNumber: selectedSeason,
-              name: `Episode ${idx + 1}`,
-              runtime: 50,
-            }))
+          setSeasonEpisodes([]);
+          setEpisodeError(
+            err?.message ||
+              `Unable to retrieve verified episode metadata for Season ${selectedSeason}.`
           );
         }
       })
@@ -232,7 +267,7 @@ export const DetailModal: React.FC<DetailModalProps> = ({
       });
 
     return () => controller.abort();
-  }, [activeMedia?.id, activeMedia?.type, selectedSeason, seasonsList]);
+  }, [activeMedia?.id, activeMedia?.type, selectedSeason, episodeRetryTick]);
 
   // Handle ESC key to close when modal is open
   useEffect(() => {
@@ -262,16 +297,14 @@ export const DetailModal: React.FC<DetailModalProps> = ({
   const currentSeasonWatchedCount = mediaWatchedEpisodes.filter(
     (ep) => ep.seasonNumber === selectedSeason
   ).length;
+  const selectedSeasonKnownCount =
+    seasonsList.find((s) => s.seasonNumber === selectedSeason)?.episodeCount || 0;
   const currentSeasonEpisodeNumbers =
     seasonEpisodes.length > 0
       ? seasonEpisodes.map((ep) => ep.episodeNumber)
-      : Array.from(
-          {
-            length:
-              seasonsList.find((s) => s.seasonNumber === selectedSeason)?.episodeCount || 8,
-          },
-          (_, i) => i + 1
-        );
+      : selectedSeasonKnownCount > 0
+      ? Array.from({ length: selectedSeasonKnownCount }, (_, i) => i + 1)
+      : [];
   const isEntireSeasonWatched =
     currentSeasonEpisodeNumbers.length > 0 &&
     currentSeasonEpisodeNumbers.every((epNum) =>
@@ -513,27 +546,126 @@ export const DetailModal: React.FC<DetailModalProps> = ({
                 )}
 
                 {!onlinePlayback?.available && (
-                  <p className="text-[11px] text-slate-500 text-center pt-1">
-                    No authorized online playback source available.
-                  </p>
+                  <div className="pt-1 space-y-1.5 text-center">
+                    <p className="text-[11px] text-slate-500">
+                      No authorized online playback source available.
+                    </p>
+                    {onlinePlayback?.officialChannelGuide && (
+                      <a
+                        href={onlinePlayback.officialChannelGuide.searchUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center justify-center gap-1.5 text-[11px] text-amber-400 hover:text-amber-300 font-medium underline underline-offset-2 transition-colors"
+                        title={onlinePlayback.officialChannelGuide.note}
+                      >
+                        <span>
+                          Check {onlinePlayback.officialChannelGuide.channelName} on YouTube
+                        </span>
+                        <ExternalLink className="w-3 h-3 shrink-0" />
+                      </a>
+                    )}
+                  </div>
                 )}
               </div>
 
-              {/* Streaming Platforms / Where to Watch */}
-              <div className="w-full mt-6 pt-5 border-t border-white/5">
-                <span className="text-xs uppercase tracking-wider text-slate-400 font-semibold block mb-2.5">
-                  Available to Stream On
-                </span>
-                <div className="flex flex-wrap gap-2">
-                  {activeMedia.streamOn.map((platform) => (
-                    <span
-                      key={platform}
-                      className="text-xs text-slate-200 bg-white/5 border border-white/10 px-2.5 py-1 rounded-md"
+              {/* Streaming Platforms / Where to Watch in India (IN) */}
+              <div className="w-full mt-6 pt-5 border-t border-white/5 space-y-2.5">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="text-xs uppercase tracking-wider text-slate-400 font-semibold">
+                    Where to Watch in India (IN)
+                  </span>
+                  {activeMedia.watchProviders?.tmdbWatchUrl && (
+                    <a
+                      href={activeMedia.watchProviders.tmdbWatchUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 text-[11px] text-amber-400 hover:text-amber-300 font-medium transition-colors"
+                      title="Open official TMDB / JustWatch India availability page"
                     >
-                      {platform}
-                    </span>
-                  ))}
+                      <span>All India Options</span>
+                      <ExternalLink className="w-3 h-3" />
+                    </a>
+                  )}
                 </div>
+
+                {isLoadingDetails && !activeMedia.watchProviders ? (
+                  <div className="flex items-center gap-2 py-2 text-xs text-slate-400">
+                    <Loader2 className="w-3.5 h-3.5 text-amber-400 animate-spin shrink-0" />
+                    <span>Checking official India (IN) OTT availability...</span>
+                  </div>
+                ) : activeMedia.watchProviders?.status === 'available' &&
+                  activeMedia.watchProviders.offers.length > 0 ? (
+                  <div className="space-y-2">
+                    <div className="grid grid-cols-1 gap-1.5">
+                      {activeMedia.watchProviders.offers.map((offer) => (
+                        <a
+                          key={`${offer.providerId}-${offer.category}`}
+                          href={offer.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="group flex items-center justify-between gap-2.5 p-2 rounded-xl bg-white/[0.04] hover:bg-amber-500/15 border border-white/10 hover:border-amber-400/40 transition-all"
+                          title={`Watch ${activeMedia.title} on ${offer.providerName} (${offer.categoryLabel}) in India`}
+                        >
+                          <div className="flex items-center gap-2.5 min-w-0">
+                            {offer.logoUrl ? (
+                              <img
+                                src={offer.logoUrl}
+                                alt={offer.providerName}
+                                className="w-7 h-7 rounded-lg object-cover shrink-0 border border-white/10"
+                                loading="lazy"
+                              />
+                            ) : (
+                              <div className="w-7 h-7 rounded-lg bg-slate-800 border border-white/10 flex items-center justify-center text-[11px] font-bold text-amber-400 shrink-0">
+                                {offer.providerName.slice(0, 2).toUpperCase()}
+                              </div>
+                            )}
+                            <div className="min-w-0">
+                              <div className="text-xs font-semibold text-white group-hover:text-amber-300 truncate transition-colors">
+                                {offer.providerName}
+                              </div>
+                              <div className="text-[10px] text-slate-400 font-medium">
+                                {offer.categoryLabel} · India
+                              </div>
+                            </div>
+                          </div>
+                          <ExternalLink className="w-3.5 h-3.5 text-slate-400 group-hover:text-amber-300 shrink-0 transition-colors" />
+                        </a>
+                      ))}
+                    </div>
+                    <p className="text-[10px] text-slate-500 leading-snug pt-0.5">
+                      {activeMedia.watchProviders.attributionText}
+                    </p>
+                  </div>
+                ) : activeMedia.watchProviders?.status === 'none_in_region' ? (
+                  <div className="p-3 rounded-xl bg-white/[0.03] border border-white/5 space-y-1.5">
+                    <p className="text-xs text-slate-300">
+                      No official OTT subscription, free, rental, or purchase providers are currently listed for India (IN).
+                    </p>
+                    {activeMedia.watchProviders.tmdbWatchUrl && (
+                      <a
+                        href={activeMedia.watchProviders.tmdbWatchUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1 text-[11px] text-amber-400 hover:text-amber-300 font-medium"
+                      >
+                        <span>Verify regional availability on TMDB</span>
+                        <ExternalLink className="w-3 h-3" />
+                      </a>
+                    )}
+                    <p className="text-[10px] text-slate-500">
+                      {activeMedia.watchProviders.attributionText}
+                    </p>
+                  </div>
+                ) : (
+                  <div className="p-3 rounded-xl bg-white/[0.03] border border-white/5 space-y-1">
+                    <p className="text-xs text-slate-400">
+                      Verified clickable India (IN) OTT provider links require an active TMDB API connection.
+                    </p>
+                    <p className="text-[10px] text-slate-500">
+                      Streaming availability data powered by JustWatch via TMDB.
+                    </p>
+                  </div>
+                )}
               </div>
             </div>
 
@@ -829,6 +961,10 @@ export const DetailModal: React.FC<DetailModalProps> = ({
                       (ep) => ep.seasonNumber === s.seasonNumber
                     ).length;
                     const isSelected = selectedSeason === s.seasonNumber;
+                    const displayTotalForTab =
+                      isSelected && seasonEpisodes.length > 0
+                        ? seasonEpisodes.length
+                        : s.episodeCount;
                     return (
                       <button
                         key={s.seasonNumber}
@@ -841,19 +977,21 @@ export const DetailModal: React.FC<DetailModalProps> = ({
                         }`}
                       >
                         <span>Season {s.seasonNumber}</span>
-                        <span
-                          className={`font-mono text-[11px] tabular-nums ${
-                            isSelected ? 'text-slate-900' : 'text-slate-400'
-                          }`}
-                        >
-                          ({sWatched}/{s.episodeCount})
-                        </span>
+                        {displayTotalForTab > 0 && (
+                          <span
+                            className={`font-mono text-[11px] tabular-nums ${
+                              isSelected ? 'text-slate-900' : 'text-slate-400'
+                            }`}
+                          >
+                            ({sWatched}/{displayTotalForTab})
+                          </span>
+                        )}
                       </button>
                     );
                   })}
                 </div>
 
-                {onToggleSeasonWatched && (
+                {onToggleSeasonWatched && currentSeasonEpisodeNumbers.length > 0 && (
                   <button
                     type="button"
                     onClick={() =>
@@ -894,7 +1032,34 @@ export const DetailModal: React.FC<DetailModalProps> = ({
                 <div className="py-10 text-center rounded-xl bg-slate-900/40 border border-white/5 space-y-2">
                   <Loader2 className="w-5 h-5 mx-auto text-amber-400 animate-spin" />
                   <p className="text-xs text-slate-400">
-                    Loading Season {selectedSeason} episodes...
+                    Loading verified Season {selectedSeason} episodes...
+                  </p>
+                </div>
+              ) : episodeError ? (
+                <div className="p-6 text-center rounded-xl bg-slate-900/50 border border-rose-500/20 space-y-3">
+                  <AlertCircle className="w-6 h-6 mx-auto text-rose-400" />
+                  <div className="space-y-1 max-w-md mx-auto">
+                    <p className="text-xs sm:text-sm font-semibold text-white">
+                      Could not load Season {selectedSeason} episode metadata
+                    </p>
+                    <p className="text-xs text-slate-400">{episodeError}</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setEpisodeRetryTick((t) => t + 1)}
+                    className="inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 text-xs font-semibold transition-colors"
+                  >
+                    <RefreshCw className="w-3.5 h-3.5" />
+                    <span>Retry Loading Season {selectedSeason}</span>
+                  </button>
+                </div>
+              ) : seasonEpisodes.length === 0 ? (
+                <div className="p-6 text-center rounded-xl bg-slate-900/40 border border-white/5 space-y-2">
+                  <p className="text-xs sm:text-sm font-medium text-slate-300">
+                    No verified episodes found for Season {selectedSeason}.
+                  </p>
+                  <p className="text-xs text-slate-500">
+                    Episode listings will appear here once published in the official catalogue.
                   </p>
                 </div>
               ) : (
@@ -915,6 +1080,13 @@ export const DetailModal: React.FC<DetailModalProps> = ({
                         : ep.name;
                     const displayRuntime =
                       verifiedEpisodeSource?.durationMinutes || ep.runtime;
+                    const externalEpisodeSearchUrl = buildEpisodeYoutubeSearchUrl(
+                      activeMedia.title,
+                      selectedSeason,
+                      ep.episodeNumber,
+                      displayEpName,
+                      onlinePlayback?.officialChannelGuide?.channelName
+                    );
 
                     return (
                       <div
@@ -972,16 +1144,18 @@ export const DetailModal: React.FC<DetailModalProps> = ({
                                 {displayEpName}
                               </span>
                             </div>
-                            <div className="flex items-center gap-2 text-[11px] text-slate-400 font-mono tabular-nums mt-0.5">
-                              {ep.airDate && <span>{ep.airDate}</span>}
-                              {ep.airDate && displayRuntime && <span>·</span>}
-                              {displayRuntime && <span>{displayRuntime}m</span>}
-                            </div>
+                            {(ep.airDate || displayRuntime) && (
+                              <div className="flex items-center gap-2 text-[11px] text-slate-400 font-mono tabular-nums mt-0.5">
+                                {ep.airDate && <span>{ep.airDate}</span>}
+                                {ep.airDate && displayRuntime && <span>·</span>}
+                                {displayRuntime && <span>{displayRuntime}m</span>}
+                              </div>
+                            )}
                           </div>
                         </div>
 
-                        <div className="flex items-center gap-2 shrink-0">
-                          {verifiedEpisodeSource && onPlayOnline && (
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          {verifiedEpisodeSource && onPlayOnline ? (
                             <button
                               type="button"
                               onClick={(e) => {
@@ -996,11 +1170,31 @@ export const DetailModal: React.FC<DetailModalProps> = ({
                               title={`Play S${String(selectedSeason).padStart(
                                 2,
                                 '0'
-                              )}E${String(ep.episodeNumber).padStart(2, '0')} online`}
+                              )}E${String(ep.episodeNumber).padStart(
+                                2,
+                                '0'
+                              )} (${verifiedEpisodeSource.channelName})`}
                             >
                               <Play className="w-3 h-3 fill-current" />
                               <span>Play</span>
                             </button>
+                          ) : (
+                            <a
+                              href={externalEpisodeSearchUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              onClick={(e) => e.stopPropagation()}
+                              className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-white/5 hover:bg-white/10 text-slate-400 hover:text-amber-300 border border-white/10 text-[10px] font-medium transition-colors"
+                              title={`Search official YouTube channels for S${String(
+                                selectedSeason
+                              ).padStart(2, '0')}E${String(ep.episodeNumber).padStart(
+                                2,
+                                '0'
+                              )}`}
+                            >
+                              <span>YT</span>
+                              <ExternalLink className="w-2.5 h-2.5" />
+                            </a>
                           )}
 
                           <span

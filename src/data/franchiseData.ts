@@ -73,8 +73,8 @@ export const INDIAN_TRENDING_ITEMS: MediaItem[] = [
     popularityRank: 7,
     streamOn: ['Prime Video', 'Netflix'],
     themeColor: '#e08a3c',
-    posterUrl: '',
-    backdropUrl: '',
+    posterUrl: 'https://image.tmdb.org/t/p/w500/rstcAnBeCkxNQjNp3YXrF6IP1tW.jpg',
+    backdropUrl: 'https://image.tmdb.org/t/p/w1280/o8XSR1SONnjcsv84NRu6Mwsl5io.jpg',
     posterVisual: {
       bgFrom: '#1c120a',
       bgTo: '#3f210d',
@@ -83,7 +83,7 @@ export const INDIAN_TRENDING_ITEMS: MediaItem[] = [
     },
   },
   {
-    id: 'tmdb-movie-1266798',
+    id: 'tmdb-movie-1118224',
     title: 'Maharaja',
     type: 'movie',
     year: 2024,
@@ -107,8 +107,8 @@ export const INDIAN_TRENDING_ITEMS: MediaItem[] = [
     popularityRank: 9,
     streamOn: ['Netflix'],
     themeColor: '#e11d48',
-    posterUrl: '',
-    backdropUrl: '',
+    posterUrl: 'https://image.tmdb.org/t/p/w500/s0m4TM1XRAftQStgKpw024RvkJo.jpg',
+    backdropUrl: 'https://image.tmdb.org/t/p/w1280/ot1UteJ1TL3xWuhkLRNzBULw4KJ.jpg',
     posterVisual: {
       bgFrom: '#20070c',
       bgTo: '#450a16',
@@ -121,8 +121,8 @@ export const INDIAN_TRENDING_ITEMS: MediaItem[] = [
     title: 'The Family Man',
     type: 'tv',
     year: 2019,
-    seasons: 2,
-    totalEpisodes: 19,
+    seasons: 3,
+    totalEpisodes: 26,
     language: 'hi',
     genres: ['Action', 'Thriller', 'Drama'],
     rating: 8.7,
@@ -143,8 +143,8 @@ export const INDIAN_TRENDING_ITEMS: MediaItem[] = [
     popularityRank: 10,
     streamOn: ['Prime Video'],
     themeColor: '#10b981',
-    posterUrl: '',
-    backdropUrl: '',
+    posterUrl: 'https://image.tmdb.org/t/p/w500/tE1NUJqw9gV6AVjQ1GTK78LbWJ9.jpg',
+    backdropUrl: 'https://image.tmdb.org/t/p/w1280/eEzKigDI64OomZV6VTJvoPGmVu1.jpg',
     posterVisual: {
       bgFrom: '#061f18',
       bgTo: '#0b3d30',
@@ -176,8 +176,8 @@ export const INDIAN_TRENDING_ITEMS: MediaItem[] = [
     popularityRank: 12,
     streamOn: ['Prime Video'],
     themeColor: '#f97316',
-    posterUrl: '',
-    backdropUrl: '',
+    posterUrl: 'https://image.tmdb.org/t/p/w500/z1xOCxw780WFJC5uCTMfCkQ4Agi.jpg',
+    backdropUrl: 'https://image.tmdb.org/t/p/w1280/l0YKBu3LaehIFzBNjseLjx7MbaN.jpg',
     posterVisual: {
       bgFrom: '#1c0c04',
       bgTo: '#3b1606',
@@ -211,8 +211,8 @@ export const INDIAN_TRENDING_ITEMS: MediaItem[] = [
     popularityRank: 14,
     streamOn: ['Netflix'],
     themeColor: '#e08a3c',
-    posterUrl: '',
-    backdropUrl: '',
+    posterUrl: 'https://image.tmdb.org/t/p/w500/uEbNtFbK4At9WBDGap23lt1qO9n.jpg',
+    backdropUrl: 'https://image.tmdb.org/t/p/w1280/qtac9X9lSLqZFbxS71347N8MiID.jpg',
     posterVisual: {
       bgFrom: '#1c120a',
       bgTo: '#3f210d',
@@ -421,8 +421,8 @@ const DUNE_PROPHECY: MediaItem = {
   contentRating: 'TV-MA',
   streamOn: ['Max', 'JioCinema'],
   themeColor: '#e08a3c',
-  posterUrl: '',
-  backdropUrl: '',
+  posterUrl: 'https://image.tmdb.org/t/p/w500/oWVohNsxkxA3u92EzRo8fTuXIS0.jpg',
+  backdropUrl: 'https://image.tmdb.org/t/p/w1280/lBoHzOgft2QfpjkVVvZCqeM4ttT.jpg',
   posterVisual: {
     bgFrom: '#1c120a',
     bgTo: '#3f210d',
@@ -824,7 +824,7 @@ export const FRANCHISE_COLLECTIONS: FranchiseCollection[] = [
 
 export const REGIONAL_AND_GENRE_ANCHOR_ITEMS: MediaItem[] = [
   {
-    id: 'tmdb-movie-858414',
+    id: 'tmdb-movie-858485',
     title: 'Kantara',
     type: 'movie',
     year: 2022,
@@ -848,8 +848,8 @@ export const REGIONAL_AND_GENRE_ANCHOR_ITEMS: MediaItem[] = [
     popularityRank: 13,
     streamOn: ['Prime Video', 'Netflix'],
     themeColor: '#f97316',
-    posterUrl: '',
-    backdropUrl: '',
+    posterUrl: 'https://image.tmdb.org/t/p/w500/jIsKmkxMzdCZ0Ux1GVSnu8m6Na6.jpg',
+    backdropUrl: 'https://image.tmdb.org/t/p/w1280/kXElm7wt2kAXEVwJqW4cFhP43nW.jpg',
     posterVisual: {
       bgFrom: '#1c0c04',
       bgTo: '#3b1606',
@@ -858,7 +858,7 @@ export const REGIONAL_AND_GENRE_ANCHOR_ITEMS: MediaItem[] = [
     },
   },
   {
-    id: 'tmdb-movie-714888',
+    id: 'tmdb-movie-743563',
     title: 'Vikram',
     type: 'movie',
     year: 2022,
@@ -882,8 +882,8 @@ export const REGIONAL_AND_GENRE_ANCHOR_ITEMS: MediaItem[] = [
     popularityRank: 15,
     streamOn: ['Disney+ Hotstar', 'ZEE5'],
     themeColor: '#e11d48',
-    posterUrl: '',
-    backdropUrl: '',
+    posterUrl: 'https://image.tmdb.org/t/p/w500/774UV1aCURb4s4JfEFg3IEMu5Zj.jpg',
+    backdropUrl: 'https://image.tmdb.org/t/p/w1280/dkIX4dSMuVqjfrPGunBJUR7K3LQ.jpg',
     posterVisual: {
       bgFrom: '#20070c',
       bgTo: '#450a16',
@@ -892,7 +892,7 @@ export const REGIONAL_AND_GENRE_ANCHOR_ITEMS: MediaItem[] = [
     },
   },
   {
-    id: 'tmdb-movie-1156593',
+    id: 'tmdb-movie-1084812',
     title: 'Aavesham',
     type: 'movie',
     year: 2024,
@@ -915,8 +915,8 @@ export const REGIONAL_AND_GENRE_ANCHOR_ITEMS: MediaItem[] = [
     popularityRank: 17,
     streamOn: ['Prime Video', 'Disney+ Hotstar'],
     themeColor: '#f59e0b',
-    posterUrl: '',
-    backdropUrl: '',
+    posterUrl: 'https://image.tmdb.org/t/p/w500/k5RWPaNjgRcNvGoawYaQHQwyctI.jpg',
+    backdropUrl: 'https://image.tmdb.org/t/p/w1280/sJa3WaCx3IyU7zkudlMs7lb13gt.jpg',
     posterVisual: {
       bgFrom: '#1c120a',
       bgTo: '#3f210d',
@@ -925,7 +925,7 @@ export const REGIONAL_AND_GENRE_ANCHOR_ITEMS: MediaItem[] = [
     },
   },
   {
-    id: 'tmdb-movie-1160164',
+    id: 'tmdb-movie-1163258',
     title: '12th Fail',
     type: 'movie',
     year: 2023,
@@ -948,8 +948,8 @@ export const REGIONAL_AND_GENRE_ANCHOR_ITEMS: MediaItem[] = [
     popularityRank: 20,
     streamOn: ['Disney+ Hotstar'],
     themeColor: '#0ea5e9',
-    posterUrl: '',
-    backdropUrl: '',
+    posterUrl: 'https://image.tmdb.org/t/p/w500/eebUPRI4Z5e1Z7Hev4JZAwMIFkX.jpg',
+    backdropUrl: 'https://image.tmdb.org/t/p/w1280/6RV2o8PBCEyw9ylOWViV1CtULIF.jpg',
     posterVisual: {
       bgFrom: '#041829',
       bgTo: '#0b2b40',
@@ -1073,8 +1073,8 @@ export const REGIONAL_AND_GENRE_ANCHOR_ITEMS: MediaItem[] = [
     contentRating: 'TV-G',
     streamOn: ['BBC iPlayer', 'Max', 'Discovery+'],
     themeColor: '#10b981',
-    posterUrl: '',
-    backdropUrl: '',
+    posterUrl: 'https://image.tmdb.org/t/p/w500/5maYKYzWpE68ycxGh1luu4P2LOS.jpg',
+    backdropUrl: 'https://image.tmdb.org/t/p/w1280/1DYpBOVdb7Mzc9DgMCdIBTN1JEC.jpg',
     posterVisual: {
       bgFrom: '#061f18',
       bgTo: '#0b3d30',
@@ -1083,7 +1083,7 @@ export const REGIONAL_AND_GENRE_ANCHOR_ITEMS: MediaItem[] = [
     },
   },
   {
-    id: 'tmdb-tv-88046',
+    id: 'tmdb-tv-79525',
     title: 'The Last Dance',
     type: 'tv',
     year: 2020,
@@ -1106,8 +1106,8 @@ export const REGIONAL_AND_GENRE_ANCHOR_ITEMS: MediaItem[] = [
     contentRating: 'TV-MA',
     streamOn: ['Netflix', 'ESPN+'],
     themeColor: '#e11d48',
-    posterUrl: '',
-    backdropUrl: '',
+    posterUrl: 'https://image.tmdb.org/t/p/w500/oVf4xGGbDtwVHiKn8uTuSriY7PH.jpg',
+    backdropUrl: 'https://image.tmdb.org/t/p/w1280/kY0h95L73t7a6ev6Rv0aHSCtN7y.jpg',
     posterVisual: {
       bgFrom: '#20070c',
       bgTo: '#450a16',

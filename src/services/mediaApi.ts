@@ -7,9 +7,18 @@ import {
   SEED_TO_TMDB_ID,
 } from '../utils/mediaIntegrity';
 import {
+  buildUnconfiguredWatchProviders,
+  normalizeTmdbWatchProviders,
+} from '../utils/watchProviders';
+import {
+  lookupOnlinePlaybackSources,
+  registerDiscoveredOnlineSources,
+} from '../data/onlinePlaybackSources';
+import {
   CastMember,
   EpisodeInfo,
   MediaItem,
+  OnlinePlaybackLookupResult,
   SeasonSummary,
   TrailerLookupResult,
   TrailerVideo,
@@ -60,7 +69,41 @@ export interface CatalogueResponse {
 }
 
 const API_BASE_URL = String((import.meta as any).env?.VITE_API_BASE_URL || '').replace(/\/$/, '');
-const CLIENT_TMDB_API_KEY = String((import.meta as any).env?.VITE_TMDB_API_KEY || '').trim();
+const RAW_CLIENT_TMDB_KEY = String((import.meta as any).env?.VITE_TMDB_API_KEY || '').trim();
+// Never use or expose a v4 JWT bearer token or placeholder on the client; only allow a standard v3 API key
+const CLIENT_TMDB_API_KEY =
+  RAW_CLIENT_TMDB_KEY &&
+  !RAW_CLIENT_TMDB_KEY.startsWith('eyJ') &&
+  RAW_CLIENT_TMDB_KEY !== 'MY_TMDB_API_KEY' &&
+  RAW_CLIENT_TMDB_KEY !== 'YOUR_TMDB_API_KEY' &&
+  RAW_CLIENT_TMDB_KEY.length <= 45
+    ? RAW_CLIENT_TMDB_KEY
+    : '';
+const TMDB_IMAGE_W500 = 'https://image.tmdb.org/t/p/w500';
+const TMDB_IMAGE_W1280 = 'https://image.tmdb.org/t/p/w1280';
+
+async function fetchClientTmdbJson<T>(
+  path: string,
+  params: Record<string, string | number | undefined> = {},
+  signal?: AbortSignal
+): Promise<T | null> {
+  if (!CLIENT_TMDB_API_KEY) return null;
+  const u = new URL(`https://api.themoviedb.org/3${path}`);
+  u.searchParams.set('api_key', CLIENT_TMDB_API_KEY);
+  for (const [k, v] of Object.entries(params)) {
+    if (v !== undefined && v !== '') {
+      u.searchParams.set(k, String(v));
+    }
+  }
+  const res = await fetch(u.toString(), {
+    headers: { Accept: 'application/json' },
+    signal,
+  });
+  if (!res.ok) {
+    throw new Error(`TMDB API Error (${res.status})`);
+  }
+  return (await res.json()) as T;
+}
 
 // Tracks whether the current host is a static file server (e.g. GitHub Pages) without /api/* routes
 let staticHostWithoutApi = false;
@@ -789,6 +832,7 @@ export async function fetchTitleDetails(
     return cached.data;
   }
 
+  // 1. Try server proxy or configured VITE_API_BASE_URL first
   const apiResult = await fetchApiJson<{ item: MediaItem; similar: MediaItem[] }>(
     `/api/title/${media.type}/${encodeURIComponent(media.id)}`
   );
@@ -798,7 +842,6 @@ export async function fetchTitleDetails(
     return apiResult;
   }
 
-  // Client-side fallback mirroring server.ts /api/title/:type/:id
   const catalog = await getClientLiveExpandedCatalog();
   const found =
     catalog.find((m) => m.id === media.id) ||
@@ -807,7 +850,93 @@ export async function fetchTitleDetails(
     media;
 
   const enriched: MediaItem = { ...found };
+  const canonical = extractCanonicalTmdbIdentity(media.id, media.type);
 
+  // 2. Static deployment (e.g. GitHub Pages) direct TMDB lookup via approved VITE_TMDB_API_KEY
+  if (CLIENT_TMDB_API_KEY && canonical) {
+    try {
+      const detail = await fetchClientTmdbJson<any>(
+        `/${canonical.mediaType}/${canonical.tmdbId}`,
+        { append_to_response: 'credits,recommendations,watch/providers' }
+      );
+      if (detail && detail.id) {
+        if (detail.poster_path) {
+          enriched.posterUrl = `${TMDB_IMAGE_W500}${detail.poster_path}`;
+        }
+        if (detail.backdrop_path) {
+          enriched.backdropUrl = `${TMDB_IMAGE_W1280}${detail.backdrop_path}`;
+        }
+        if (detail.overview) {
+          enriched.synopsis = detail.overview;
+        }
+        if (detail.tagline) {
+          enriched.tagline = detail.tagline;
+        }
+        if (typeof detail.vote_average === 'number' && detail.vote_average > 0) {
+          enriched.rating = Number(detail.vote_average.toFixed(1));
+        }
+        if (canonical.mediaType === 'movie' && typeof detail.runtime === 'number' && detail.runtime > 0) {
+          enriched.runtime = `${Math.floor(detail.runtime / 60)}h ${detail.runtime % 60}m`;
+        }
+        if (canonical.mediaType === 'tv' && Array.isArray(detail.seasons)) {
+          const validSeasons: SeasonSummary[] = detail.seasons
+            .filter(
+              (s: any) =>
+                typeof s.season_number === 'number' &&
+                s.season_number >= 1 &&
+                Number(s.episode_count || 0) > 0
+            )
+            .map((s: any) => ({
+              seasonNumber: s.season_number,
+              name: s.name || `Season ${s.season_number}`,
+              episodeCount: Number(s.episode_count || 0),
+              airDate: s.air_date || undefined,
+            }));
+          if (validSeasons.length > 0) {
+            enriched.seasonsList = validSeasons;
+            enriched.seasons =
+              typeof detail.number_of_seasons === 'number' && detail.number_of_seasons > 0
+                ? detail.number_of_seasons
+                : validSeasons.length;
+            enriched.totalEpisodes = validSeasons.reduce((acc, s) => acc + s.episodeCount, 0);
+          }
+        }
+
+        const crew: any[] = detail?.credits?.crew || [];
+        const directorObj =
+          crew.find((c) => c.job === 'Director') ||
+          (Array.isArray(detail?.created_by) && detail.created_by[0]);
+        if (directorObj?.name) {
+          enriched.director = directorObj.name;
+        }
+
+        const rawCast: any[] = detail?.credits?.cast || [];
+        if (rawCast.length > 0) {
+          enriched.cast = rawCast.slice(0, 6).map(
+            (c: any): CastMember => ({
+              name: c.name,
+              role: c.character || 'Principal Role',
+            })
+          );
+        }
+
+        const watchProviders = normalizeTmdbWatchProviders(
+          detail?.['watch/providers'],
+          canonical.mediaType,
+          canonical.tmdbId,
+          'IN'
+        );
+        enriched.watchProviders = watchProviders;
+        enriched.streamOn = Array.from(
+          new Set(watchProviders.offers.map((o) => o.providerName))
+        );
+      }
+    } catch {
+      // Fall through to open catalog / TVMaze fallback if client TMDB request fails
+    }
+  }
+
+  // 3. TVMaze metadata enrichment for tvmaze-tv-* records
   if (media.id.startsWith('tvmaze-tv-')) {
     const showId = media.id.replace('tvmaze-tv-', '');
     try {
@@ -859,15 +988,8 @@ export async function fetchTitleDetails(
     }
   }
 
-  if (enriched.type === 'tv' && (!enriched.seasonsList || enriched.seasonsList.length === 0)) {
-    const numSeasons = Math.max(1, enriched.seasons || 1);
-    const fallbackSeasons: SeasonSummary[] = Array.from({ length: numSeasons }, (_, i) => ({
-      seasonNumber: i + 1,
-      name: `Season ${i + 1}`,
-      episodeCount: 8,
-    }));
-    enriched.seasonsList = fallbackSeasons;
-    enriched.totalEpisodes = fallbackSeasons.reduce((acc, s) => acc + s.episodeCount, 0);
+  if (!enriched.watchProviders) {
+    enriched.watchProviders = buildUnconfiguredWatchProviders('IN');
   }
 
   const similar = catalog
@@ -889,18 +1011,49 @@ export async function fetchTvSeasonEpisodes(
   seasonNumber: number,
   signal?: AbortSignal
 ): Promise<{ seasonNumber: number; name: string; episodes: EpisodeInfo[] }> {
-  // 1. Try remote API first
+  // 1. Try remote API first (Express server or VITE_API_BASE_URL)
   const apiResult = await fetchApiJson<{
     seasonNumber: number;
     name: string;
     episodes: EpisodeInfo[];
+    error?: string;
   }>(`/api/tv/${encodeURIComponent(mediaId)}/season/${seasonNumber}`, { signal });
 
-  if (apiResult && Array.isArray(apiResult.episodes) && apiResult.episodes.length > 0) {
-    return apiResult;
+  if (apiResult && Array.isArray(apiResult.episodes) && !apiResult.error) {
+    return {
+      seasonNumber: apiResult.seasonNumber || seasonNumber,
+      name: apiResult.name || `Season ${seasonNumber}`,
+      episodes: apiResult.episodes,
+    };
   }
 
-  // 2. Client-side TVMaze season episodes for tvmaze-tv-*
+  // 2. Direct TMDB season lookup for static deployments (GitHub Pages) when VITE_TMDB_API_KEY is configured
+  const canonical = extractCanonicalTmdbIdentity(mediaId, 'tv');
+  if (CLIENT_TMDB_API_KEY && canonical && canonical.mediaType === 'tv') {
+    const seasonData = await fetchClientTmdbJson<any>(
+      `/tv/${canonical.tmdbId}/season/${seasonNumber}`,
+      {},
+      signal
+    );
+    if (seasonData && Array.isArray(seasonData.episodes)) {
+      const episodes: EpisodeInfo[] = seasonData.episodes.map((ep: any, idx: number) => ({
+        episodeNumber: Number(ep.episode_number) || idx + 1,
+        seasonNumber,
+        name: ep.name || `Episode ${idx + 1}`,
+        airDate: ep.air_date || undefined,
+        runtime: typeof ep.runtime === 'number' && ep.runtime > 0 ? ep.runtime : undefined,
+        overview: ep.overview || undefined,
+        stillUrl: ep.still_path ? `${TMDB_IMAGE_W500}${ep.still_path}` : undefined,
+      }));
+      return {
+        seasonNumber,
+        name: seasonData.name || `Season ${seasonNumber}`,
+        episodes,
+      };
+    }
+  }
+
+  // 3. Client-side TVMaze season episodes for tvmaze-tv-*
   if (mediaId.startsWith('tvmaze-tv-')) {
     const showId = mediaId.replace('tvmaze-tv-', '');
     try {
@@ -909,54 +1062,58 @@ export async function fetchTvSeasonEpisodes(
         const allEps = await epRes.json();
         if (Array.isArray(allEps)) {
           const seasonEps = allEps.filter((e: any) => Number(e?.season) === seasonNumber);
-          if (seasonEps.length > 0) {
-            const episodes: EpisodeInfo[] = seasonEps.map((ep: any, idx: number) => ({
-              episodeNumber: Number(ep.number) || idx + 1,
-              seasonNumber,
-              name: ep.name || `Episode ${idx + 1}`,
-              airDate: ep.airdate || undefined,
-              runtime: typeof ep.runtime === 'number' && ep.runtime > 0 ? ep.runtime : 50,
-              overview: stripHtml(ep.summary || ''),
-              stillUrl: ep.image?.medium || ep.image?.original || undefined,
-            }));
-            return {
-              seasonNumber,
-              name: `Season ${seasonNumber}`,
-              episodes,
-            };
-          }
+          const episodes: EpisodeInfo[] = seasonEps.map((ep: any, idx: number) => ({
+            episodeNumber: Number(ep.number) || idx + 1,
+            seasonNumber,
+            name: ep.name || `Episode ${idx + 1}`,
+            airDate: ep.airdate || undefined,
+            runtime: typeof ep.runtime === 'number' && ep.runtime > 0 ? ep.runtime : undefined,
+            overview: stripHtml(ep.summary || '') || undefined,
+            stillUrl: ep.image?.medium || ep.image?.original || undefined,
+          }));
+          return {
+            seasonNumber,
+            name: `Season ${seasonNumber}`,
+            episodes,
+          };
         }
       }
     } catch (err: any) {
       if (err?.name === 'AbortError') throw err;
+      throw new Error(`Failed to load Season ${seasonNumber} episodes from TVMaze.`);
     }
   }
 
-  // 3. Seed or Open Catalog Fallback
-  const catalog = await getClientLiveExpandedCatalog();
-  const found =
-    catalog.find((m) => m.id === mediaId) ||
-    MEDIA_ITEMS.find((m) => m.id === mediaId) ||
-    EXTRA_ANCHOR_ITEMS.find((m) => m.id === mediaId);
-  const matchingSeason = found?.seasonsList?.find((s) => s.seasonNumber === seasonNumber);
-  const epCount = matchingSeason?.episodeCount || 8;
-  const baseYear = found?.year || 2024;
+  // Never fabricate default 8-episode lists or synthetic release dates/runtimes
+  throw new Error(
+    CLIENT_TMDB_API_KEY || !staticHostWithoutApi
+      ? `Unable to retrieve verified episode metadata for Season ${seasonNumber}.`
+      : 'Episode metadata requires a configured backend (VITE_API_BASE_URL) or client TMDB key (VITE_TMDB_API_KEY).'
+  );
+}
 
-  const episodes: EpisodeInfo[] = Array.from({ length: epCount }, (_, idx) => ({
-    episodeNumber: idx + 1,
-    seasonNumber,
-    name: `Chapter ${idx + 1}`,
-    airDate:
-      matchingSeason?.airDate ||
-      `${baseYear}-01-${String((idx % 28) + 1).padStart(2, '0')}`,
-    runtime: 52,
-  }));
+/**
+ * Queries server-side authorized online source discovery (/api/online-sources/:type/:id)
+ * when available, merges any verified official-channel sources into the registry,
+ * and returns the updated OnlinePlaybackLookupResult.
+ */
+export async function fetchOnlinePlaybackSources(
+  media: MediaItem,
+  signal?: AbortSignal
+): Promise<OnlinePlaybackLookupResult> {
+  const apiResult = await fetchApiJson<OnlinePlaybackLookupResult>(
+    `/api/online-sources/${media.type}/${encodeURIComponent(media.id)}?title=${encodeURIComponent(
+      media.title
+    )}`,
+    { signal }
+  );
 
-  return {
-    seasonNumber,
-    name: matchingSeason?.name || `Season ${seasonNumber}`,
-    episodes,
-  };
+  if (apiResult && Array.isArray(apiResult.sources) && apiResult.sources.length > 0) {
+    registerDiscoveredOnlineSources(apiResult.sources);
+    return lookupOnlinePlaybackSources(media);
+  }
+
+  return lookupOnlinePlaybackSources(media);
 }
 
 // ============================================================================
@@ -1124,11 +1281,7 @@ export async function resolveStaticHostTrailers(
       const headers: Record<string, string> = { Accept: 'application/json' };
       const buildTmdbUrl = (path: string, params: Record<string, string>) => {
         const u = new URL(`https://api.themoviedb.org/3${path}`);
-        if (CLIENT_TMDB_API_KEY.startsWith('eyJ')) {
-          headers.Authorization = `Bearer ${CLIENT_TMDB_API_KEY}`;
-        } else {
-          u.searchParams.set('api_key', CLIENT_TMDB_API_KEY);
-        }
+        u.searchParams.set('api_key', CLIENT_TMDB_API_KEY);
         for (const [k, v] of Object.entries(params)) {
           if (v) u.searchParams.set(k, v);
         }

@@ -109,6 +109,7 @@ export function mergeMediaItemMetadata(existing: MediaItem, incoming: MediaItem)
       existing.seasonsList && existing.seasonsList.length > 0
         ? existing.seasonsList
         : incoming.seasonsList,
+    watchProviders: existing.watchProviders || incoming.watchProviders,
     rating: existing.rating > 0 ? existing.rating : incoming.rating,
     voteCount:
       existing.voteCount && existing.voteCount !== '0'

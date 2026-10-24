@@ -94,6 +94,13 @@ export interface AuthorizedOnlineSource {
   embedAllowed: boolean;
 }
 
+export interface OfficialChannelGuide {
+  channelName: string;
+  channelUrl: string;
+  searchUrl: string;
+  note: string;
+}
+
 export interface OnlinePlaybackLookupResult {
   available: boolean;
   mediaType: MediaType;
@@ -102,9 +109,31 @@ export interface OnlinePlaybackLookupResult {
   sources: AuthorizedOnlineSource[];
   seasons: number[];
   defaultSource: AuthorizedOnlineSource | null;
+  officialChannelGuide?: OfficialChannelGuide;
   unavailableReason?: string;
 }
 
+export type WatchProviderCategory = 'flatrate' | 'free' | 'ads' | 'rent' | 'buy';
+
+export interface WatchProviderOffer {
+  providerId: number;
+  providerName: string;
+  logoUrl?: string;
+  category: WatchProviderCategory;
+  categoryLabel: 'Subscription' | 'Free' | 'Ad-Supported' | 'Rent' | 'Buy';
+  url: string;
+  isOfficialProviderUrl?: boolean;
+  displayPriority?: number;
+}
+
+export interface WatchProvidersInfo {
+  region: string;
+  regionName: string;
+  tmdbWatchUrl?: string;
+  offers: WatchProviderOffer[];
+  status: 'available' | 'none_in_region' | 'unconfigured';
+  attributionText: string;
+}
 
 export interface MediaItem {
   id: string;
@@ -129,6 +158,7 @@ export interface MediaItem {
   popularityRank?: number;
   topRatedRank?: number;
   streamOn: string[];
+  watchProviders?: WatchProvidersInfo;
   themeColor: string; // Hex color for subtle ambient glow
   posterUrl: string;
   backdropUrl: string;

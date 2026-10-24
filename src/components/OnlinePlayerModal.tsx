@@ -6,6 +6,7 @@ import {
 } from '../types';
 import {
   buildAuthorizedYouTubeEmbedUrl,
+  buildEpisodeYoutubeSearchUrl,
   lookupOnlinePlaybackSources,
 } from '../data/onlinePlaybackSources';
 import {
@@ -117,26 +118,34 @@ export const OnlinePlayerModal: React.FC<OnlinePlayerModalProps> = ({
       return;
     }
 
-    let targetSource: AuthorizedOnlineSource | null = null;
     if (
       media.type === 'tv' &&
       typeof initialSeasonNumber === 'number' &&
       typeof initialEpisodeNumber === 'number'
     ) {
-      targetSource =
+      // Exact episode requested: never silently substitute Episode 1 if the requested episode lacks a verified source
+      const exactMatch =
         lookup.sources.find(
           (s) =>
             s.seasonNumber === initialSeasonNumber &&
             s.episodeNumber === initialEpisodeNumber
         ) || null;
+      setActiveSource(exactMatch);
+      setSelectedSeason(initialSeasonNumber);
     } else if (media.type === 'tv' && typeof initialSeasonNumber === 'number') {
-      targetSource =
-        lookup.sources.find((s) => s.seasonNumber === initialSeasonNumber) || null;
+      const seasonMatch =
+        lookup.sources.find((s) => s.seasonNumber === initialSeasonNumber) ||
+        lookup.defaultSource ||
+        lookup.sources[0] ||
+        null;
+      setActiveSource(seasonMatch);
+      setSelectedSeason(seasonMatch?.seasonNumber || initialSeasonNumber);
+    } else {
+      const resolved = lookup.defaultSource || lookup.sources[0] || null;
+      setActiveSource(resolved);
+      setSelectedSeason(resolved?.seasonNumber || lookup.seasons[0] || 1);
     }
 
-    const resolved = targetSource || lookup.defaultSource || lookup.sources[0] || null;
-    setActiveSource(resolved);
-    setSelectedSeason(resolved?.seasonNumber || lookup.seasons[0] || 1);
     setHasStartedPlayback(false);
     setIframeLoaded(false);
     setEmbedBlocked(false);
@@ -395,14 +404,55 @@ export const OnlinePlayerModal: React.FC<OnlinePlayerModalProps> = ({
                 </div>
                 <div className="space-y-1.5">
                   <h4 className="font-['Outfit'] text-lg font-bold text-white">
-                    No Authorized Online Playback Source Available
+                    {typeof initialSeasonNumber === 'number' &&
+                    typeof initialEpisodeNumber === 'number'
+                      ? `No Verified Stream for S${String(initialSeasonNumber).padStart(
+                          2,
+                          '0'
+                        )}E${String(initialEpisodeNumber).padStart(2, '0')}`
+                      : 'No Authorized Online Playback Source Available'}
                   </h4>
                   <p className="text-xs sm:text-sm text-slate-400 leading-relaxed">
-                    {lookup?.unavailableReason ||
-                      `CineMax only streams full-length movies and episodes from verified official rights-holder channels or public-domain archives.`}
+                    {typeof initialSeasonNumber === 'number' &&
+                    typeof initialEpisodeNumber === 'number'
+                      ? `CineMax never substitutes another episode when a requested episode does not have a verified full-length official release.`
+                      : lookup?.unavailableReason ||
+                        `CineMax only streams full-length movies and episodes from verified official rights-holder channels or public-domain archives.`}
                   </p>
                 </div>
-                <div className="pt-1">
+                <div className="flex flex-wrap items-center justify-center gap-2.5 pt-1">
+                  {media.type === 'tv' &&
+                    typeof initialSeasonNumber === 'number' &&
+                    typeof initialEpisodeNumber === 'number' && (
+                      <a
+                        href={buildEpisodeYoutubeSearchUrl(
+                          media.title,
+                          initialSeasonNumber,
+                          initialEpisodeNumber,
+                          undefined,
+                          lookup?.officialChannelGuide?.channelName
+                        )}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-amber-400 hover:bg-amber-300 text-slate-950 font-bold text-xs sm:text-sm transition-all"
+                      >
+                        <span>Search Official Channels on YouTube</span>
+                        <ExternalLink className="w-3.5 h-3.5" />
+                      </a>
+                    )}
+                  {lookup?.defaultSource && (
+                    <button
+                      type="button"
+                      onClick={() => handleSelectSource(lookup.defaultSource!, false)}
+                      className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 font-semibold text-xs sm:text-sm transition-all"
+                    >
+                      <Play className="w-3.5 h-3.5 fill-current" />
+                      <span>
+                        Open Verified S{String(lookup.defaultSource.seasonNumber || 1).padStart(2, '0')}E
+                        {String(lookup.defaultSource.episodeNumber || 1).padStart(2, '0')}
+                      </span>
+                    </button>
+                  )}
                   <button
                     type="button"
                     onClick={handleClosePlayer}
