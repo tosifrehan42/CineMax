@@ -1,6 +1,6 @@
 {
-  "summary":  "Implementation plan to fix the broken search system on GitHub Pages by adding live client-side TMDB search (/search/movie, /search/tv, /search/multi), result normalization, deduplication and exact-match ranking, global search independent of category tabs, and explicit warning feedback when VITE_TMDB_API_KEY is missing or invalid.",
-  "updatedAt":  "2026-10-26T10:41:09.177211070Z",
+  "summary":  "Implementation plan to package CineMax as an installable Android APK using Capacitor (in.vertexstudios.cinemax), configure root asset paths and Render API origin/CORS for Capacitor WebView, and add a dedicated GitHub Actions workflow (.github/workflows/android-apk.yml) that uploads workflow artifacts and publishes APKs to GitHub Releases on version tags.",
+  "updatedAt":  "2026-10-26T12:13:34.900552623Z",
   "requestFeedback":  true,
   "userFacing":  true
 }

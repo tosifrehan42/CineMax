@@ -1,0 +1,8 @@
+{
+	"appId": "in.vertexstudios.cinemax",
+	"appName": "CineMax",
+	"webDir": "dist",
+	"server": {
+		"androidScheme": "https"
+	}
+}

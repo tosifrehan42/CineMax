@@ -1,55 +1,65 @@
-# CineMax Search System Fix (GitHub Pages Static Deployment)
+# CineMax Android APK Packaging & GitHub Releases Plan
 
-## 1. Root Cause Analysis
+## 1. Architecture & Codebase Audit Findings
 
-Tracing the search flow from `SearchOverlay.tsx` and `DiscoverView.tsx` through `fetchCatalogue()` and `resolveClientCatalogue()` in `src/services/mediaApi.ts` revealed four issues causing movie and TV search failures on GitHub Pages (`https://tosifrehan42.github.io/CineMax/`):
-
-1. **`resolveClientCatalogue()` Never Queries TMDB Search Endpoints**:
-   - On GitHub Pages (`staticHostWithoutApi === true` when `VITE_API_BASE_URL` is unset or unreachable), `fetchCatalogue()` delegates all requests to `resolveClientCatalogue()`.
-   - Although `CLIENT_TMDB_API_KEY` (`import.meta.env.VITE_TMDB_API_KEY`) is already defined in `src/services/mediaApi.ts` and passed during the GitHub Actions build in `.github/workflows/deploy.yml`, `resolveClientCatalogue()` never calls TMDB `/search/movie`, `/search/tv`, or `/search/multi`.
-   - Movie searches only filter the ~50 static seed titles plus the daily iTunes RSS top chart, so searching for almost any movie (e.g., *Inception*, *Interstellar*, *Baahubali*, *Dune*) fails to return live TMDB results.
-2. **Restrictive Category Pre-Filtering During Search**:
-   - In `resolveClientCatalogue()`, when a user searches in `DiscoverView` while a category tab is active (such as *Upcoming* or *Trending in India*), the category filter (e.g., `item.year >= 2024`) narrows the local pool *before* the search query runs, hiding matching titles outside that category.
-3. **Lack of Live TMDB Pagination & Multi-Source Deduplication**:
-   - Client-side search slices a static local array rather than requesting the requested `page` from TMDB `/search/*` and merging/deduplicating live TMDB items with local catalogue and TVMaze results.
-4. **Silent Fallback When `VITE_TMDB_API_KEY` Is Missing or Invalid**:
-   - When `VITE_TMDB_API_KEY` is missing or rejected (HTTP 401/403), `resolveClientCatalogue()` silently returns `tmdbConfigured: false` with only local/TVMaze items and no diagnostic status, making a degraded search appear as if no movies exist.
+1. **Vite Base Path (`vite.config.ts`)**:
+   - Currently sets `const base = process.env.VITE_BASE_PATH || (command === 'build' ? '/CineMax/' : '/');`.
+   - GitHub Pages requires `/CineMax/`, whereas Capacitor Android serves bundled assets from the root of its local WebView origin (`https://localhost/`) and requires `VITE_BASE_PATH=/` (or `./`).
+2. **API Client & Supabase Origin Resolution (`src/services/mediaApi.ts`, `src/services/supabaseClient.ts`, `src/services/adminApi.ts`)**:
+   - Inside Capacitor on Android, the WebView origin is `https://localhost` (or `http://localhost` / `capacitor://localhost`).
+   - `isGithubPagesHost()` in `src/services/mediaApi.ts` only checks `*.github.io`. If `fetchApiJson()` runs inside Capacitor Android (`https://localhost`), `hasDistinctSameOrigin` would mistakenly treat `https://localhost` as a local Express server unless Capacitor native/WebView origins are recognized as static client hosts that route directly to `VITE_API_BASE_URL` (`https://cinemax-kxpv.onrender.com`).
+   - `supabaseClient.ts` and `adminApi.ts` also read `VITE_API_BASE_URL` and should default to `https://cinemax-kxpv.onrender.com` on static/Capacitor hosts when `VITE_API_BASE_URL` is not explicitly overridden.
+3. **Backend CORS Allowlist (`server.ts`)**:
+   - `getAllowedCorsOrigins()` in `server.ts` currently allows `https://tosifrehan42.github.io` and local dev ports (`http://localhost:3000`, `http://localhost:5173`), but does **not** include Capacitor origins (`https://localhost`, `http://localhost`, `capacitor://localhost`).
+   - Adding those exact Capacitor origins to `getAllowedCorsOrigins()` ensures the Render backend (`https://cinemax-kxpv.onrender.com`) permits `GET`, `POST`, `OPTIONS` requests from the installed Android APK without using wildcard `*` origins.
+4. **tsconfig & Build Exclusions (`tsconfig.json`)**:
+   - When `@capacitor/android` generates the `android/` native project directory, `tsconfig.json` should exclude `android` and `dist` so `bun run lint` (`tsc --noEmit`) only type-checks the TypeScript application source.
 
 ---
 
 ## 2. Planned Changes
 
-### A. Client-Side TMDB Live Search & Normalization (`src/services/mediaApi.ts`)
-- **TMDB Genre & Language Normalization**:
-  - Add client-side TMDB genre ID mapping (`MOVIE_GENRES`, `TV_GENRES`), language mapping (`LANG_MAP`), mood derivation, and rating/year normalization matching `server.ts` so every TMDB search result maps cleanly into the `MediaItem` interface (`id: tmdb-movie-<id>` or `tmdb-tv-<id>`).
-- **Live TMDB v3 Search Endpoints**:
-  - Implement `searchClientTmdb(params, signal)` in `src/services/mediaApi.ts` using `CLIENT_TMDB_API_KEY`:
-    - `type === 'movie'` -> `https://api.themoviedb.org/3/search/movie`
-    - `type === 'series'` -> `https://api.themoviedb.org/3/search/tv`
-    - `type === 'all'` (or omitted) -> `https://api.themoviedb.org/3/search/multi` (filtering to `media_type === 'movie' | 'tv'`)
-  - Pass `query` (preserving multi-word spaces), `page`, `include_adult=false`, and the caller's `AbortSignal` so rapid typing cancels in-flight requests cleanly.
-- **Global Search Across Categories & Filter Application**:
-  - When `params.query` is non-empty in `resolveClientCatalogue()`, bypass category tab restrictions so search queries the full catalogue.
-  - Apply explicit user filters (`type`, `genre`, `language`, `year`, `mood`) and sort order (`relevance`, `rating`, `year_desc`, `title_asc`) consistently across merged results.
-- **Merging, Deduplication & Relevance Ranking**:
-  - Merge live TMDB search results, local catalogue matches, and TVMaze fallback results using `dedupeMediaItems()` (deduplicating by canonical ID and normalized `type + title + year`).
-  - Rank results via `scoreSearchMatch()` so exact title matches appear first, followed by prefix matches, whole-word matches, substring matches, and metadata matches, with popularity/rating tie-breakers.
-  - Preserve TMDB pagination metadata (`page`, `totalPages`, `totalResults`) so "Load More" fetches subsequent pages from TMDB.
-- **Search Diagnostics in `CatalogueResponse`**:
-  - Extend `CatalogueResponse` with optional `searchWarning?: string` and `searchSource?: 'tmdb' | 'fallback'` metadata so the UI can distinguish between a verified live TMDB search and a fallback search when `VITE_TMDB_API_KEY` is missing or invalid.
+### A. Capacitor Configuration & Scripts (`package.json`, `capacitor.config.ts`, `tsconfig.json`, `.gitignore`)
+- Install `@capacitor/core`, `@capacitor/cli`, and `@capacitor/android`.
+- Create `capacitor.config.ts` configured with:
+  - `appId: 'in.vertexstudios.cinemax'`
+  - `appName: 'CineMax'`
+  - `webDir: 'dist'`
+  - `server: { androidScheme: 'https' }`
+- Add helper scripts in `package.json` (preserving all existing scripts `dev`, `start`, `build`, `preview`, `clean`, `lint`):
+  - `"build:android:web": "VITE_BASE_PATH=/ VITE_API_BASE_URL=https://cinemax-kxpv.onrender.com vite build"`
+  - `"cap:sync": "cap sync android"`
+  - `"android:prepare": "bun run build:android:web && cap sync android"`
+- Exclude `android` and `dist` in `tsconfig.json` so `tsc --noEmit` stays fast and clean.
 
-### B. Search UI Feedback & State Handling (`src/components/SearchOverlay.tsx` & `src/components/DiscoverView.tsx`)
-- **Multi-Word Input & Request Lifecycle**:
-  - Preserve spaces naturally while typing in the search inputs, debounce requests (220ms in `SearchOverlay`, 250ms in `DiscoverView`), cancel stale requests via `AbortController`, and reset cleanly when the search input is cleared.
-- **Fallback Warning Banner**:
-  - When `response.searchWarning` is present (e.g., `VITE_TMDB_API_KEY` is not configured in the static build or TMDB returned an authentication/network error), display a non-intrusive warning banner above the fallback results in both `SearchOverlay` and `DiscoverView` explaining that live TMDB search is unavailable and showing local/TVMaze fallback results, with a retry action when applicable.
+### B. Client API & Capacitor Origin Handling (`src/services/mediaApi.ts`, `src/services/supabaseClient.ts`, `src/services/adminApi.ts`)
+- Add `isCapacitorOrStaticHost()` detection in `src/services/mediaApi.ts` (detecting `*.github.io`, `capacitor://`, `file://`, `(window as any).Capacitor?.isNativePlatform?.()`, or `https://localhost` without a port) so:
+  - `resolveApiBaseUrl()` defaults to `https://cinemax-kxpv.onrender.com` on both GitHub Pages and the Capacitor Android app.
+  - `fetchApiJson()` routes directly to `API_BASE_URL` (`https://cinemax-kxpv.onrender.com`) on Capacitor Android without attempting same-origin `/api/*` requests against the local WebView asset server.
+- Update `src/services/supabaseClient.ts` and `src/services/adminApi.ts` to use the same fallback base URL (`https://cinemax-kxpv.onrender.com`) on GitHub Pages and Capacitor Android when `VITE_API_BASE_URL` is not overridden.
 
-### C. GitHub Actions Workflow Verification (`.github/workflows/deploy.yml`)
-- Keep `VITE_TMDB_API_KEY: ${{ secrets.VITE_TMDB_API_KEY }}` and add a safe, non-secret boolean step log during the workflow build that reports whether `VITE_TMDB_API_KEY` is set (without ever printing its value) so deployment logs clearly show if the repository secret is missing.
+### C. Trusted Capacitor CORS Origins (`server.ts`)
+- Add `'https://localhost'`, `'http://localhost'`, and `'capacitor://localhost'` to `getAllowedCorsOrigins()` in `server.ts` so the Render backend allows requests from the Android WebView while keeping strict origin validation on all routes (including `/api/admin/*`).
+
+### D. Separate GitHub Actions Android APK Workflow (`.github/workflows/android-apk.yml`)
+- Keep `.github/workflows/deploy.yml` untouched so GitHub Pages deployment at `/CineMax/` continues working as-is.
+- Create `.github/workflows/android-apk.yml`:
+  - **Triggers**: `push` to `main`/`master`, version tags `v*`, and `workflow_dispatch`.
+  - **Environment**: Sets `VITE_BASE_PATH: '/'` and `VITE_API_BASE_URL: ${{ secrets.VITE_API_BASE_URL || 'https://cinemax-kxpv.onrender.com' }}`, plus `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY`. Never injects `TMDB_API_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, or private tokens into the APK build.
+  - **Steps**:
+    1. Checkout repository, set up Bun, Node.js, and JDK 21 (required by Capacitor Android / Gradle).
+    2. Install dependencies (`bun install --frozen-lockfile`), run `bun run lint`, and build the root-path web bundle (`bun run build`).
+    3. Initialize/add the Android platform if `android/` is not yet present (`bunx cap add android`) or sync web assets (`bunx cap sync android`).
+    4. Build the installable Debug APK (`./gradlew assembleDebug`) and rename/copy to `CineMax-debug.apk`.
+    5. Optionally build and sign a Release APK (`./gradlew assembleRelease` + `apksigner` / Gradle signing) whenever the 4 signing secrets (`ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD`) are configured in GitHub Secrets.
+    6. Upload the generated APK(s) as downloadable GitHub Actions workflow artifacts on every run.
+    7. When triggered by a version tag (`v*`), automatically create/update the GitHub Release and attach the built APK(s) (`CineMax-debug.apk` and/or `CineMax-release-signed.apk`) as downloadable release assets.
 
 ---
 
 ## 3. Verification Plan
-1. Run `bun run lint` (`tsc --noEmit`) to verify strict TypeScript compilation across all modified files.
-2. Run `bun run build` (`vite build`) to verify the production bundle for GitHub Pages builds cleanly.
-3. Verify single-word and multi-word movie/TV queries, category-agnostic search in Discover, duplicate prevention, and fallback warning banners.
+1. Install `@capacitor/core`, `@capacitor/cli`, and `@capacitor/android`.
+2. Run `bun run lint` (`tsc --noEmit`) to verify zero TypeScript errors.
+3. Run both `bun run build` (GitHub Pages `/CineMax/` build) and `bun run build:android:web` (Android `/` root asset path build) and verify compiled `dist/index.html` asset paths for each target.
+4. Generate/sync the Capacitor Android project (`bunx cap add android` / `bunx cap sync android`) and verify `android/app/src/main/assets/public/index.html`.
+5. Document the exact signing secret setup and GitHub Release publishing steps.

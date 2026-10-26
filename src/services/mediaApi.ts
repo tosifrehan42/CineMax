@@ -79,6 +79,31 @@ function isGithubPagesHost(): boolean {
   );
 }
 
+function isCapacitorNativeHost(): boolean {
+  if (typeof window === 'undefined') return false;
+  const cap = (window as any).Capacitor;
+  if (cap && typeof cap.isNativePlatform === 'function' && cap.isNativePlatform()) {
+    return true;
+  }
+  const protocol = window.location.protocol.toLowerCase();
+  if (protocol === 'capacitor:' || protocol === 'file:') {
+    return true;
+  }
+  // Capacitor Android WebView with androidScheme: 'https' serves from https://localhost (port === '')
+  if (
+    window.location.hostname.toLowerCase() === 'localhost' &&
+    !window.location.port &&
+    protocol === 'https:'
+  ) {
+    return true;
+  }
+  return false;
+}
+
+function isStaticOrCapacitorHost(): boolean {
+  return isGithubPagesHost() || isCapacitorNativeHost();
+}
+
 function resolveApiBaseUrl(): string {
   const envUrl = String((import.meta as any).env?.VITE_API_BASE_URL || '')
     .trim()
@@ -86,7 +111,7 @@ function resolveApiBaseUrl(): string {
   if (envUrl && envUrl !== 'MY_APP_URL') {
     return envUrl;
   }
-  if (isGithubPagesHost()) {
+  if (isStaticOrCapacitorHost()) {
     return DEFAULT_RENDER_API_BASE_URL;
   }
   return '';
@@ -129,18 +154,18 @@ async function fetchClientTmdbJson<T>(
   return (await res.json()) as T;
 }
 
-// Tracks whether the current host is a static file server (e.g. GitHub Pages) without same-origin /api/* routes
-let staticHostWithoutApi = isGithubPagesHost();
+// Tracks whether the current host is a static file server (e.g. GitHub Pages or Capacitor WebView) without same-origin /api/* routes
+let staticHostWithoutApi = isStaticOrCapacitorHost();
 
 /**
  * Safely fetches an API route, verifying status and Content-Type: application/json.
- * On full-stack hosts (localhost / Cloud Run), tries same-origin /api/* first so a local
- * configured TMDB_API_KEY is used immediately; on GitHub Pages, routes directly to API_BASE_URL (Render proxy).
+ * On full-stack hosts (localhost:3000 / Cloud Run), tries same-origin /api/* first so a local
+ * configured TMDB_API_KEY is used immediately; on GitHub Pages and Capacitor Android, routes directly to API_BASE_URL (Render proxy).
  */
 async function fetchApiJson<T>(endpoint: string, init?: RequestInit): Promise<T | null> {
   const hasDistinctSameOrigin =
     typeof window !== 'undefined' &&
-    !isGithubPagesHost() &&
+    !isStaticOrCapacitorHost() &&
     !staticHostWithoutApi &&
     (!API_BASE_URL || window.location.origin !== API_BASE_URL);
 

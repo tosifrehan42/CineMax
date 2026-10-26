@@ -766,6 +766,11 @@ const PRODUCTION_GITHUB_PAGES_ORIGIN = 'https://tosifrehan42.github.io';
 function getAllowedCorsOrigins(): Set<string> {
   const allowed = new Set<string>([
     PRODUCTION_GITHUB_PAGES_ORIGIN,
+    // Capacitor Android / iOS WebView trusted origins
+    'https://localhost',
+    'http://localhost',
+    'capacitor://localhost',
+    // Local development origins
     'http://localhost:3000',
     'http://127.0.0.1:3000',
     'http://localhost:5173',

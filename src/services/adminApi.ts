@@ -96,7 +96,25 @@ CREATE INDEX IF NOT EXISTS idx_admin_audit_logs_target_user
 ALTER TABLE public.admin_audit_logs ENABLE ROW LEVEL SECURITY;
 DROP POLICY IF EXISTS "Deny all client access to admin_audit_logs" ON public.admin_audit_logs;`;
 
-const API_BASE_URL = (import.meta.env?.VITE_API_BASE_URL || '').replace(/\/$/, '');
+function resolveAdminApiBaseUrl(): string {
+  const envUrl = (import.meta.env?.VITE_API_BASE_URL || '').trim().replace(/\/$/, '');
+  if (envUrl && envUrl !== 'MY_APP_URL') return envUrl;
+  if (typeof window !== 'undefined') {
+    const isStaticOrCap =
+      window.location.hostname.toLowerCase().endsWith('.github.io') ||
+      Boolean((window as any).Capacitor?.isNativePlatform?.()) ||
+      window.location.protocol === 'capacitor:' ||
+      (window.location.hostname.toLowerCase() === 'localhost' &&
+        !window.location.port &&
+        window.location.protocol === 'https:');
+    if (isStaticOrCap) {
+      return 'https://cinemax-kxpv.onrender.com';
+    }
+  }
+  return '';
+}
+
+const API_BASE_URL = resolveAdminApiBaseUrl();
 
 const ADMIN_VERIFIED_SESSION_STORAGE_KEY = 'cinemax_verified_admin_uid_v1';
 

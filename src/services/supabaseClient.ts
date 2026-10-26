@@ -346,7 +346,21 @@ export async function ensureSupabaseClient(): Promise<{
   if (!initPromise) {
     initPromise = (async () => {
       try {
-        const apiBase = (import.meta.env.VITE_API_BASE_URL || '').replace(/\/$/, '');
+        const rawEnvBase = (import.meta.env.VITE_API_BASE_URL || '').trim().replace(/\/$/, '');
+        const isStaticOrCap =
+          typeof window !== 'undefined' &&
+          (window.location.hostname.toLowerCase().endsWith('.github.io') ||
+            Boolean((window as any).Capacitor?.isNativePlatform?.()) ||
+            window.location.protocol === 'capacitor:' ||
+            (window.location.hostname.toLowerCase() === 'localhost' &&
+              !window.location.port &&
+              window.location.protocol === 'https:'));
+        const apiBase =
+          rawEnvBase && rawEnvBase !== 'MY_APP_URL'
+            ? rawEnvBase
+            : isStaticOrCap
+            ? 'https://cinemax-kxpv.onrender.com'
+            : '';
         const res = await fetch(`${apiBase}/api/status`);
         const contentType = res.headers.get('content-type') || '';
         if (res.ok && contentType.includes('application/json')) {
