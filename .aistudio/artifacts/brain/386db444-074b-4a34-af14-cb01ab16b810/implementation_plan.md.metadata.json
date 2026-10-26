@@ -1,6 +1,6 @@
 {
-  "summary":  "Implementation plan for auditing and fixing CineMax's GitHub Pages (/CineMax/) static production configuration, direct TMDB v3 catalogue/episode/watch-provider client resolution, India OTT platform deep links, and GitHub Actions secret verification.",
-  "updatedAt":  "2026-10-24T18:18:00.341070960Z",
+  "summary":  "Implementation plan to fix the broken search system on GitHub Pages by adding live client-side TMDB search (/search/movie, /search/tv, /search/multi), result normalization, deduplication and exact-match ranking, global search independent of category tabs, and explicit warning feedback when VITE_TMDB_API_KEY is missing or invalid.",
+  "updatedAt":  "2026-10-26T10:41:09.177211070Z",
   "requestFeedback":  true,
   "userFacing":  true
 }

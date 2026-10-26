@@ -66,6 +66,8 @@ export interface CatalogueResponse {
   tmdbConfigured: boolean;
   provider: 'tmdb' | 'live_open_catalog';
   refreshedAt?: string;
+  searchWarning?: string;
+  searchSource?: 'tmdb' | 'fallback';
 }
 
 const API_BASE_URL = String((import.meta as any).env?.VITE_API_BASE_URL || '').replace(/\/$/, '');
@@ -207,6 +209,70 @@ function normalizeGenreName(g: string): string {
   return 'Drama';
 }
 
+const TMDB_MOVIE_GENRES: Record<number, string> = {
+  28: 'Action',
+  12: 'Adventure',
+  16: 'Animation',
+  35: 'Comedy',
+  80: 'Crime',
+  99: 'Documentary',
+  18: 'Drama',
+  10751: 'Family',
+  14: 'Fantasy',
+  36: 'History',
+  27: 'Horror',
+  10402: 'Music',
+  9648: 'Mystery',
+  10749: 'Romance',
+  878: 'Sci-Fi',
+  10770: 'TV Movie',
+  53: 'Thriller',
+  10752: 'War',
+  37: 'Western',
+};
+
+const TMDB_TV_GENRES: Record<number, string> = {
+  10759: 'Action',
+  16: 'Animation',
+  35: 'Comedy',
+  80: 'Crime',
+  99: 'Documentary',
+  18: 'Drama',
+  10751: 'Family',
+  10762: 'Kids',
+  9648: 'Mystery',
+  10763: 'News',
+  10764: 'Reality',
+  10765: 'Sci-Fi',
+  10766: 'Soap',
+  10767: 'Talk',
+  10768: 'War',
+  37: 'Western',
+};
+
+function formatVoteCount(count: number): string {
+  if (!count || count <= 0) return '0';
+  if (count >= 1_000_000) return `${(count / 1_000_000).toFixed(1)}M`;
+  if (count >= 1_000) return `${Math.round(count / 1_000)}k`;
+  return String(count);
+}
+
+const SEARCH_STOP_WORDS = new Set([
+  'the',
+  'a',
+  'an',
+  'of',
+  'in',
+  'on',
+  'at',
+  'to',
+  'for',
+  'and',
+  'or',
+  'by',
+  'with',
+]);
+
 function normalizeForSearch(text: string): string {
   return (text || '')
     .toLowerCase()
@@ -218,7 +284,15 @@ function normalizeForSearch(text: string): string {
     .trim();
 }
 
-function getTitleMatchTier(
+function collapseTransliteratedVowels(text: string): string {
+  return text
+    .replace(/aa+/g, 'a')
+    .replace(/ee+/g, 'i')
+    .replace(/oo+/g, 'u')
+    .replace(/uu+/g, 'u');
+}
+
+function computeRawMatchTier(
   normTitle: string,
   titleWords: string[],
   normQuery: string,
@@ -226,22 +300,194 @@ function getTitleMatchTier(
 ): number {
   if (!normTitle || !normQuery) return 0;
   if (normTitle === normQuery) return 4.0;
-  if (normTitle.startsWith(normQuery + ' ')) return 3.0;
-  if (normTitle.startsWith(normQuery)) return 2.8;
-  if ((' ' + normTitle + ' ').includes(' ' + normQuery + ' ')) return 2.5;
-  if (normTitle.includes(normQuery)) return 2.2;
-  if (queryWords.length > 1 && queryWords.every((qw) => titleWords.includes(qw))) {
+  if (normTitle.startsWith(normQuery + ' ')) return 3.2;
+  if (normTitle.startsWith(normQuery)) return 2.9;
+  if ((' ' + normTitle + ' ').includes(' ' + normQuery + ' ')) return 2.6;
+  if (normTitle.includes(normQuery)) return 2.3;
+  if (
+    queryWords.length > 1 &&
+    queryWords.every((qw) =>
+      titleWords.some((tw) => tw === qw || (qw.length >= 3 && tw.startsWith(qw)))
+    )
+  ) {
     return 2.0;
   }
   if (queryWords.length > 0) {
-    const matched = queryWords.filter((qw) =>
+    const significantWords = queryWords.filter(
+      (qw) => qw.length >= 2 && !SEARCH_STOP_WORDS.has(qw)
+    );
+    const evalWords = significantWords.length > 0 ? significantWords : queryWords;
+    const matched = evalWords.filter((qw) =>
       titleWords.some((tw) => tw === qw || (qw.length >= 3 && tw.startsWith(qw)))
     );
-    if (matched.length > 0) {
-      return 1.0 + (matched.length / queryWords.length) * 0.8;
+    const ratio = matched.length / evalWords.length;
+    if (matched.length > 0 && (evalWords.length === 1 || ratio >= 0.6)) {
+      return 1.0 + ratio * 0.7;
     }
   }
-  return 0.5;
+  return 0;
+}
+
+function getTitleMatchTier(
+  normTitle: string,
+  titleWords: string[],
+  normQuery: string,
+  queryWords: string[]
+): number {
+  const directTier = computeRawMatchTier(normTitle, titleWords, normQuery, queryWords);
+  if (directTier >= 2.0) return directTier;
+
+  // Transliteration-aware comparison (e.g. "baahubali" <-> "bahubali")
+  const phoneticTitle = collapseTransliteratedVowels(normTitle);
+  const phoneticQuery = collapseTransliteratedVowels(normQuery);
+  if (phoneticTitle !== normTitle || phoneticQuery !== normQuery) {
+    const phoneticTitleWords = phoneticTitle ? phoneticTitle.split(' ') : [];
+    const phoneticQueryWords = phoneticQuery ? phoneticQuery.split(' ').filter(Boolean) : [];
+    const phoneticTier = computeRawMatchTier(
+      phoneticTitle,
+      phoneticTitleWords,
+      phoneticQuery,
+      phoneticQueryWords
+    );
+    if (phoneticTier > directTier) {
+      return Math.max(directTier, phoneticTier);
+    }
+  }
+
+  return directTier;
+}
+
+function mapClientTmdbItemToMediaItem(
+  raw: any,
+  forcedType?: 'movie' | 'tv',
+  indexOffset = 0
+): MediaItem {
+  const mediaType: 'movie' | 'tv' =
+    forcedType ||
+    (raw.media_type === 'tv' || raw.first_air_date !== undefined || raw.name !== undefined
+      ? 'tv'
+      : 'movie');
+  const tmdbId = raw.id;
+  const id = `tmdb-${mediaType}-${tmdbId}`;
+  const title =
+    (mediaType === 'tv' ? raw.name || raw.original_name : raw.title || raw.original_title) ||
+    'Untitled';
+  const dateStr = (mediaType === 'tv' ? raw.first_air_date : raw.release_date) || '';
+  const parsedYear = dateStr ? parseInt(dateStr.slice(0, 4), 10) : 0;
+  const year = Number.isFinite(parsedYear) && parsedYear > 0 ? parsedYear : 0;
+
+  const genreMap = mediaType === 'tv' ? TMDB_TV_GENRES : TMDB_MOVIE_GENRES;
+  let genres: string[] = [];
+  if (Array.isArray(raw.genre_ids)) {
+    genres = raw.genre_ids.map((gid: number) => genreMap[gid]).filter(Boolean);
+  } else if (Array.isArray(raw.genres)) {
+    genres = raw.genres.map((g: any) => g.name).filter(Boolean);
+  }
+  if (genres.length === 0) genres = ['Drama'];
+
+  const rating =
+    typeof raw.vote_average === 'number' && raw.vote_average > 0
+      ? Number(raw.vote_average.toFixed(1))
+      : 0;
+
+  const palette = PALETTES[hashString(id) % PALETTES.length];
+  const posterUrl = raw.poster_path ? `${TMDB_IMAGE_W500}${raw.poster_path}` : '';
+  const backdropUrl = raw.backdrop_path ? `${TMDB_IMAGE_W1280}${raw.backdrop_path}` : '';
+
+  return {
+    id,
+    title,
+    type: mediaType,
+    year,
+    genres,
+    rating,
+    voteCount: formatVoteCount(raw.vote_count || 0),
+    synopsis: raw.overview || 'Synopsis not yet available for this title.',
+    tagline: raw.tagline || `Experience ${title}.`,
+    director: 'Acclaimed Filmmaker',
+    cast: [],
+    moods: deriveMoodsFromGenres(genres),
+    contentRating: mediaType === 'tv' ? 'TV-MA' : raw.adult ? 'R' : 'PG-13',
+    trendingRank: indexOffset > 0 ? indexOffset : undefined,
+    popularityRank: indexOffset > 0 ? indexOffset : undefined,
+    streamOn: [],
+    themeColor: palette.themeColor,
+    posterUrl,
+    backdropUrl,
+    language: raw.original_language ? String(raw.original_language).toLowerCase() : 'en',
+    posterVisual: {
+      bgFrom: palette.bgFrom,
+      bgTo: palette.bgTo,
+      accent: palette.accent,
+      iconType: palette.iconType,
+    },
+  };
+}
+
+function rankClientTmdbSearchResults(
+  rawResults: any[],
+  forcedType: 'movie' | 'tv' | undefined,
+  query: string
+): any[] {
+  const normQuery = normalizeForSearch(query);
+  if (!normQuery) return rawResults;
+  const queryWords = normQuery.split(' ').filter(Boolean);
+
+  const scored = rawResults.map((raw, tmdbIndex) => {
+    const mediaType: 'movie' | 'tv' =
+      forcedType ||
+      (raw.media_type === 'tv' || raw.first_air_date !== undefined || raw.name !== undefined
+        ? 'tv'
+        : 'movie');
+
+    const displayTitle =
+      (mediaType === 'tv' ? raw.name || raw.original_name : raw.title || raw.original_title) || '';
+    const originalTitle =
+      (mediaType === 'tv' ? raw.original_name : raw.original_title) || '';
+
+    const normDisplay = normalizeForSearch(displayTitle);
+    const normOrig = normalizeForSearch(originalTitle);
+    const displayWords = normDisplay ? normDisplay.split(' ') : [];
+    const origWords = normOrig ? normOrig.split(' ') : [];
+
+    const displayTier = getTitleMatchTier(normDisplay, displayWords, normQuery, queryWords);
+    const origTier = getTitleMatchTier(normOrig, origWords, normQuery, queryWords);
+
+    const effectiveTier =
+      normDisplay === normOrig ? displayTier : Math.max(displayTier, Math.min(origTier, 1.9));
+
+    const voteCount = Number(raw.vote_count || 0);
+    const isEstablished = voteCount >= 15;
+
+    let bucket: number;
+    if (effectiveTier >= 2.0) {
+      bucket = (isEstablished ? 10 : 5) + effectiveTier;
+    } else {
+      bucket = (isEstablished ? 2 : 0) + effectiveTier;
+    }
+
+    return {
+      raw,
+      tmdbIndex,
+      bucket,
+      displayTier,
+      voteCount,
+    };
+  });
+
+  scored.sort((a, b) => {
+    if (Math.abs(b.bucket - a.bucket) > 0.001) {
+      return b.bucket - a.bucket;
+    }
+    if (a.displayTier === 4.0 && b.displayTier === 4.0) {
+      if (a.voteCount > b.voteCount * 3 || b.voteCount > a.voteCount * 3) {
+        return b.voteCount - a.voteCount;
+      }
+    }
+    return a.tmdbIndex - b.tmdbIndex;
+  });
+
+  return scored.map((s) => s.raw);
 }
 
 function matchesClientYearFilter(itemYear: number, yearFilter: string): boolean {
@@ -498,9 +744,15 @@ async function resolveClientCatalogue(
   const category = String(params.category || 'discover');
   const page = Math.max(1, Number(params.page) || 1);
   const rawType = (params.type || 'all') as 'all' | 'movie' | 'tv';
+  // Preserve single spaces inside multi-word queries while trimming leading/trailing whitespace
+  const query = String(params.query || '').replace(/\s+/g, ' ').trim();
+
+  // When searching, ignore category tab restrictions so search queries the full catalogue
   const effectiveType: 'all' | 'movie' | 'tv' =
     rawType === 'movie' || rawType === 'tv'
       ? rawType
+      : query
+      ? 'all'
       : category === 'trending_movies' ||
         category === 'now_playing_movies' ||
         category === 'top_10_movies' ||
@@ -516,25 +768,95 @@ async function resolveClientCatalogue(
   const mood = String(params.mood || 'all').trim();
   const yearFilter = String(params.year || 'All').trim();
   const languageFilter = String(params.language || 'all').trim().toLowerCase();
-  const sortBy = (params.sortBy || 'popularity') as
+  const sortBy = (params.sortBy || (query ? 'relevance' : 'popularity')) as
     | 'relevance'
     | 'popularity'
     | 'rating'
     | 'year'
     | 'title';
   const minRating = Number(params.minRating) || 0;
-  const query = String(params.query || '').trim();
 
+  let tmdbSearchItems: MediaItem[] = [];
+  let tmdbTotalPages = 0;
+  let tmdbTotalResults = 0;
+  let tmdbSearchSucceeded = false;
+  let searchWarning: string | undefined;
+
+  // 1. Live TMDB v3 Search (/search/movie, /search/tv, /search/multi) when query is present
+  if (query) {
+    if (CLIENT_TMDB_API_KEY) {
+      try {
+        const searchEndpoint =
+          effectiveType === 'movie'
+            ? '/search/movie'
+            : effectiveType === 'tv'
+            ? '/search/tv'
+            : '/search/multi';
+        const forcedType: 'movie' | 'tv' | undefined =
+          effectiveType === 'movie'
+            ? 'movie'
+            : effectiveType === 'tv'
+            ? 'tv'
+            : undefined;
+
+        const tmdbData = await fetchClientTmdbJson<any>(
+          searchEndpoint,
+          {
+            query,
+            page,
+            include_adult: 'false',
+          },
+          signal
+        );
+
+        if (tmdbData && Array.isArray(tmdbData.results)) {
+          const validRaw = tmdbData.results.filter((r: any) => {
+            if (!r || !r.id) return false;
+            if (effectiveType === 'movie') return !r.media_type || r.media_type === 'movie';
+            if (effectiveType === 'tv') return !r.media_type || r.media_type === 'tv';
+            return r.media_type === 'movie' || r.media_type === 'tv';
+          });
+          const rankedRaw = rankClientTmdbSearchResults(validRaw, forcedType, query);
+          tmdbSearchItems = rankedRaw.map((raw: any, idx: number) =>
+            mapClientTmdbItemToMediaItem(raw, forcedType, (page - 1) * 20 + idx + 1)
+          );
+          tmdbTotalPages = Math.min(Math.max(Number(tmdbData.total_pages) || 1, 1), 500);
+          tmdbTotalResults = Number(tmdbData.total_results) || tmdbSearchItems.length;
+          tmdbSearchSucceeded = true;
+        }
+      } catch (err: any) {
+        if (err?.name === 'AbortError' || signal?.aborted) {
+          throw err;
+        }
+        const errMsg = String(err?.message || '');
+        if (errMsg.includes('401') || errMsg.includes('403')) {
+          searchWarning =
+            'Live TMDB search failed because VITE_TMDB_API_KEY is invalid or unauthorized. Showing fallback results from the local catalogue and TVMaze.';
+        } else {
+          searchWarning =
+            'Live TMDB search is temporarily unreachable. Showing fallback results from the local catalogue and TVMaze.';
+        }
+      }
+    } else {
+      searchWarning =
+        'Live TMDB search is not configured on this static deployment (VITE_TMDB_API_KEY secret is missing). Showing fallback results from the local catalogue and TVMaze.';
+    }
+  }
+
+  // 2. Local expanded catalogue + TVMaze fallback / enrichment
   const catalog = await getClientLiveExpandedCatalog(Boolean(params.refresh));
   let pool: MediaItem[] =
-    category === 'trending_india' || category === 'hindi_movies' || category === 'south_indian_cinema'
+    query ||
+    category === 'trending_india' ||
+    category === 'hindi_movies' ||
+    category === 'south_indian_cinema'
       ? [...INDIAN_TRENDING_ITEMS, ...EXTRA_ANCHOR_ITEMS, ...catalog]
       : [...catalog];
 
   pool = dedupeMediaItems(pool);
 
-  // Live TVMaze search enrichment when user queries a specific show
-  if (query.length >= 2 && effectiveType !== 'movie') {
+  // Live TVMaze search enrichment when user queries a show (on page 1 or when TMDB is unavailable)
+  if (query.length >= 2 && effectiveType !== 'movie' && (page === 1 || !tmdbSearchSucceeded)) {
     try {
       const liveTvRes = await fetch(
         `https://api.tvmaze.com/search/shows?q=${encodeURIComponent(query)}`,
@@ -592,7 +914,7 @@ async function resolveClientCatalogue(
         }
       }
     } catch (err: any) {
-      if (err?.name === 'AbortError') throw err;
+      if (err?.name === 'AbortError' || signal?.aborted) throw err;
     }
   }
 
@@ -603,61 +925,99 @@ async function resolveClientCatalogue(
     pool = pool.filter((item) => item.type === effectiveType);
   }
 
-  if (category === 'trending_india') {
-    pool = pool.filter(
-      (item) =>
-        ['hi', 'te', 'ta', 'ml', 'kn'].includes((item.language || '').toLowerCase()) ||
-        INDIAN_TRENDING_ITEMS.some((ind) => ind.id === item.id)
-    );
-  } else if (category === 'hindi_movies') {
-    pool = pool.filter((item) => (item.language || '').toLowerCase() === 'hi');
-  } else if (category === 'south_indian_cinema') {
-    pool = pool.filter((item) =>
-      ['te', 'ta', 'ml', 'kn'].includes((item.language || '').toLowerCase())
-    );
-  } else if (category === 'anime') {
-    pool = pool.filter(
-      (item) =>
-        item.genres.some((g) => g.toLowerCase() === 'animation') ||
-        (item.language || '').toLowerCase() === 'ja'
-    );
-  } else if (category === 'documentaries') {
-    pool = pool.filter((item) =>
-      item.genres.some((g) => g.toLowerCase() === 'documentary')
-    );
-  } else if (category === 'upcoming_movies') {
-    pool = pool.filter((item) => item.type === 'movie' && item.year >= 2024);
-  } else if (category === 'now_playing_movies' || category === 'recently_released') {
-    pool = pool.filter((item) => item.year >= 2023);
+  // Only apply category preset filters when NOT executing a search query
+  if (!query) {
+    if (category === 'trending_india') {
+      pool = pool.filter(
+        (item) =>
+          ['hi', 'te', 'ta', 'ml', 'kn'].includes((item.language || '').toLowerCase()) ||
+          INDIAN_TRENDING_ITEMS.some((ind) => ind.id === item.id)
+      );
+    } else if (category === 'hindi_movies') {
+      pool = pool.filter((item) => (item.language || '').toLowerCase() === 'hi');
+    } else if (category === 'south_indian_cinema') {
+      pool = pool.filter((item) =>
+        ['te', 'ta', 'ml', 'kn'].includes((item.language || '').toLowerCase())
+      );
+    } else if (category === 'anime') {
+      pool = pool.filter(
+        (item) =>
+          item.genres.some((g) => g.toLowerCase() === 'animation') ||
+          (item.language || '').toLowerCase() === 'ja'
+      );
+    } else if (category === 'documentaries') {
+      pool = pool.filter((item) =>
+        item.genres.some((g) => g.toLowerCase() === 'documentary')
+      );
+    } else if (category === 'upcoming_movies') {
+      pool = pool.filter((item) => item.type === 'movie' && item.year >= 2024);
+    } else if (category === 'now_playing_movies' || category === 'recently_released') {
+      pool = pool.filter((item) => item.year >= 2023);
+    }
   }
 
   if (query) {
     const normQ = normalizeForSearch(query);
     const qWords = normQ.split(' ').filter(Boolean);
 
-    const scoredPool = pool
-      .map((item, idx) => {
-        const normTitle = normalizeForSearch(item.title);
-        const titleWords = normTitle ? normTitle.split(' ') : [];
-        const titleTier = getTitleMatchTier(normTitle, titleWords, normQ, qWords);
-        const metaMatch =
-          normalizeForSearch(item.director).includes(normQ) ||
-          item.cast.some((c) => normalizeForSearch(c.name).includes(normQ));
+    // Filter local + TVMaze pool to genuine title or director/cast matches
+    const matchedLocalItems = pool.filter((item) => {
+      const normTitle = normalizeForSearch(item.title);
+      const titleWords = normTitle ? normTitle.split(' ') : [];
+      const titleTier = getTitleMatchTier(normTitle, titleWords, normQ, qWords);
+      if (titleTier >= 1.0) return true;
+      const metaMatch =
+        (item.director &&
+          item.director !== 'Acclaimed Filmmaker' &&
+          normalizeForSearch(item.director).includes(normQ)) ||
+        item.cast.some((c) => normalizeForSearch(c.name).includes(normQ));
+      return metaMatch;
+    });
 
-        return {
-          item,
-          idx,
-          tier: titleTier >= 1.0 ? titleTier : metaMatch ? 0.8 : 0,
-        };
-      })
-      .filter((entry) => entry.tier > 0);
+    // Merge live TMDB results (first, so canonical TMDB IDs lead) with local/TVMaze matches (on page 1 or fallback)
+    const combinedSearchPool =
+      tmdbSearchSucceeded && page > 1
+        ? dedupeMediaItems(tmdbSearchItems)
+        : dedupeMediaItems([...tmdbSearchItems, ...matchedLocalItems]);
+
+    const scoredPool = combinedSearchPool.map((item, idx) => {
+      const normTitle = normalizeForSearch(item.title);
+      const titleWords = normTitle ? normTitle.split(' ') : [];
+      const titleTier = getTitleMatchTier(normTitle, titleWords, normQ, qWords);
+      const metaMatch =
+        (item.director &&
+          item.director !== 'Acclaimed Filmmaker' &&
+          normalizeForSearch(item.director).includes(normQ)) ||
+        item.cast.some((c) => normalizeForSearch(c.name).includes(normQ));
+      const isTmdb = Boolean(extractCanonicalTmdbIdentity(item.id, item.type));
+      const rawVotes = String(item.voteCount || '0');
+      const isEstablished =
+        rawVotes.includes('k') ||
+        rawVotes.includes('M') ||
+        parseInt(rawVotes, 10) >= 15 ||
+        (item.rating >= 6.5 && item.year > 0);
+
+      const baseTier = titleTier >= 1.0 ? titleTier : metaMatch ? 0.85 : isTmdb ? 0.6 : 0;
+      const bucket =
+        baseTier >= 2.0
+          ? (isEstablished ? 10 : 5) + baseTier
+          : baseTier > 0
+          ? (isEstablished ? 2 : 0) + baseTier
+          : 0;
+
+      return {
+        item,
+        idx,
+        tier: bucket,
+      };
+    });
 
     scoredPool.sort((a, b) => {
       if (Math.abs(b.tier - a.tier) > 0.001) return b.tier - a.tier;
       return a.idx - b.idx;
     });
 
-    pool = scoredPool.map((entry) => entry.item);
+    pool = scoredPool.filter((entry) => entry.tier > 0).map((entry) => entry.item);
   }
 
   if (genre && genre !== 'All') {
@@ -695,15 +1055,16 @@ async function resolveClientCatalogue(
   }
 
   if (!query || sortBy !== 'relevance') {
-    if (category === 'top_rated_movies' || category === 'top_rated_tv') {
+    if (!query && (category === 'top_rated_movies' || category === 'top_rated_tv')) {
       pool.sort((a, b) => b.rating - a.rating);
     } else if (
-      category === 'upcoming_movies' ||
-      category === 'now_playing_movies' ||
-      category === 'recently_released'
+      !query &&
+      (category === 'upcoming_movies' ||
+        category === 'now_playing_movies' ||
+        category === 'recently_released')
     ) {
       pool.sort((a, b) => b.year - a.year || b.rating - a.rating);
-    } else if (category !== 'trending_india') {
+    } else if (query || category !== 'trending_india') {
       pool.sort((a, b) => {
         if (sortBy === 'rating') return b.rating - a.rating;
         if (sortBy === 'year') return b.year - a.year || b.rating - a.rating;
@@ -713,15 +1074,32 @@ async function resolveClientCatalogue(
     }
   }
 
-  if (category === 'top_10_movies' || category === 'top_10_tv') {
+  if (!query && (category === 'top_10_movies' || category === 'top_10_tv')) {
     const top10 = pool.slice(0, 10).map((it, idx) => ({ ...it, trendingRank: idx + 1 }));
     return {
       items: top10,
       page: 1,
       totalPages: 1,
       totalResults: top10.length,
-      tmdbConfigured: false,
-      provider: 'live_open_catalog',
+      tmdbConfigured: Boolean(CLIENT_TMDB_API_KEY),
+      provider: CLIENT_TMDB_API_KEY ? 'tmdb' : 'live_open_catalog',
+      refreshedAt: new Date().toISOString(),
+    };
+  }
+
+  // If live TMDB search succeeded, preserve TMDB multi-page pagination while returning the merged page
+  if (query && tmdbSearchSucceeded) {
+    const pagedItems = pool.slice(0, 24);
+    const totalResults = Math.max(tmdbTotalResults, pagedItems.length);
+    const totalPages = Math.max(tmdbTotalPages, 1);
+    return {
+      items: pagedItems,
+      page,
+      totalPages,
+      totalResults,
+      tmdbConfigured: true,
+      provider: 'tmdb',
+      searchSource: 'tmdb',
       refreshedAt: new Date().toISOString(),
     };
   }
@@ -737,8 +1115,10 @@ async function resolveClientCatalogue(
     page,
     totalPages,
     totalResults,
-    tmdbConfigured: false,
-    provider: 'live_open_catalog',
+    tmdbConfigured: Boolean(CLIENT_TMDB_API_KEY),
+    provider: CLIENT_TMDB_API_KEY ? 'tmdb' : 'live_open_catalog',
+    searchWarning,
+    searchSource: query ? 'fallback' : undefined,
     refreshedAt: new Date().toISOString(),
   };
 }
@@ -801,12 +1181,25 @@ export async function fetchCatalogue(
       { signal }
     );
 
-    if (apiResult && Array.isArray(apiResult.items)) {
-      clientCatalogueCache.set(cacheKey, { timestamp: Date.now(), data: apiResult });
-      return apiResult;
+    if (
+      apiResult &&
+      Array.isArray(apiResult.items) &&
+      (apiResult.tmdbConfigured || !CLIENT_TMDB_API_KEY)
+    ) {
+      const normalizedApiResult: CatalogueResponse =
+        params.query && params.query.trim() && !apiResult.tmdbConfigured && !apiResult.searchWarning
+          ? {
+              ...apiResult,
+              searchSource: 'fallback',
+              searchWarning:
+                'Live TMDB search is not configured (missing TMDB API key). Showing fallback results from the local catalogue and TVMaze.',
+            }
+          : apiResult;
+      clientCatalogueCache.set(cacheKey, { timestamp: Date.now(), data: normalizedApiResult });
+      return normalizedApiResult;
     }
 
-    // 2. Client-side live expanded catalogue fallback for static hosts (GitHub Pages)
+    // 2. Client-side live TMDB search & expanded catalogue fallback for static hosts (GitHub Pages)
     const clientResult = await resolveClientCatalogue(params, signal);
     clientCatalogueCache.set(cacheKey, { timestamp: Date.now(), data: clientResult });
     return clientResult;

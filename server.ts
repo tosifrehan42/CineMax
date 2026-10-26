@@ -186,7 +186,31 @@ export function normalizeForSearch(text: string): string {
     .trim();
 }
 
-function getTitleMatchTier(
+const SEARCH_STOP_WORDS = new Set([
+  'the',
+  'a',
+  'an',
+  'of',
+  'in',
+  'on',
+  'at',
+  'to',
+  'for',
+  'and',
+  'or',
+  'by',
+  'with',
+]);
+
+function collapseTransliteratedVowels(text: string): string {
+  return text
+    .replace(/aa+/g, 'a')
+    .replace(/ee+/g, 'i')
+    .replace(/oo+/g, 'u')
+    .replace(/uu+/g, 'u');
+}
+
+function computeRawMatchTier(
   normTitle: string,
   titleWords: string[],
   normQuery: string,
@@ -194,22 +218,60 @@ function getTitleMatchTier(
 ): number {
   if (!normTitle || !normQuery) return 0;
   if (normTitle === normQuery) return 4.0;
-  if (normTitle.startsWith(normQuery + ' ')) return 3.0;
-  if (normTitle.startsWith(normQuery)) return 2.8;
-  if ((' ' + normTitle + ' ').includes(' ' + normQuery + ' ')) return 2.5;
-  if (normTitle.includes(normQuery)) return 2.2;
-  if (queryWords.length > 1 && queryWords.every((qw) => titleWords.includes(qw))) {
+  if (normTitle.startsWith(normQuery + ' ')) return 3.2;
+  if (normTitle.startsWith(normQuery)) return 2.9;
+  if ((' ' + normTitle + ' ').includes(' ' + normQuery + ' ')) return 2.6;
+  if (normTitle.includes(normQuery)) return 2.3;
+  if (
+    queryWords.length > 1 &&
+    queryWords.every((qw) =>
+      titleWords.some((tw) => tw === qw || (qw.length >= 3 && tw.startsWith(qw)))
+    )
+  ) {
     return 2.0;
   }
   if (queryWords.length > 0) {
-    const matched = queryWords.filter((qw) =>
+    const significantWords = queryWords.filter(
+      (qw) => qw.length >= 2 && !SEARCH_STOP_WORDS.has(qw)
+    );
+    const evalWords = significantWords.length > 0 ? significantWords : queryWords;
+    const matched = evalWords.filter((qw) =>
       titleWords.some((tw) => tw === qw || (qw.length >= 3 && tw.startsWith(qw)))
     );
-    if (matched.length > 0) {
-      return 1.0 + (matched.length / queryWords.length) * 0.8;
+    const ratio = matched.length / evalWords.length;
+    if (matched.length > 0 && (evalWords.length === 1 || ratio >= 0.6)) {
+      return 1.0 + ratio * 0.7;
     }
   }
-  return 0.5;
+  return 0;
+}
+
+function getTitleMatchTier(
+  normTitle: string,
+  titleWords: string[],
+  normQuery: string,
+  queryWords: string[]
+): number {
+  const directTier = computeRawMatchTier(normTitle, titleWords, normQuery, queryWords);
+  if (directTier >= 2.0) return directTier;
+
+  const phoneticTitle = collapseTransliteratedVowels(normTitle);
+  const phoneticQuery = collapseTransliteratedVowels(normQuery);
+  if (phoneticTitle !== normTitle || phoneticQuery !== normQuery) {
+    const phoneticTitleWords = phoneticTitle ? phoneticTitle.split(' ') : [];
+    const phoneticQueryWords = phoneticQuery ? phoneticQuery.split(' ').filter(Boolean) : [];
+    const phoneticTier = computeRawMatchTier(
+      phoneticTitle,
+      phoneticTitleWords,
+      phoneticQuery,
+      phoneticQueryWords
+    );
+    if (phoneticTier > directTier) {
+      return Math.max(directTier, phoneticTier);
+    }
+  }
+
+  return directTier;
 }
 
 function rankTmdbSearchResults(
@@ -838,9 +900,12 @@ async function startServer() {
     const page = Math.max(1, parseInt(String(req.query.page || '1'), 10) || 1);
     const bypassCache = req.query.refresh === 'true' || req.query.refresh === '1';
     const rawType = String(req.query.type || 'all') as 'all' | 'movie' | 'tv';
+    const query = String(req.query.query || '').replace(/\s+/g, ' ').trim();
     const effectiveType: 'all' | 'movie' | 'tv' =
       rawType === 'movie' || rawType === 'tv'
         ? rawType
+        : query
+        ? 'all'
         : category.includes('movies') || category === 'south_indian_cinema'
         ? 'movie'
         : category.includes('_tv')
@@ -850,14 +915,13 @@ async function startServer() {
     const mood = String(req.query.mood || 'all');
     const yearFilter = String(req.query.year || 'All');
     const languageFilter = String(req.query.language || 'all').toLowerCase();
-    const sortBy = String(req.query.sortBy || 'popularity') as
+    const sortBy = String(req.query.sortBy || (query ? 'relevance' : 'popularity')) as
       | 'relevance'
       | 'popularity'
       | 'rating'
       | 'year'
       | 'title';
     const minRating = parseFloat(String(req.query.minRating || '0')) || 0;
-    const query = String(req.query.query || '').trim();
 
     const tmdbKey = getTmdbKey();
     const tmdbOpts = { bypassCache };
@@ -1487,33 +1551,35 @@ async function startServer() {
         pool = pool.filter((item) => item.type === effectiveType);
       }
 
-      // Apply preset category filters in PATH B
-      if (category === 'trending_india') {
-        pool = pool.filter(
-          (item) =>
-            ['hi', 'te', 'ta', 'ml', 'kn'].includes((item.language || '').toLowerCase()) ||
-            INDIAN_TRENDING_ITEMS.some((ind) => ind.id === item.id)
-        );
-      } else if (category === 'hindi_movies') {
-        pool = pool.filter((item) => (item.language || '').toLowerCase() === 'hi');
-      } else if (category === 'south_indian_cinema') {
-        pool = pool.filter((item) =>
-          ['te', 'ta', 'ml', 'kn'].includes((item.language || '').toLowerCase())
-        );
-      } else if (category === 'anime') {
-        pool = pool.filter(
-          (item) =>
-            item.genres.some((g) => g.toLowerCase() === 'animation') ||
-            (item.language || '').toLowerCase() === 'ja'
-        );
-      } else if (category === 'documentaries') {
-        pool = pool.filter((item) =>
-          item.genres.some((g) => g.toLowerCase() === 'documentary')
-        );
-      } else if (category === 'upcoming_movies') {
-        pool = pool.filter((item) => item.type === 'movie' && item.year >= 2024);
-      } else if (category === 'now_playing_movies' || category === 'recently_released') {
-        pool = pool.filter((item) => item.year >= 2023);
+      // Apply preset category filters in PATH B only when not executing a search query
+      if (!query) {
+        if (category === 'trending_india') {
+          pool = pool.filter(
+            (item) =>
+              ['hi', 'te', 'ta', 'ml', 'kn'].includes((item.language || '').toLowerCase()) ||
+              INDIAN_TRENDING_ITEMS.some((ind) => ind.id === item.id)
+          );
+        } else if (category === 'hindi_movies') {
+          pool = pool.filter((item) => (item.language || '').toLowerCase() === 'hi');
+        } else if (category === 'south_indian_cinema') {
+          pool = pool.filter((item) =>
+            ['te', 'ta', 'ml', 'kn'].includes((item.language || '').toLowerCase())
+          );
+        } else if (category === 'anime') {
+          pool = pool.filter(
+            (item) =>
+              item.genres.some((g) => g.toLowerCase() === 'animation') ||
+              (item.language || '').toLowerCase() === 'ja'
+          );
+        } else if (category === 'documentaries') {
+          pool = pool.filter((item) =>
+            item.genres.some((g) => g.toLowerCase() === 'documentary')
+          );
+        } else if (category === 'upcoming_movies') {
+          pool = pool.filter((item) => item.type === 'movie' && item.year >= 2024);
+        } else if (category === 'now_playing_movies' || category === 'recently_released') {
+          pool = pool.filter((item) => item.year >= 2023);
+        }
       }
 
       if (query) {

@@ -39,6 +39,17 @@ jobs:
       - name: Run TypeScript type check
         run: bun run lint
 
+      - name: Verify build environment secret presence (boolean only)
+        env:
+          HAS_TMDB_KEY: ${{ secrets.VITE_TMDB_API_KEY != '' }}
+          HAS_API_BASE_URL: ${{ secrets.VITE_API_BASE_URL != '' }}
+        run: |
+          echo "VITE_TMDB_API_KEY configured: $HAS_TMDB_KEY"
+          echo "VITE_API_BASE_URL configured: $HAS_API_BASE_URL"
+          if [ "$HAS_TMDB_KEY" != "true" ] && [ "$HAS_API_BASE_URL" != "true" ]; then
+            echo "::warning::Neither VITE_TMDB_API_KEY nor VITE_API_BASE_URL is set in GitHub Actions Repository Secrets. Static GitHub Pages search will fall back to the open catalogue and TVMaze."
+          fi
+
       - name: Build production bundle for GitHub Pages
         run: bun run build
         env:

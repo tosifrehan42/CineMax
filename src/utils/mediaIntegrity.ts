@@ -98,8 +98,27 @@ function normalizeArtworkFilename(url?: string): string {
  * poster/backdrop/episode details.
  */
 export function mergeMediaItemMetadata(existing: MediaItem, incoming: MediaItem): MediaItem {
+  const existingCanonical = extractCanonicalTmdbIdentity(existing.id, existing.type);
+  const incomingCanonical = extractCanonicalTmdbIdentity(incoming.id, incoming.type);
+  const preferredId = !existingCanonical && incomingCanonical ? incoming.id : existing.id;
+
+  const existingDirector =
+    existing.director &&
+    existing.director !== 'Acclaimed Filmmaker' &&
+    !existing.director.endsWith('Production')
+      ? existing.director
+      : '';
+  const incomingDirector =
+    incoming.director &&
+    incoming.director !== 'Acclaimed Filmmaker' &&
+    !incoming.director.endsWith('Production')
+      ? incoming.director
+      : '';
+
   return {
     ...existing,
+    id: preferredId,
+    year: existing.year > 0 ? existing.year : incoming.year,
     posterUrl: existing.posterUrl || incoming.posterUrl || '',
     backdropUrl: existing.backdropUrl || incoming.backdropUrl || '',
     runtime: existing.runtime || incoming.runtime,
@@ -115,6 +134,17 @@ export function mergeMediaItemMetadata(existing: MediaItem, incoming: MediaItem)
       existing.voteCount && existing.voteCount !== '0'
         ? existing.voteCount
         : incoming.voteCount,
+    director: existingDirector || incomingDirector || existing.director || incoming.director,
+    cast: existing.cast && existing.cast.length > 0 ? existing.cast : incoming.cast || [],
+    streamOn:
+      existing.streamOn && existing.streamOn.length > 0
+        ? existing.streamOn
+        : incoming.streamOn || [],
+    synopsis:
+      existing.synopsis &&
+      existing.synopsis !== 'Synopsis not yet available for this title.'
+        ? existing.synopsis
+        : incoming.synopsis || existing.synopsis,
   };
 }
 

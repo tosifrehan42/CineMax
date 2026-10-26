@@ -111,6 +111,7 @@ const DiscoverViewComponent: React.FC<DiscoverViewProps> = ({
     if (initialCategory.includes('_tv')) return 'tv';
     return 'all';
   });
+  const [hasCustomTypeFilter, setHasCustomTypeFilter] = useState<boolean>(false);
   const [sortBy, setSortBy] = useState<
     'relevance' | 'popularity' | 'rating' | 'year' | 'title'
   >('popularity');
@@ -124,6 +125,7 @@ const DiscoverViewComponent: React.FC<DiscoverViewProps> = ({
   const [isLoadingMore, setIsLoadingMore] = useState<boolean>(false);
   const [isRefreshing, setIsRefreshing] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
+  const [searchWarning, setSearchWarning] = useState<string | null>(null);
   const requestIdRef = React.useRef(0);
 
   // Sync external initial props
@@ -139,6 +141,7 @@ const DiscoverViewComponent: React.FC<DiscoverViewProps> = ({
 
   useEffect(() => {
     setCategory(initialCategory);
+    setHasCustomTypeFilter(false);
     if (initialCategory.includes('movies')) {
       setSelectedType('movie');
     } else if (initialCategory.includes('_tv')) {
@@ -148,10 +151,10 @@ const DiscoverViewComponent: React.FC<DiscoverViewProps> = ({
     }
   }, [initialCategory]);
 
-  // Debounce search input (250ms) and auto-switch sort to relevance when typing a query
+  // Debounce search input (250ms), preserve internal spaces, and auto-switch sort to relevance
   useEffect(() => {
     const timer = setTimeout(() => {
-      const trimmed = searchInput.trim();
+      const trimmed = searchInput.replace(/\s+/g, ' ').trim();
       setDebouncedQuery((prev) => {
         if (!prev && trimmed) {
           setSortBy('relevance');
@@ -183,11 +186,15 @@ const DiscoverViewComponent: React.FC<DiscoverViewProps> = ({
         }
         setError(null);
 
+        // When searching, ignore category tab format restrictions unless the user explicitly clicked Format
+        const queryType =
+          debouncedQuery && !hasCustomTypeFilter ? 'all' : selectedType;
+
         const response = await fetchCatalogue(
           {
-            category,
+            category: debouncedQuery ? 'discover' : category,
             page: targetPage,
-            type: selectedType,
+            type: queryType,
             genre: selectedGenre,
             mood: selectedMood,
             year: selectedYear,
@@ -217,6 +224,7 @@ const DiscoverViewComponent: React.FC<DiscoverViewProps> = ({
         setPage(response.page);
         setTotalPages(response.totalPages);
         setTotalResults(response.totalResults);
+        setSearchWarning(debouncedQuery ? response.searchWarning || null : null);
       } catch (err: any) {
         if (
           err?.name === 'AbortError' ||
@@ -237,6 +245,7 @@ const DiscoverViewComponent: React.FC<DiscoverViewProps> = ({
     [
       category,
       selectedType,
+      hasCustomTypeFilter,
       selectedGenre,
       selectedMood,
       selectedYear,
@@ -276,8 +285,10 @@ const DiscoverViewComponent: React.FC<DiscoverViewProps> = ({
     setSelectedYear('All');
     setSelectedLanguage('all');
     setSelectedType('all');
+    setHasCustomTypeFilter(false);
     setSortBy('popularity');
     setMinRating(0);
+    setSearchWarning(null);
   };
 
   // Build active filter chips for quick dismissal
@@ -292,7 +303,7 @@ const DiscoverViewComponent: React.FC<DiscoverViewProps> = ({
       },
     });
   }
-  if (category !== 'discover') {
+  if (category !== 'discover' && !debouncedQuery) {
     const catLabel = CATEGORY_TABS.find((c) => c.id === category)?.label || category;
     activeChips.push({
       key: 'category',
@@ -300,11 +311,14 @@ const DiscoverViewComponent: React.FC<DiscoverViewProps> = ({
       onClear: () => setCategory('discover'),
     });
   }
-  if (selectedType !== 'all') {
+  if (selectedType !== 'all' && (!debouncedQuery || hasCustomTypeFilter)) {
     activeChips.push({
       key: 'type',
       label: `Format: ${selectedType === 'movie' ? 'Movies' : 'Series'}`,
-      onClear: () => setSelectedType('all'),
+      onClear: () => {
+        setSelectedType('all');
+        setHasCustomTypeFilter(false);
+      },
     });
   }
   if (selectedGenre !== 'All') {
@@ -419,6 +433,7 @@ const DiscoverViewComponent: React.FC<DiscoverViewProps> = ({
               type="button"
               onClick={() => {
                 setCategory(tab.id);
+                setHasCustomTypeFilter(false);
                 if (tab.id.includes('movies')) setSelectedType('movie');
                 else if (tab.id.includes('_tv')) setSelectedType('tv');
                 else setSelectedType('all');
@@ -457,6 +472,7 @@ const DiscoverViewComponent: React.FC<DiscoverViewProps> = ({
                   type="button"
                   onClick={() => {
                     setSelectedType(fmt.id);
+                    setHasCustomTypeFilter(fmt.id !== 'all');
                     if (
                       (fmt.id === 'movie' && category.includes('_tv')) ||
                       (fmt.id === 'tv' && category.includes('movies'))
@@ -465,7 +481,7 @@ const DiscoverViewComponent: React.FC<DiscoverViewProps> = ({
                     }
                   }}
                   className={`py-1.5 text-xs font-semibold rounded-md transition-colors ${
-                    selectedType === fmt.id
+                    (debouncedQuery && !hasCustomTypeFilter ? 'all' : selectedType) === fmt.id
                       ? 'bg-amber-500 text-slate-950'
                       : 'text-slate-400 hover:text-white'
                   }`}
@@ -702,8 +718,25 @@ const DiscoverViewComponent: React.FC<DiscoverViewProps> = ({
           </div>
           <button
             type="button"
-            onClick={() => loadCataloguePage(page, 'replace')}
+            onClick={() => loadCataloguePage(page, 'replace', undefined, true)}
             className="px-3 py-1.5 rounded-lg bg-red-500/20 hover:bg-red-500/30 text-red-200 text-xs font-semibold shrink-0"
+          >
+            Retry
+          </button>
+        </div>
+      )}
+
+      {/* Fallback Search Warning Banner (Missing or invalid VITE_TMDB_API_KEY) */}
+      {!error && searchWarning && debouncedQuery && (
+        <div className="p-4 rounded-xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-between gap-4">
+          <div className="flex items-center gap-3 text-xs text-amber-200">
+            <AlertCircle className="w-5 h-5 text-amber-400 shrink-0" />
+            <span>{searchWarning}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => loadCataloguePage(page, 'replace', undefined, true)}
+            className="px-3 py-1.5 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 text-xs font-semibold shrink-0"
           >
             Retry
           </button>

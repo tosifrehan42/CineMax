@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { MediaItem } from '../types';
 import { MediaPoster } from './MediaPoster';
 import { fetchCatalogue } from '../services/mediaApi';
+import { dedupeMediaItems } from '../utils/mediaIntegrity';
 import { Search, X, Star, Film, ArrowRight, Loader2, Plus, AlertCircle } from 'lucide-react';
 
 interface SearchOverlayProps {
@@ -29,6 +30,7 @@ export const SearchOverlay: React.FC<SearchOverlayProps> = ({
   const [isLoading, setIsLoading] = useState(false);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [searchWarning, setSearchWarning] = useState<string | null>(null);
 
   const inputRef = useRef<HTMLInputElement>(null);
   const requestIdRef = useRef(0);
@@ -40,19 +42,20 @@ export const SearchOverlay: React.FC<SearchOverlayProps> = ({
       setQuery('');
       setDebouncedQuery('');
       setError(null);
+      setSearchWarning(null);
     }
   }, [isOpen]);
 
-  // Debounce search query (300ms)
+  // Debounce search query (250ms), preserving internal spaces for multi-word titles
   useEffect(() => {
     const timer = setTimeout(() => {
-      setDebouncedQuery(query.trim());
-    }, 300);
+      setDebouncedQuery(query.replace(/\s+/g, ' ').trim());
+    }, 250);
     return () => clearTimeout(timer);
   }, [query]);
 
   const executeSearch = useCallback(
-    async (signal?: AbortSignal) => {
+    async (signal?: AbortSignal, forceRefresh = false) => {
       const currentReqId = ++requestIdRef.current;
       setIsLoading(true);
       setError(null);
@@ -63,18 +66,21 @@ export const SearchOverlay: React.FC<SearchOverlayProps> = ({
             query: debouncedQuery,
             type: typeFilter,
             page: 1,
+            refresh: forceRefresh,
           },
           signal
         );
         if (signal?.aborted || currentReqId !== requestIdRef.current) return;
 
-        if (onRegisterMedia && res.items.length > 0) {
-          onRegisterMedia(res.items);
+        const uniqueItems = dedupeMediaItems(res.items);
+        if (onRegisterMedia && uniqueItems.length > 0) {
+          onRegisterMedia(uniqueItems);
         }
-        setResults(res.items);
+        setResults(uniqueItems);
         setPage(res.page);
         setTotalPages(res.totalPages);
         setTotalResults(res.totalResults);
+        setSearchWarning(debouncedQuery ? res.searchWarning || null : null);
       } catch (err: any) {
         if (err?.name === 'AbortError' || signal?.aborted || currentReqId !== requestIdRef.current) {
           return;
@@ -111,13 +117,11 @@ export const SearchOverlay: React.FC<SearchOverlayProps> = ({
         page: nextPage,
       });
       if (activeReqId !== requestIdRef.current) return;
-      if (onRegisterMedia && res.items.length > 0) {
-        onRegisterMedia(res.items);
+      const uniqueNewItems = dedupeMediaItems(res.items);
+      if (onRegisterMedia && uniqueNewItems.length > 0) {
+        onRegisterMedia(uniqueNewItems);
       }
-      setResults((prev) => {
-        const seen = new Set(prev.map((i) => i.id));
-        return [...prev, ...res.items.filter((i) => !seen.has(i.id))];
-      });
+      setResults((prev) => dedupeMediaItems([...prev, ...uniqueNewItems]));
       setPage(res.page || nextPage);
       setTotalPages(res.totalPages);
     } catch (err: any) {
@@ -249,8 +253,24 @@ export const SearchOverlay: React.FC<SearchOverlayProps> = ({
               <span>{error}</span>
             </div>
             <button
-              onClick={() => executeSearch()}
+              onClick={() => executeSearch(undefined, true)}
               className="px-2.5 py-1 rounded-lg bg-red-500/20 hover:bg-red-500/30 text-red-200 text-xs font-semibold shrink-0"
+            >
+              Retry
+            </button>
+          </div>
+        )}
+
+        {/* Fallback Search Warning Banner (Missing or invalid VITE_TMDB_API_KEY) */}
+        {!error && searchWarning && debouncedQuery && (
+          <div className="mx-3 mt-3 p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 flex items-center justify-between gap-3">
+            <div className="flex items-center gap-2 text-xs text-amber-200">
+              <AlertCircle className="w-4 h-4 text-amber-400 shrink-0" />
+              <span>{searchWarning}</span>
+            </div>
+            <button
+              onClick={() => executeSearch(undefined, true)}
+              className="px-2.5 py-1 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 text-xs font-semibold shrink-0"
             >
               Retry
             </button>
