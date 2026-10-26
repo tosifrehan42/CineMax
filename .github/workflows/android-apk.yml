@@ -80,40 +80,46 @@ jobs:
           ./gradlew assembleDebug --no-daemon
           cp app/build/outputs/apk/debug/app-debug.apk ../CineMax-debug.apk
 
-      - name: Build and sign Release APK (when signing secrets are configured)
+      - name: Build and sign Release APK via Gradle (when signing secrets are configured)
         id: sign_release
         env:
-          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
-          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
-          KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
-          if [ -n "$KEYSTORE_BASE64" ] && [ -n "$KEYSTORE_PASSWORD" ] && [ -n "$KEY_ALIAS" ] && [ -n "$KEY_PASSWORD" ]; then
-            echo "Signing secrets detected. Building signed Release APK..."
-            echo "$KEYSTORE_BASE64" | base64 --decode > /tmp/cinemax-release.jks
-            cd android
-            ./gradlew assembleRelease --no-daemon
-            cd ..
-            BUILD_TOOLS_DIR=$(ls -d "$ANDROID_HOME/build-tools/"* | sort -V | tail -n 1)
-            "$BUILD_TOOLS_DIR/zipalign" -v -p 4 \
-              android/app/build/outputs/apk/release/app-release-unsigned.apk \
-              /tmp/app-release-aligned.apk
-            "$BUILD_TOOLS_DIR/apksigner" sign \
-              --ks /tmp/cinemax-release.jks \
-              --ks-key-alias "$KEY_ALIAS" \
-              --ks-pass env:KEYSTORE_PASSWORD \
-              --key-pass env:KEY_PASSWORD \
-              --out CineMax-release-signed.apk \
-              /tmp/app-release-aligned.apk
-            "$BUILD_TOOLS_DIR/apksigner" verify --verbose CineMax-release-signed.apk
-            rm -f /tmp/cinemax-release.jks /tmp/app-release-aligned.apk
+          if [ -n "$ANDROID_KEYSTORE_BASE64" ] && [ -n "$ANDROID_KEYSTORE_PASSWORD" ] && [ -n "$ANDROID_KEY_ALIAS" ] && [ -n "$ANDROID_KEY_PASSWORD" ]; then
+            echo "All four Android release signing secrets detected. Building Gradle-signed Release APK..."
+            KEYSTORE_TEMP_FILE="$(mktemp "${RUNNER_TEMP:-/tmp}/cinemax-release-XXXXXX.jks")"
+            trap 'rm -f "$KEYSTORE_TEMP_FILE"' EXIT
+            printf '%s' "$ANDROID_KEYSTORE_BASE64" | tr -d ' \t\r\n' | base64 --decode > "$KEYSTORE_TEMP_FILE"
+            if [ ! -s "$KEYSTORE_TEMP_FILE" ]; then
+              echo "Error: Decoded keystore temporary file is empty."
+              exit 1
+            fi
+            export ANDROID_KEYSTORE_PATH="$KEYSTORE_TEMP_FILE"
+            (
+              cd android
+              ./gradlew assembleRelease --no-daemon
+            )
+            SIGNED_APK_PATH="android/app/build/outputs/apk/release/app-release.apk"
+            if [ ! -f "$SIGNED_APK_PATH" ]; then
+              echo "Error: Expected Gradle-signed APK ($SIGNED_APK_PATH) was not produced."
+              exit 1
+            fi
+            cp "$SIGNED_APK_PATH" CineMax-release-signed.apk
+            if [ -n "${ANDROID_HOME:-}" ] && [ -d "$ANDROID_HOME/build-tools" ]; then
+              BUILD_TOOLS_DIR=$(ls -d "$ANDROID_HOME/build-tools/"* | sort -V | tail -n 1)
+              "$BUILD_TOOLS_DIR/apksigner" verify --verbose CineMax-release-signed.apk
+            fi
+            rm -f "$KEYSTORE_TEMP_FILE"
             echo "signed=true" >> "$GITHUB_OUTPUT"
           else
             echo "Release signing secrets not configured; skipping signed Release APK and providing installable Debug APK."
             echo "signed=false" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Upload Android APK artifact
+      - name: Upload Android APK artifact bundle
         uses: actions/upload-artifact@v4
         with:
           name: CineMax-Android-APK
@@ -123,20 +129,29 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
+      - name: Upload Signed Release APK artifact
+        if: steps.sign_release.outputs.signed == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: CineMax-release-signed.apk
+          path: CineMax-release-signed.apk
+          if-no-files-found: error
+          retention-days: 30
+
       - name: Publish APK to GitHub Releases on version tags
         if: startsWith(github.ref, 'refs/tags/v')
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           TAG_NAME="${GITHUB_REF#refs/tags/}"
-          ASSETS="CineMax-debug.apk"
+          ASSETS=("CineMax-debug.apk")
           if [ -f CineMax-release-signed.apk ]; then
-            ASSETS="$ASSETS CineMax-release-signed.apk"
+            ASSETS+=("CineMax-release-signed.apk")
           fi
           if gh release view "$TAG_NAME" >/dev/null 2>&1; then
-            gh release upload "$TAG_NAME" $ASSETS --clobber
+            gh release upload "$TAG_NAME" "${ASSETS[@]}" --clobber
           else
-            gh release create "$TAG_NAME" $ASSETS \
+            gh release create "$TAG_NAME" "${ASSETS[@]}" \
               --title "CineMax $TAG_NAME (Android APK)" \
               --generate-notes
           fi
