@@ -694,10 +694,90 @@ async function getLiveExpandedCatalog(forceRefresh = false): Promise<MediaItem[]
   return cachedLiveCatalog;
 }
 
+const PRODUCTION_GITHUB_PAGES_ORIGIN = 'https://tosifrehan42.github.io';
+
+function getAllowedCorsOrigins(): Set<string> {
+  const allowed = new Set<string>([
+    PRODUCTION_GITHUB_PAGES_ORIGIN,
+    'http://localhost:3000',
+    'http://127.0.0.1:3000',
+    'http://localhost:5173',
+    'http://127.0.0.1:5173',
+  ]);
+
+  const extraRaw = [process.env.APP_URL, process.env.CORS_ALLOWED_ORIGINS]
+    .filter(Boolean)
+    .join(',');
+
+  for (const entry of extraRaw.split(',')) {
+    const trimmed = entry.trim();
+    if (!trimmed || trimmed === 'MY_APP_URL') continue;
+    try {
+      const origin = new URL(trimmed).origin;
+      if (origin && origin !== 'null') {
+        allowed.add(origin);
+      }
+    } catch {
+      // Ignore malformed URL entries
+    }
+  }
+
+  return allowed;
+}
+
 async function startServer() {
   const app = express();
   const httpServer = http.createServer(app);
+
+  // Explicit CORS middleware for https://tosifrehan42.github.io and approved origins (never wildcard '*' on privileged routes)
+  app.use((req, res, next) => {
+    const requestOrigin = typeof req.headers.origin === 'string' ? req.headers.origin.trim() : '';
+    const allowedOrigins = getAllowedCorsOrigins();
+    const isAllowedOrigin = Boolean(requestOrigin && allowedOrigins.has(requestOrigin));
+
+    // Always vary on Origin so caches never mix cross-origin responses
+    res.vary('Origin');
+
+    if (isAllowedOrigin) {
+      res.setHeader('Access-Control-Allow-Origin', requestOrigin);
+      res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+      res.setHeader(
+        'Access-Control-Allow-Headers',
+        'Content-Type, Authorization, Accept, X-Requested-With'
+      );
+      res.setHeader('Access-Control-Max-Age', '86400');
+    }
+
+    const isPrivilegedAdminRoute = req.path.startsWith('/api/admin');
+
+    if (req.method === 'OPTIONS') {
+      if (isPrivilegedAdminRoute && requestOrigin && !isAllowedOrigin) {
+        return res.status(403).json({
+          error: 'CORS origin is not authorized for privileged admin operations.',
+        });
+      }
+      return res.status(204).end();
+    }
+
+    if (isPrivilegedAdminRoute && requestOrigin && !isAllowedOrigin) {
+      return res.status(403).json({
+        error: 'CORS origin is not authorized for privileged admin operations.',
+      });
+    }
+
+    next();
+  });
+
   app.use(express.json());
+
+  // 0. Render / Load Balancer Health Check Endpoint (/healthz)
+  app.get('/healthz', (_req, res) => {
+    res.status(200).json({
+      status: 'ok',
+      service: 'cinemax-api',
+      timestamp: new Date().toISOString(),
+    });
+  });
 
   // 1. Health, TMDB & Public Supabase Configuration Status Endpoint
   app.get('/api/status', (_req, res) => {
