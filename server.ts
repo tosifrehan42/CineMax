@@ -35,7 +35,7 @@ import { processAdminRequest } from './src/server/adminHandler.ts';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const PORT = 3000;
+const PORT = Number(process.env.PORT) || 3000;
 const TMDB_BASE_URL = 'https://api.themoviedb.org/3';
 const TMDB_IMAGE_W500 = 'https://image.tmdb.org/t/p/w500';
 const TMDB_IMAGE_W1280 = 'https://image.tmdb.org/t/p/w1280';

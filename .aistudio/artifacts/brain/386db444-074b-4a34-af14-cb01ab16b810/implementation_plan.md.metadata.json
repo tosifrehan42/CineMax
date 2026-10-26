@@ -1,6 +1,6 @@
 {
-  "summary":  "Implementation plan to eliminate duplicate and cross-title poster/backdrop URLs, enforce canonical (mediaType + tmdbId) deduplication across all carousels and grids, standardize TV first-air years and authentic metadata, and add automated catalogue integrity verification.",
-  "updatedAt":  "2026-10-24T09:55:06.113699013Z",
+  "summary":  "Implementation plan for auditing and fixing CineMax's GitHub Pages (/CineMax/) static production configuration, direct TMDB v3 catalogue/episode/watch-provider client resolution, India OTT platform deep links, and GitHub Actions secret verification.",
+  "updatedAt":  "2026-10-24T18:18:00.341070960Z",
   "requestFeedback":  true,
   "userFacing":  true
 }
