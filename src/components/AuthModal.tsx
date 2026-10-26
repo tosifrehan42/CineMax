@@ -106,10 +106,12 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         if (error) {
           setErrorMsg(error);
         } else if (user && !session) {
-          setSuccessMsg(
-            'Account created! Please check your email inbox to confirm your address before signing in.'
-          );
+          setMode('signin');
+          setEmail(cleanEmail);
           setPassword('');
+          setSuccessMsg(
+            `Account created for ${cleanEmail}! Please check your email inbox to confirm your address, then sign in below.`
+          );
         } else if (session) {
           setPassword('');
           onAuthSuccess?.();

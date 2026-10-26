@@ -296,7 +296,7 @@ const NavbarComponent: React.FC<NavbarProps> = ({
                   onClick={onSignOut}
                   aria-label="Sign out"
                   title="Sign Out"
-                  className="hidden sm:flex p-2 text-slate-400 hover:text-red-400 hover:bg-white/5 rounded-lg transition-colors focus:outline-none"
+                  className="flex items-center justify-center min-h-[36px] min-w-[36px] p-2 text-slate-400 hover:text-red-400 hover:bg-white/5 rounded-lg transition-colors focus:outline-none focus-visible:ring-1 focus-visible:ring-amber-400"
                 >
                   <LogOut className="w-4 h-4" />
                 </button>

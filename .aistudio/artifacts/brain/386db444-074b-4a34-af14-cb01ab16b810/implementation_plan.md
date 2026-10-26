@@ -1,65 +1,107 @@
-# CineMax Android APK Packaging & GitHub Releases Plan
+# CineMax — Custom Android Launcher Icon & Pre-Home Authentication Gate
 
-## 1. Architecture & Codebase Audit Findings
+This update replaces the default Capacitor launcher icon with a custom dark-obsidian and golden **"CM" monogram** Android app icon across all density buckets and adaptive icon layers, and introduces a full-screen **Sign In / Sign Up authentication gate** powered by the existing Supabase Auth client before users enter the CineMax home experience.
 
-1. **Vite Base Path (`vite.config.ts`)**:
-   - Currently sets `const base = process.env.VITE_BASE_PATH || (command === 'build' ? '/CineMax/' : '/');`.
-   - GitHub Pages requires `/CineMax/`, whereas Capacitor Android serves bundled assets from the root of its local WebView origin (`https://localhost/`) and requires `VITE_BASE_PATH=/` (or `./`).
-2. **API Client & Supabase Origin Resolution (`src/services/mediaApi.ts`, `src/services/supabaseClient.ts`, `src/services/adminApi.ts`)**:
-   - Inside Capacitor on Android, the WebView origin is `https://localhost` (or `http://localhost` / `capacitor://localhost`).
-   - `isGithubPagesHost()` in `src/services/mediaApi.ts` only checks `*.github.io`. If `fetchApiJson()` runs inside Capacitor Android (`https://localhost`), `hasDistinctSameOrigin` would mistakenly treat `https://localhost` as a local Express server unless Capacitor native/WebView origins are recognized as static client hosts that route directly to `VITE_API_BASE_URL` (`https://cinemax-kxpv.onrender.com`).
-   - `supabaseClient.ts` and `adminApi.ts` also read `VITE_API_BASE_URL` and should default to `https://cinemax-kxpv.onrender.com` on static/Capacitor hosts when `VITE_API_BASE_URL` is not explicitly overridden.
-3. **Backend CORS Allowlist (`server.ts`)**:
-   - `getAllowedCorsOrigins()` in `server.ts` currently allows `https://tosifrehan42.github.io` and local dev ports (`http://localhost:3000`, `http://localhost:5173`), but does **not** include Capacitor origins (`https://localhost`, `http://localhost`, `capacitor://localhost`).
-   - Adding those exact Capacitor origins to `getAllowedCorsOrigins()` ensures the Render backend (`https://cinemax-kxpv.onrender.com`) permits `GET`, `POST`, `OPTIONS` requests from the installed Android APK without using wildcard `*` origins.
-4. **tsconfig & Build Exclusions (`tsconfig.json`)**:
-   - When `@capacitor/android` generates the `android/` native project directory, `tsconfig.json` should exclude `android` and `dist` so `bun run lint` (`tsc --noEmit`) only type-checks the TypeScript application source.
+## User Review & Critical Decisions
+
+> [!IMPORTANT]
+> The following product and design choices have been confirmed and govern the implementation:
+
+- **Confirmed Decision 1 — Android Launcher Icon Motif**: Bold golden **"CM" monogram** with a subtle cinema spotlight glow set against CineMax's deep obsidian background (`#0A0D12`), keeping the website's existing header emblem unchanged.
+- **Confirmed Decision 2 — Post-Sign-Up Email Confirmation Flow**: When Supabase requires email verification before issuing an active session, display a clear verification banner and automatically switch the authentication gate to the **Sign In** tab with the user's email address pre-filled.
+- **Confirmed Decision 3 — Session Persistence & Route Protection**: Reuse the single existing Supabase client (`persistSession: true`, `autoRefreshToken: true`) and gate all primary views (`home`, `discover`, `watchlist`, `estimator`, `profile`, `admin`) behind an active authenticated session so direct URL navigation cannot bypass login.
 
 ---
 
-## 2. Planned Changes
+## 1. Overview & Core Concept
 
-### A. Capacitor Configuration & Scripts (`package.json`, `capacitor.config.ts`, `tsconfig.json`, `.gitignore`)
-- Install `@capacitor/core`, `@capacitor/cli`, and `@capacitor/android`.
-- Create `capacitor.config.ts` configured with:
-  - `appId: 'in.vertexstudios.cinemax'`
-  - `appName: 'CineMax'`
-  - `webDir: 'dist'`
-  - `server: { androidScheme: 'https' }`
-- Add helper scripts in `package.json` (preserving all existing scripts `dev`, `start`, `build`, `preview`, `clean`, `lint`):
-  - `"build:android:web": "VITE_BASE_PATH=/ VITE_API_BASE_URL=https://cinemax-kxpv.onrender.com vite build"`
-  - `"cap:sync": "cap sync android"`
-  - `"android:prepare": "bun run build:android:web && cap sync android"`
-- Exclude `android` and `dist` in `tsconfig.json` so `tsc --noEmit` stays fast and clean.
-
-### B. Client API & Capacitor Origin Handling (`src/services/mediaApi.ts`, `src/services/supabaseClient.ts`, `src/services/adminApi.ts`)
-- Add `isCapacitorOrStaticHost()` detection in `src/services/mediaApi.ts` (detecting `*.github.io`, `capacitor://`, `file://`, `(window as any).Capacitor?.isNativePlatform?.()`, or `https://localhost` without a port) so:
-  - `resolveApiBaseUrl()` defaults to `https://cinemax-kxpv.onrender.com` on both GitHub Pages and the Capacitor Android app.
-  - `fetchApiJson()` routes directly to `API_BASE_URL` (`https://cinemax-kxpv.onrender.com`) on Capacitor Android without attempting same-origin `/api/*` requests against the local WebView asset server.
-- Update `src/services/supabaseClient.ts` and `src/services/adminApi.ts` to use the same fallback base URL (`https://cinemax-kxpv.onrender.com`) on GitHub Pages and Capacitor Android when `VITE_API_BASE_URL` is not overridden.
-
-### C. Trusted Capacitor CORS Origins (`server.ts`)
-- Add `'https://localhost'`, `'http://localhost'`, and `'capacitor://localhost'` to `getAllowedCorsOrigins()` in `server.ts` so the Render backend allows requests from the Android WebView while keeping strict origin validation on all routes (including `/api/admin/*`).
-
-### D. Separate GitHub Actions Android APK Workflow (`.github/workflows/android-apk.yml`)
-- Keep `.github/workflows/deploy.yml` untouched so GitHub Pages deployment at `/CineMax/` continues working as-is.
-- Create `.github/workflows/android-apk.yml`:
-  - **Triggers**: `push` to `main`/`master`, version tags `v*`, and `workflow_dispatch`.
-  - **Environment**: Sets `VITE_BASE_PATH: '/'` and `VITE_API_BASE_URL: ${{ secrets.VITE_API_BASE_URL || 'https://cinemax-kxpv.onrender.com' }}`, plus `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY`. Never injects `TMDB_API_KEY`, `SUPABASE_SERVICE_ROLE_KEY`, or private tokens into the APK build.
-  - **Steps**:
-    1. Checkout repository, set up Bun, Node.js, and JDK 21 (required by Capacitor Android / Gradle).
-    2. Install dependencies (`bun install --frozen-lockfile`), run `bun run lint`, and build the root-path web bundle (`bun run build`).
-    3. Initialize/add the Android platform if `android/` is not yet present (`bunx cap add android`) or sync web assets (`bunx cap sync android`).
-    4. Build the installable Debug APK (`./gradlew assembleDebug`) and rename/copy to `CineMax-debug.apk`.
-    5. Optionally build and sign a Release APK (`./gradlew assembleRelease` + `apksigner` / Gradle signing) whenever the 4 signing secrets (`ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD`) are configured in GitHub Secrets.
-    6. Upload the generated APK(s) as downloadable GitHub Actions workflow artifacts on every run.
-    7. When triggered by a version tag (`v*`), automatically create/update the GitHub Release and attach the built APK(s) (`CineMax-debug.apk` and/or `CineMax-release-signed.apk`) as downloadable release assets.
+- **What It Does**:
+  1. **Custom Android App Icon**: Gives the installed `CineMax` Android application (`in.vertexstudios.cinemax`) a recognizable, cinema-grade launcher icon across both legacy density mipmaps (`mdpi` through `xxxhdpi`) and Android 8.0+ adaptive icon foreground/background layers (`mipmap-anydpi-v26`).
+  2. **Mandatory Pre-Home Authentication Gate**: Presents a responsive, full-screen Sign In / Sign Up experience when the app opens without an active session, while immediately restoring the authenticated Home screen on subsequent launches when a valid Supabase session is persisted.
+- **Target Audience / Persona**: CineMax web and Android users who want a cohesive native app identity on their device home screen and immediate, automatic cloud synchronization of their watchlist, episode progress, and viewing history upon entering the app.
+- **Key Value**: Eliminates the generic default Capacitor icon on Android devices and ensures every user session is backed by authenticated Supabase cloud state from the moment the home screen loads.
 
 ---
 
-## 3. Verification Plan
-1. Install `@capacitor/core`, `@capacitor/cli`, and `@capacitor/android`.
-2. Run `bun run lint` (`tsc --noEmit`) to verify zero TypeScript errors.
-3. Run both `bun run build` (GitHub Pages `/CineMax/` build) and `bun run build:android:web` (Android `/` root asset path build) and verify compiled `dist/index.html` asset paths for each target.
-4. Generate/sync the Capacitor Android project (`bunx cap add android` / `bunx cap sync android`) and verify `android/app/src/main/assets/public/index.html`.
-5. Document the exact signing secret setup and GitHub Release publishing steps.
+## 2. User Experience & Visual Design
+
+- **Key User Flows**:
+  1. **App Launch & Session Check**:
+     - On startup, CineMax checks for an existing persisted Supabase session (`client.auth.getSession()`).
+     - While the initial session check resolves, a branded dark-cinema loading screen prevents any flash of unauthenticated home content or premature login form flicker.
+  2. **Unauthenticated Launch → Sign In / Sign Up Gate**:
+     - If no valid session exists, the user sees the full-screen CineMax Authentication Gate instead of the Home view or navigation bars.
+     - Users can switch cleanly between **Sign In** and **Create Account (Sign Up)** using single-line segmented controls with generous $\ge 44\text{px}$ touch hitboxes.
+     - **Sign In**: Validates email and password ($\ge 6$ characters), authenticates via `signInWithEmail()`, and transitions directly into the CineMax Home page.
+     - **Sign Up**: Collects Display Name, Email Address, and Password, registers via `signUpWithEmail()`, and either enters the Home page immediately (if a session is returned) or switches to **Sign In** with the email pre-filled and a clear confirmation notice (if email verification is enabled in Supabase).
+  3. **Authenticated Session & Sign Out**:
+     - Once signed in, the full CineMax experience (Home, Movies, Series, Discover, Watchlist, Quality & File Size Estimator, Profile, and verified Admin Dashboard) unlocks, and the session persists across refreshes and Android app restarts.
+     - Clicking **Sign Out** in either the top navigation bar or the **Profile / Account** view clears the Supabase session, resets in-memory cloud state, and immediately returns the user to the Authentication Gate.
+- **Visual Identity & Theme**:
+  - *Aesthetic Direction*: Atmospheric Dark Cinema (`#0A0D12` obsidian canvas, `#121621` elevated slate cards, hairline `rgba(255,255,255,0.08)` borders).
+  - *Color Palette & Mood*: 60% deep obsidian neutral canvas (`#0A0D12`), 30% structural slate surfaces (`#0d0e14` / `#121621`), and 10% warm cinema-gold accent (`#F59E0B` to `#D97706`) concentrated on primary CTAs, active tabs, and the Android launcher monogram.
+  - *Typography & Hierarchy*: `Outfit` display headlines (`clamp(1.75rem, 3vw, 2.5rem)`, `text-wrap: balance`) paired with `Plus Jakarta Sans` body prose and `JetBrains Mono` (`tabular-nums`) for technical metadata.
+  - *Component Styling & Layout*: Full-viewport split layout on desktop (`max-w-6xl` two-column showcase with curated cinema highlights on the left and the interactive authentication card on the right) that adapts seamlessly to a one-handed, thumb-friendly mobile layout ($375\text{px}$–$430\text{px}$) with $\ge 44\text{px}$ interactive controls.
+- **Interactive Feedback & Motion**:
+  - Instant inline validation and clear, human-readable error banners paired with icons (never color alone).
+  - Smooth `150ms` opacity/transform transitions and disabled loading states (`Signing In...` / `Creating Account...`) to prevent duplicate submissions.
+
+---
+
+## 3. Key Product Decisions & Trade-Offs
+
+- **Decision 1: Unified Authentication Gate Reusing Existing Supabase Client**
+  - *Chosen Approach*: Drive both the pre-home Authentication Gate and session lifecycle from the existing `ensureSupabaseClient()`, `signInWithEmail()`, `signUpWithEmail()`, and `signOutUser()` service functions.
+  - *Why*: Guarantees a single source of truth for JWT tokens, Row Level Security (RLS), admin verification, and Capacitor Android WebView origin compatibility (`https://localhost` -> `https://cinemax-kxpv.onrender.com/api/status` runtime fallback if build-time env vars are absent).
+  - *Alternatives Considered*: Creating a separate login page router or secondary auth store, which would duplicate session listeners and risk state desynchronization.
+- **Decision 2: Adaptive + Legacy Mipmap Android Launcher Icons**
+  - *Chosen Approach*: Provide both Android 8.0+ adaptive icon layers (`ic_launcher_background` color `#0A0D12` + safe-zone `ic_launcher_foreground` mipmaps) and legacy square/round PNG mipmaps (`ic_launcher.png` and `ic_launcher_round.png`) across `mdpi`, `hdpi`, `xhdpi`, `xxhdpi`, and `xxxhdpi`.
+  - *Why*: Ensures crisp rendering across all Android launcher shapes (circle, squircle, rounded square, teardrop) while keeping the web navbar logo untouched.
+
+---
+
+## 4. Technical Architecture & Data Strategy *(Technical Reference)*
+
+### Architecture & Component Diagram
+
+```
+┌──────────────────────────────────────────────────────────────────────────┐
+│                     CineMax Application Startup                          │
+│         (GitHub Pages /CineMax/  OR  Capacitor Android https://localhost)│
+└────────────────────────────────────┬─────────────────────────────────────┘
+                                     │
+                                     ▼
+┌──────────────────────────────────────────────────────────────────────────┐
+│              Supabase Session Manager (supabaseClient.ts)                │
+│  • Build-time VITE_SUPABASE_* or runtime /api/status fallback            │
+│  • client.auth.getSession() + client.auth.onAuthStateChange()            │
+└───────────────┬───────────────────────┬───────────────────────┬──────────┘
+                │                       │                       │
+     [isAuthInitializing]        [!authUser]              [authUser]
+                │                       │                       │
+                ▼                       ▼                       ▼
+┌───────────────────────┐ ┌───────────────────────────┐ ┌──────────────────┐
+│  Cinema Startup       │ │  Full-Screen Auth Gate    │ │ Authenticated    │
+│  Splash Loader        │ │  • Sign In / Sign Up Tabs │ │ CineMax Shell    │
+│  (Prevents UI flash)  │ │  • Email Pre-fill on      │ │ • Navbar         │
+└───────────────────────┘ │    Verify Notice          │ │ • Home / Movies  │
+                          │  • Input & Error Handling │ │   / Series       │
+                          └───────────────────────────┘ │ • Discover &     │
+                                                        │   Live Search    │
+                                                        │ • Cloud Watchlist│
+                                                        │ • Profile &      │
+                                                        │   Sign Out       │
+                                                        └──────────────────┘
+```
+
+### Data Model & State
+- **`isAuthInitializing` (`boolean`)**: Holds the startup gate in a clean loading state until `ensureSupabaseClient()` and `client.auth.getSession()` complete.
+- **`authUser` (`User | null`)**: Determines whether the user enters the authenticated CineMax shell or remains at the Authentication Gate.
+- **Route & Modal Protection**:
+  - When `authUser` is `null` (including immediately after `handleSignOut()`), any open modals (`selectedMedia`, `trailerMedia`, `onlinePlaybackTarget`, `isSurpriseOpen`, `isSearchOpen`) are closed, any `/admin` URL state is reset to the root path, and the Authentication Gate is rendered exclusively.
+
+### Interactive Component & State Mapping
+- **Sign In / Sign Up Mode Toggle**: Switches between `'signin'` and `'signup'`, clearing stale error banners while preserving typed email text.
+- **Sign Up Verification Transition**: When `signUpWithEmail()` returns `user && !session`, switches mode to `'signin'`, keeps the `email` input populated, clears the password field, and displays a confirmation banner instructing the user to verify their email and sign in.
+- **Sign Out Action (Navbar & ProfileView)**: Calls `handleSignOut()`, invoking `signOutUser()`, clearing cached admin and cloud state, resetting active tab to `'home'`, and returning immediately to the Authentication Gate.
+- **Android Icon Pipeline**: Updates `/android/app/src/main/res/values/ic_launcher_background.xml` (`#0A0D12`) and generates all density PNGs (`mdpi` 48px/108px, `hdpi` 72px/162px, `xhdpi` 96px/216px, `xxhdpi` 144px/324px, `xxxhdpi` 192px/432px) for `ic_launcher.png`, `ic_launcher_round.png`, and `ic_launcher_foreground.png`.

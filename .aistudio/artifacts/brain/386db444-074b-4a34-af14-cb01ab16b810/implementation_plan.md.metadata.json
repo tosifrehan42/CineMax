@@ -1,6 +1,6 @@
 {
-  "summary":  "Implementation plan to package CineMax as an installable Android APK using Capacitor (in.vertexstudios.cinemax), configure root asset paths and Render API origin/CORS for Capacitor WebView, and add a dedicated GitHub Actions workflow (.github/workflows/android-apk.yml) that uploads workflow artifacts and publishes APKs to GitHub Releases on version tags.",
-  "updatedAt":  "2026-10-26T12:13:34.900552623Z",
+  "summary":  "Implementation plan for updating the CineMax Android launcher icon (bold golden CM monogram with subtle cinema spotlight glow across adaptive and density mipmap assets) and enforcing a full-screen Supabase authentication gate (Sign In / Sign Up) before rendering the Home and discovery routes.",
+  "updatedAt":  "2026-10-26T14:32:45.338107693Z",
   "requestFeedback":  true,
   "userFacing":  true
 }

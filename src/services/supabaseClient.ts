@@ -352,9 +352,9 @@ export async function ensureSupabaseClient(): Promise<{
           (window.location.hostname.toLowerCase().endsWith('.github.io') ||
             Boolean((window as any).Capacitor?.isNativePlatform?.()) ||
             window.location.protocol === 'capacitor:' ||
+            window.location.protocol === 'file:' ||
             (window.location.hostname.toLowerCase() === 'localhost' &&
-              !window.location.port &&
-              window.location.protocol === 'https:'));
+              !window.location.port));
         const apiBase =
           rawEnvBase && rawEnvBase !== 'MY_APP_URL'
             ? rawEnvBase
@@ -383,6 +383,9 @@ export async function ensureSupabaseClient(): Promise<{
     })();
   }
   const client = await initPromise;
+  if (!client) {
+    initPromise = null;
+  }
   return {
     client,
     configured: Boolean(client),
@@ -464,6 +467,28 @@ function fromDbStatus(dbStatus: string): WatchStatus {
 // Authentication Operations
 // ============================================================================
 
+export function formatAuthErrorMessage(rawMessage: string | null | undefined): string {
+  const msg = (rawMessage || '').trim();
+  if (!msg) return 'Authentication failed. Please try again.';
+  const lower = msg.toLowerCase();
+  if (lower.includes('invalid login credentials')) {
+    return 'Invalid email or password. Please check your credentials and try again, or create a new account.';
+  }
+  if (lower.includes('email not confirmed')) {
+    return 'Your email address has not been confirmed yet. Please check your inbox (and spam folder) for the confirmation link.';
+  }
+  if (lower.includes('user already registered') || lower.includes('already been registered')) {
+    return 'An account with this email already exists. Please switch to Sign In to access your account.';
+  }
+  if (lower.includes('failed to fetch') || lower.includes('networkerror') || lower.includes('load failed')) {
+    return 'Unable to reach the authentication service. Please check your internet connection and try again.';
+  }
+  if (lower.includes('rate limit') || lower.includes('too many requests')) {
+    return 'Too many authentication attempts. Please wait a moment before trying again.';
+  }
+  return msg;
+}
+
 export async function signUpWithEmail(
   email: string,
   password: string,
@@ -492,7 +517,7 @@ export async function signUpWithEmail(
   });
 
   if (error) {
-    return { user: null, session: null, error: error.message };
+    return { user: null, session: null, error: formatAuthErrorMessage(error.message) };
   }
 
   // If a session was immediately established, ensure a profile row exists
@@ -534,7 +559,7 @@ export async function signInWithEmail(
   });
 
   if (error) {
-    return { user: null, session: null, error: error.message };
+    return { user: null, session: null, error: formatAuthErrorMessage(error.message) };
   }
   return { user: data.user, session: data.session, error: null };
 }
@@ -543,7 +568,7 @@ export async function signOutUser(): Promise<{ error: string | null }> {
   const { client } = await ensureSupabaseClient();
   if (!client) return { error: null };
   const { error } = await client.auth.signOut();
-  return { error: error ? error.message : null };
+  return { error: error ? formatAuthErrorMessage(error.message) : null };
 }
 
 // ============================================================================

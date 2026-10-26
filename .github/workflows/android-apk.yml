@@ -66,12 +66,13 @@ jobs:
           fi
           echo "Verified Android web bundle asset: $JS_ASSET"
 
-      - name: Add or sync Capacitor Android platform
+      - name: Add or sync Capacitor Android platform and launcher icons
         run: |
           if [ ! -d android ]; then
             bunx cap add android
           fi
           bunx cap sync android
+          node scripts/generate-android-icons.mjs
 
       - name: Build installable Debug APK
         working-directory: android

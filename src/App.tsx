@@ -40,6 +40,7 @@ import {
 } from './services/supabaseClient';
 import { Navbar } from './components/Navbar';
 import { HomeView } from './components/HomeView';
+import { AuthScreen } from './components/AuthScreen';
 import {
   AdminAccessState,
   checkAdminAccess,
@@ -464,6 +465,14 @@ export default function App() {
             setCloudError(null);
             setSchemaMissing(false);
             setMigrationNeeded(false);
+            setSelectedMedia(null);
+            setTrailerMedia(null);
+            setOnlinePlaybackTarget(null);
+            setIsSurpriseOpen(false);
+            setIsSearchOpen(false);
+            setIsAuthModalOpen(false);
+            setCurrentTab('home');
+            setHomeHubMode('all');
           }
         });
 
@@ -611,8 +620,9 @@ export default function App() {
     verifiedAdminUserId,
   });
 
-  // Global keyboard shortcut for search (Ctrl+K or Cmd+K)
+  // Global keyboard shortcut for search (Ctrl+K or Cmd+K) when authenticated
   useEffect(() => {
+    if (!isAuthenticated) return;
     const handleKeyDown = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
         e.preventDefault();
@@ -621,7 +631,7 @@ export default function App() {
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, []);
+  }, [isAuthenticated]);
 
   // Precompute O(1) lookup Maps for watchlist status and episode counts across 150+ cards
   const watchlistStatusMap = useMemo(() => {
@@ -668,6 +678,13 @@ export default function App() {
     setVerifiedAdminUserId(null);
     setAdminAccessState('denied');
     setAdminCheckError(null);
+    setSelectedMedia(null);
+    setTrailerMedia(null);
+    setOnlinePlaybackTarget(null);
+    setIsSurpriseOpen(false);
+    setIsSearchOpen(false);
+    setIsAuthModalOpen(false);
+    navigateToTab('home', 'all');
     await signOutUser();
     setAuthUser(null);
     setUserProfile(null);
@@ -1328,6 +1345,47 @@ export default function App() {
       <span className="text-xs font-medium">Loading view…</span>
     </div>
   );
+
+  // 1. While checking persisted Supabase session on launch, show branded dark-cinema splash loader
+  if (isAuthInitializing) {
+    return (
+      <div className="min-h-screen bg-[#0A0D12] text-slate-100 flex flex-col items-center justify-center p-6 font-['Plus_Jakarta_Sans']">
+        <div className="flex flex-col items-center gap-4">
+          <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-amber-400 to-amber-600 flex items-center justify-center text-slate-950 shadow-xl shadow-amber-500/20">
+            <Film className="w-7 h-7 stroke-[2.5]" />
+          </div>
+          <div className="text-center space-y-1.5">
+            <div className="font-['Plus_Jakarta_Sans'] text-2xl font-extrabold tracking-tight text-white">
+              Cine<span className="text-amber-400">Max</span>
+            </div>
+            <div className="flex items-center justify-center gap-2 text-xs text-slate-400">
+              <Loader2 className="w-3.5 h-3.5 text-amber-400 animate-spin" />
+              <span>Restoring your session…</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // 2. When no valid session exists, show the full-screen Sign In / Sign Up screen before the Home page
+  if (!isAuthenticated) {
+    return (
+      <AuthScreen
+        supabaseConfigured={supabaseConfigured}
+        securityWarning={securityWarning}
+        initialMode={authModalMode}
+        onSupabaseReconnected={(configured, secWarn) => {
+          setSupabaseConfigured(configured);
+          setSecurityWarning(secWarn);
+        }}
+        onAuthSuccess={() => {
+          navigateToTab('home', 'all');
+          window.scrollTo({ top: 0, behavior: 'smooth' });
+        }}
+      />
+    );
+  }
 
   return (
     <div className="min-h-screen bg-[#0A0D12] text-slate-100 flex flex-col font-['Plus_Jakarta_Sans'] pb-16 md:pb-0">
