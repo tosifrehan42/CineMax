@@ -39,16 +39,13 @@ jobs:
       - name: Run TypeScript type check
         run: bun run lint
 
-      - name: Verify build environment secret presence (boolean only)
+      - name: Verify build environment configuration (boolean only)
         env:
-          HAS_TMDB_KEY: ${{ secrets.VITE_TMDB_API_KEY != '' }}
-          HAS_API_BASE_URL: ${{ secrets.VITE_API_BASE_URL != '' }}
+          HAS_CUSTOM_API_BASE_URL: ${{ secrets.VITE_API_BASE_URL != '' }}
+          HAS_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL != '' }}
         run: |
-          echo "VITE_TMDB_API_KEY configured: $HAS_TMDB_KEY"
-          echo "VITE_API_BASE_URL configured: $HAS_API_BASE_URL"
-          if [ "$HAS_TMDB_KEY" != "true" ] && [ "$HAS_API_BASE_URL" != "true" ]; then
-            echo "::warning::Neither VITE_TMDB_API_KEY nor VITE_API_BASE_URL is set in GitHub Actions Repository Secrets. Static GitHub Pages search will fall back to the open catalogue and TVMaze."
-          fi
+          echo "Custom VITE_API_BASE_URL secret configured: $HAS_CUSTOM_API_BASE_URL (defaults to https://cinemax-kxpv.onrender.com when unset)"
+          echo "VITE_SUPABASE_URL secret configured: $HAS_SUPABASE_URL"
 
       - name: Build production bundle for GitHub Pages
         run: bun run build
@@ -56,8 +53,7 @@ jobs:
           VITE_BASE_PATH: '/CineMax/'
           VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
-          VITE_API_BASE_URL: ${{ secrets.VITE_API_BASE_URL }}
-          VITE_TMDB_API_KEY: ${{ secrets.VITE_TMDB_API_KEY }}
+          VITE_API_BASE_URL: ${{ secrets.VITE_API_BASE_URL || 'https://cinemax-kxpv.onrender.com' }}
 
       - name: Verify production dist output and prepare SPA routing
         run: |

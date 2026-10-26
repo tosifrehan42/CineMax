@@ -144,7 +144,12 @@ const PALETTES: Array<{
 ];
 
 function getTmdbKey(): string {
-  const raw = (process.env.TMDB_API_KEY || process.env.TMDB_READ_ACCESS_TOKEN || '').trim();
+  const raw = (
+    process.env.TMDB_API_KEY ||
+    process.env.TMDB_READ_ACCESS_TOKEN ||
+    process.env.VITE_TMDB_API_KEY ||
+    ''
+  ).trim();
   if (!raw || raw === 'MY_TMDB_API_KEY' || raw === 'YOUR_TMDB_API_KEY') return '';
   return raw;
 }

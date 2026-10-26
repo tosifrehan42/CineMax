@@ -70,7 +70,29 @@ export interface CatalogueResponse {
   searchSource?: 'tmdb' | 'fallback';
 }
 
-const API_BASE_URL = String((import.meta as any).env?.VITE_API_BASE_URL || '').replace(/\/$/, '');
+const DEFAULT_RENDER_API_BASE_URL = 'https://cinemax-kxpv.onrender.com';
+
+function isGithubPagesHost(): boolean {
+  return (
+    typeof window !== 'undefined' &&
+    window.location.hostname.toLowerCase().endsWith('.github.io')
+  );
+}
+
+function resolveApiBaseUrl(): string {
+  const envUrl = String((import.meta as any).env?.VITE_API_BASE_URL || '')
+    .trim()
+    .replace(/\/$/, '');
+  if (envUrl && envUrl !== 'MY_APP_URL') {
+    return envUrl;
+  }
+  if (isGithubPagesHost()) {
+    return DEFAULT_RENDER_API_BASE_URL;
+  }
+  return '';
+}
+
+const API_BASE_URL = resolveApiBaseUrl();
 const RAW_CLIENT_TMDB_KEY = String((import.meta as any).env?.VITE_TMDB_API_KEY || '').trim();
 // Never use or expose a v4 JWT bearer token or placeholder on the client; only allow a standard v3 API key
 const CLIENT_TMDB_API_KEY =
@@ -107,34 +129,63 @@ async function fetchClientTmdbJson<T>(
   return (await res.json()) as T;
 }
 
-// Tracks whether the current host is a static file server (e.g. GitHub Pages) without /api/* routes
-let staticHostWithoutApi = false;
+// Tracks whether the current host is a static file server (e.g. GitHub Pages) without same-origin /api/* routes
+let staticHostWithoutApi = isGithubPagesHost();
 
 /**
  * Safely fetches an API route, verifying status and Content-Type: application/json.
- * Returns null if the endpoint is not reachable or returns non-JSON (e.g. 404 HTML on static hosts).
+ * On full-stack hosts (localhost / Cloud Run), tries same-origin /api/* first so a local
+ * configured TMDB_API_KEY is used immediately; on GitHub Pages, routes directly to API_BASE_URL (Render proxy).
  */
 async function fetchApiJson<T>(endpoint: string, init?: RequestInit): Promise<T | null> {
+  const hasDistinctSameOrigin =
+    typeof window !== 'undefined' &&
+    !isGithubPagesHost() &&
+    !staticHostWithoutApi &&
+    (!API_BASE_URL || window.location.origin !== API_BASE_URL);
+
+  let fallbackSameOriginResult: T | null = null;
+
+  if (hasDistinctSameOrigin) {
+    try {
+      const sameOriginRes = await fetch(endpoint, init);
+      const contentType = sameOriginRes.headers.get('content-type') || '';
+      if (sameOriginRes.ok && contentType.includes('application/json')) {
+        const parsed = (await sameOriginRes.json()) as T;
+        if ((parsed as any)?.tmdbConfigured !== false || !API_BASE_URL) {
+          return parsed;
+        }
+        fallbackSameOriginResult = parsed;
+      } else if (sameOriginRes.status === 404) {
+        staticHostWithoutApi = true;
+      }
+    } catch (err: any) {
+      if (err?.name === 'AbortError') {
+        throw err;
+      }
+    }
+  }
+
   if (staticHostWithoutApi && !API_BASE_URL) {
-    return null;
+    return fallbackSameOriginResult;
   }
-  try {
-    const url = `${API_BASE_URL}${endpoint}`;
-    const res = await fetch(url, init);
-    const contentType = res.headers.get('content-type') || '';
-    if (res.ok && contentType.includes('application/json')) {
-      return (await res.json()) as T;
+
+  if (API_BASE_URL) {
+    try {
+      const url = `${API_BASE_URL}${endpoint}`;
+      const res = await fetch(url, init);
+      const contentType = res.headers.get('content-type') || '';
+      if (res.ok && contentType.includes('application/json')) {
+        return (await res.json()) as T;
+      }
+    } catch (err: any) {
+      if (err?.name === 'AbortError') {
+        throw err;
+      }
     }
-    if (res.status === 404 && !API_BASE_URL) {
-      staticHostWithoutApi = true;
-    }
-  } catch (err: any) {
-    if (err?.name === 'AbortError') {
-      throw err;
-    }
-    // Network or parse failure on static host; fall back to client engine
   }
-  return null;
+
+  return fallbackSameOriginResult;
 }
 
 // ============================================================================
@@ -1191,8 +1242,9 @@ export async function fetchCatalogue(
           ? {
               ...apiResult,
               searchSource: 'fallback',
-              searchWarning:
-                'Live TMDB search is not configured (missing TMDB API key). Showing fallback results from the local catalogue and TVMaze.',
+              searchWarning: API_BASE_URL
+                ? `Live TMDB search is not configured on the backend proxy (${API_BASE_URL} is missing TMDB_API_KEY). Showing fallback results from the local catalogue and TVMaze.`
+                : 'Live TMDB search is not configured (missing TMDB_API_KEY). Showing fallback results from the local catalogue and TVMaze.',
             }
           : apiResult;
       clientCatalogueCache.set(cacheKey, { timestamp: Date.now(), data: normalizedApiResult });
