@@ -1,7 +1,8 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   ensureSupabaseClient,
   formatAuthErrorMessage,
+  requestPasswordResetEmail,
   signInWithEmail,
   signUpWithEmail,
   SUPABASE_SCHEMA_SQL,
@@ -26,12 +27,18 @@ import {
   Bookmark,
   Tv,
   Compass,
+  KeyRound,
+  ArrowLeft,
 } from 'lucide-react';
+
+export type AuthScreenMode = 'signin' | 'signup' | 'forgot_password';
 
 interface AuthScreenProps {
   supabaseConfigured: boolean;
   securityWarning?: string | null;
-  initialMode?: 'signin' | 'signup';
+  initialMode?: AuthScreenMode;
+  initialEmail?: string;
+  initialSuccessNotice?: string | null;
   onSupabaseReconnected?: (configured: boolean, warning: string | null) => void;
   onAuthSuccess?: () => void;
 }
@@ -42,20 +49,36 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
   supabaseConfigured,
   securityWarning,
   initialMode = 'signin',
+  initialEmail = '',
+  initialSuccessNotice = null,
   onSupabaseReconnected,
   onAuthSuccess,
 }) => {
-  const [mode, setMode] = useState<'signin' | 'signup'>(initialMode);
+  const [mode, setMode] = useState<AuthScreenMode>(initialMode);
   const [displayName, setDisplayName] = useState('');
-  const [email, setEmail] = useState('');
+  const [email, setEmail] = useState(initialEmail);
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [retryingConnection, setRetryingConnection] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
-  const [successMsg, setSuccessMsg] = useState<string | null>(null);
+  const [successMsg, setSuccessMsg] = useState<string | null>(
+    initialSuccessNotice
+  );
   const [showSqlHelper, setShowSqlHelper] = useState(false);
   const [copiedSql, setCopiedSql] = useState(false);
+
+  useEffect(() => {
+    setMode(initialMode);
+    setErrorMsg(null);
+    setSuccessMsg(initialSuccessNotice || null);
+  }, [initialMode, initialSuccessNotice]);
+
+  useEffect(() => {
+    if (initialEmail) {
+      setEmail(initialEmail);
+    }
+  }, [initialEmail]);
 
   const handleCopySql = () => {
     navigator.clipboard?.writeText(SUPABASE_SCHEMA_SQL);
@@ -80,7 +103,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
     }
   };
 
-  const handleModeSwitch = (nextMode: 'signin' | 'signup') => {
+  const handleModeSwitch = (nextMode: AuthScreenMode) => {
     setMode(nextMode);
     setErrorMsg(null);
     setSuccessMsg(null);
@@ -88,6 +111,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (loading) return;
     setErrorMsg(null);
     setSuccessMsg(null);
 
@@ -102,19 +126,21 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
       return;
     }
 
-    if (!password) {
-      setErrorMsg('Please enter your password.');
-      return;
-    }
+    if (mode !== 'forgot_password') {
+      if (!password) {
+        setErrorMsg('Please enter your password.');
+        return;
+      }
 
-    if (password.length < 6) {
-      setErrorMsg('Password must be at least 6 characters long.');
-      return;
-    }
+      if (password.length < 6) {
+        setErrorMsg('Password must be at least 6 characters long.');
+        return;
+      }
 
-    if (mode === 'signup' && displayName.trim().length > 80) {
-      setErrorMsg('Display name must be 80 characters or fewer.');
-      return;
+      if (mode === 'signup' && displayName.trim().length > 80) {
+        setErrorMsg('Display name must be 80 characters or fewer.');
+        return;
+      }
     }
 
     setLoading(true);
@@ -132,7 +158,16 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
         }
       }
 
-      if (mode === 'signup') {
+      if (mode === 'forgot_password') {
+        const { error } = await requestPasswordResetEmail(cleanEmail);
+        if (error) {
+          setErrorMsg(error);
+        } else {
+          setSuccessMsg(
+            `If an account exists for ${cleanEmail}, we've sent a password reset link. Please check your inbox and spam folder.`
+          );
+        }
+      } else if (mode === 'signup') {
         const { user, session, error } = await signUpWithEmail(
           cleanEmail,
           password,
@@ -179,9 +214,9 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
         <div className="absolute bottom-0 left-1/4 w-[520px] h-[340px] rounded-full bg-amber-600/[0.05] blur-[140px]" />
       </div>
 
-      {/* Top Bar */}
-      <header className="relative z-10 w-full border-b border-white/[0.08] cm-glass-nav">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-8">
+      {/* Top Bar (Inset Rounded Liquid Glass Panel) */}
+      <header className="sticky top-0 z-30 w-full pt-2 sm:pt-2.5 px-3 sm:px-6 lg:px-8">
+        <div className="max-w-[1440px] mx-auto cm-glass-nav rounded-[20px] md:rounded-[22px] px-4 sm:px-6 h-14 md:h-16 flex items-center justify-between gap-4">
           <div className="flex items-center gap-2.5 shrink-0">
             <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-amber-400 to-amber-600 flex items-center justify-center text-slate-950 shadow-md shadow-amber-500/20">
               <Film className="w-4 h-4 stroke-[2.5]" />
@@ -194,8 +229,10 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
           <div className="flex items-center gap-3 shrink-0">
             <button
               type="button"
-              onClick={() => handleModeSwitch(mode === 'signin' ? 'signup' : 'signin')}
-              className="px-4 py-2 min-h-[40px] text-xs font-semibold text-slate-200 hover:text-white cm-glass-control rounded-lg whitespace-nowrap shrink-0"
+              onClick={() =>
+                handleModeSwitch(mode === 'signin' ? 'signup' : 'signin')
+              }
+              className="px-4 py-2 min-h-[38px] text-xs font-semibold text-slate-200 hover:text-white cm-glass-control rounded-xl whitespace-nowrap shrink-0"
             >
               {mode === 'signin' ? 'Create Account' : 'Sign In'}
             </button>
@@ -291,46 +328,68 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
           <div className="lg:col-span-5 order-1 lg:order-2">
             <div className="w-full max-w-md mx-auto cm-glass-panel rounded-2xl overflow-hidden">
               {/* Card Header */}
-              <div className="px-6 pt-6 pb-4 border-b border-white/[0.07]">
-                <h2 className="font-['Outfit'] text-xl sm:text-2xl font-bold text-white tracking-tight">
-                  {mode === 'signin'
-                    ? 'Sign In to CineMax'
-                    : 'Create Your CineMax Account'}
+              <div className="px-6 pt-6 pb-4 border-b border-white/[0.07] cm-glass-subbar">
+                <h2 className="font-['Outfit'] text-xl sm:text-2xl font-bold text-white tracking-tight flex items-center gap-2">
+                  {mode === 'forgot_password' && (
+                    <KeyRound className="w-5 h-5 text-amber-400 shrink-0" />
+                  )}
+                  <span>
+                    {mode === 'signin'
+                      ? 'Sign In to CineMax'
+                      : mode === 'signup'
+                      ? 'Create Your CineMax Account'
+                      : 'Reset Your Password'}
+                  </span>
                 </h2>
                 <p className="text-xs text-slate-400 mt-1">
                   {mode === 'signin'
                     ? 'Enter your email and password to open your home feed and watchlist.'
-                    : 'Register in seconds to start building your personal cinema library.'}
+                    : mode === 'signup'
+                    ? 'Register in seconds to start building your personal cinema library.'
+                    : 'Enter your account email and we will send you a secure password recovery link.'}
                 </p>
               </div>
 
               {/* Segmented Mode Switcher (44px+ touch targets) */}
-              <div className="px-6 pt-5">
-                <div className="grid grid-cols-2 gap-1.5 p-1 cm-glass-segmented rounded-xl">
+              {mode !== 'forgot_password' ? (
+                <div className="px-6 pt-5">
+                  <div className="grid grid-cols-2 gap-1.5 p-1 cm-glass-segmented rounded-xl">
+                    <button
+                      type="button"
+                      onClick={() => handleModeSwitch('signin')}
+                      className={`min-h-[44px] py-2.5 px-3 text-xs font-bold rounded-lg transition-colors whitespace-nowrap ${
+                        mode === 'signin'
+                          ? 'bg-amber-500 text-slate-950 shadow-sm'
+                          : 'text-slate-400 hover:text-white'
+                      }`}
+                    >
+                      Sign In
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleModeSwitch('signup')}
+                      className={`min-h-[44px] py-2.5 px-3 text-xs font-bold rounded-lg transition-colors whitespace-nowrap ${
+                        mode === 'signup'
+                          ? 'bg-amber-500 text-slate-950 shadow-sm'
+                          : 'text-slate-400 hover:text-white'
+                      }`}
+                    >
+                      Sign Up
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="px-6 pt-4">
                   <button
                     type="button"
                     onClick={() => handleModeSwitch('signin')}
-                    className={`min-h-[44px] py-2.5 px-3 text-xs font-bold rounded-lg transition-colors whitespace-nowrap ${
-                      mode === 'signin'
-                        ? 'bg-amber-500 text-slate-950 shadow-sm'
-                        : 'text-slate-400 hover:text-white'
-                    }`}
+                    className="inline-flex items-center gap-1.5 text-xs font-semibold text-amber-400 hover:text-amber-300 transition-colors py-1"
                   >
-                    Sign In
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => handleModeSwitch('signup')}
-                    className={`min-h-[44px] py-2.5 px-3 text-xs font-bold rounded-lg transition-colors whitespace-nowrap ${
-                      mode === 'signup'
-                        ? 'bg-amber-500 text-slate-950 shadow-sm'
-                        : 'text-slate-400 hover:text-white'
-                    }`}
-                  >
-                    Sign Up
+                    <ArrowLeft className="w-3.5 h-3.5" />
+                    <span>Back to Sign In</span>
                   </button>
                 </div>
-              </div>
+              )}
 
               {/* Configuration / Connection Notice */}
               {!supabaseConfigured && (
@@ -433,43 +492,56 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                   </div>
                 </div>
 
-                <div className="space-y-1.5">
-                  <label
-                    htmlFor="auth-password"
-                    className="block text-xs font-medium text-slate-300"
-                  >
-                    Password
-                  </label>
-                  <div className="relative">
-                    <Lock className="w-4 h-4 text-slate-500 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
-                    <input
-                      id="auth-password"
-                      type={showPassword ? 'text' : 'password'}
-                      required
-                      minLength={6}
-                      autoComplete={mode === 'signin' ? 'current-password' : 'new-password'}
-                      value={password}
-                      onChange={(e) => setPassword(e.target.value)}
-                      placeholder="At least 6 characters"
-                      className="w-full min-h-[46px] pl-10 pr-11 py-2.5 text-sm cm-glass-input rounded-xl text-white placeholder:text-slate-500 focus:outline-none"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowPassword((prev) => !prev)}
-                      aria-label={showPassword ? 'Hide password' : 'Show password'}
-                      className="absolute right-1 top-1/2 -translate-y-1/2 min-h-[40px] min-w-[40px] flex items-center justify-center text-slate-400 hover:text-white rounded-lg transition-colors"
+                {mode !== 'forgot_password' && (
+                  <div className="space-y-1.5">
+                    <label
+                      htmlFor="auth-password"
+                      className="block text-xs font-medium text-slate-300"
                     >
-                      {showPassword ? (
-                        <EyeOff className="w-4 h-4" />
-                      ) : (
-                        <Eye className="w-4 h-4" />
+                      Password
+                    </label>
+                    <div className="relative">
+                      <Lock className="w-4 h-4 text-slate-500 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                      <input
+                        id="auth-password"
+                        type={showPassword ? 'text' : 'password'}
+                        required
+                        minLength={6}
+                        autoComplete={mode === 'signin' ? 'current-password' : 'new-password'}
+                        value={password}
+                        onChange={(e) => setPassword(e.target.value)}
+                        placeholder="At least 6 characters"
+                        className="w-full min-h-[46px] pl-10 pr-11 py-2.5 text-sm cm-glass-input rounded-xl text-white placeholder:text-slate-500 focus:outline-none"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowPassword((prev) => !prev)}
+                        aria-label={showPassword ? 'Hide password' : 'Show password'}
+                        className="absolute right-1 top-1/2 -translate-y-1/2 min-h-[40px] min-w-[40px] flex items-center justify-center text-slate-400 hover:text-white rounded-lg transition-colors"
+                      >
+                        {showPassword ? (
+                          <EyeOff className="w-4 h-4" />
+                        ) : (
+                          <Eye className="w-4 h-4" />
+                        )}
+                      </button>
+                    </div>
+                    <div className="flex items-center justify-between gap-2 pt-0.5">
+                      <p className="text-[11px] text-slate-500">
+                        Secured by Supabase Auth.
+                      </p>
+                      {mode === 'signin' && (
+                        <button
+                          type="button"
+                          onClick={() => handleModeSwitch('forgot_password')}
+                          className="ml-auto text-xs font-semibold text-amber-400 hover:text-amber-300 transition-colors focus:outline-none focus-visible:underline whitespace-nowrap py-0.5"
+                        >
+                          Forgot password?
+                        </button>
                       )}
-                    </button>
+                    </div>
                   </div>
-                  <p className="text-[11px] text-slate-500">
-                    Secured by Supabase Auth. Your session stays signed in on this device.
-                  </p>
-                </div>
+                )}
 
                 <button
                   type="submit"
@@ -480,36 +552,59 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                     <>
                       <Loader2 className="w-4 h-4 animate-spin" />
                       <span>
-                        {mode === 'signin' ? 'Signing In...' : 'Creating Account...'}
+                        {mode === 'signin'
+                          ? 'Signing In...'
+                          : mode === 'signup'
+                          ? 'Creating Account...'
+                          : 'Sending Recovery Link...'}
                       </span>
                     </>
                   ) : (
                     <span>
-                      {mode === 'signin' ? 'Sign In to CineMax' : 'Create CineMax Account'}
+                      {mode === 'signin'
+                        ? 'Sign In to CineMax'
+                        : mode === 'signup'
+                        ? 'Create CineMax Account'
+                        : 'Send Password Reset Link'}
                     </span>
                   )}
                 </button>
 
                 <div className="pt-1 text-center">
-                  <button
-                    type="button"
-                    onClick={() => handleModeSwitch(mode === 'signin' ? 'signup' : 'signin')}
-                    className="text-xs text-slate-400 hover:text-amber-300 transition-colors py-1"
-                  >
-                    {mode === 'signin' ? (
-                      <>
-                        New to CineMax?{' '}
-                        <span className="font-semibold text-amber-400">
-                          Create an account
-                        </span>
-                      </>
-                    ) : (
-                      <>
-                        Already have an account?{' '}
-                        <span className="font-semibold text-amber-400">Sign in</span>
-                      </>
-                    )}
-                  </button>
+                  {mode === 'forgot_password' ? (
+                    <button
+                      type="button"
+                      onClick={() => handleModeSwitch('signin')}
+                      className="text-xs text-slate-400 hover:text-amber-300 transition-colors py-1"
+                    >
+                      Remembered your password?{' '}
+                      <span className="font-semibold text-amber-400">
+                        Return to Sign In
+                      </span>
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        handleModeSwitch(mode === 'signin' ? 'signup' : 'signin')
+                      }
+                      className="text-xs text-slate-400 hover:text-amber-300 transition-colors py-1"
+                    >
+                      {mode === 'signin' ? (
+                        <>
+                          New to CineMax?{' '}
+                          <span className="font-semibold text-amber-400">
+                            Create an account
+                          </span>
+                        </>
+                      ) : (
+                        <>
+                          Already have an account?{' '}
+                          <span className="font-semibold text-amber-400">Sign in</span>
+                        </>
+                      )}
+                    </button>
+                  )}
                 </div>
               </form>
 

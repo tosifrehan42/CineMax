@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, Suspense } from 'react';
 import {
   MediaItem,
   UserProfile,
@@ -6,7 +6,6 @@ import {
   WatchlistEntry,
 } from '../types';
 import { MediaPoster } from './MediaPoster';
-import { AvatarCropModal } from './AvatarCropModal';
 import {
   parseRuntimeMinutes,
   SUPABASE_SCHEMA_SQL,
@@ -37,7 +36,17 @@ import {
   Flame,
   Camera,
   Upload,
+  KeyRound,
 } from 'lucide-react';
+
+const AvatarCropModal = React.lazy(() =>
+  import('./AvatarCropModal').then((m) => ({ default: m.AvatarCropModal }))
+);
+const ChangePasswordModal = React.lazy(() =>
+  import('./ChangePasswordModal').then((m) => ({
+    default: m.ChangePasswordModal,
+  }))
+);
 
 interface ProfileViewProps {
   watchlist: WatchlistEntry[];
@@ -50,6 +59,7 @@ interface ProfileViewProps {
   schemaMissing?: boolean;
   onRetry?: () => void;
   onOpenAuthModal?: (mode?: 'signin' | 'signup') => void;
+  onOpenChangePassword?: () => void;
   onSignOut?: () => void;
   onUpdateProfile?: (updates: {
     displayName: string;
@@ -94,6 +104,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
   schemaMissing = false,
   onRetry,
   onOpenAuthModal,
+  onOpenChangePassword,
   onSignOut,
   onUpdateProfile,
   onUploadAvatar,
@@ -104,6 +115,8 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
   onNavigateTab,
 }) => {
   const [isEditingProfile, setIsEditingProfile] = useState(false);
+  const [isLocalChangePasswordOpen, setIsLocalChangePasswordOpen] =
+    useState(false);
   const [editDisplayName, setEditDisplayName] = useState('');
   const [editUsername, setEditUsername] = useState('');
   const [editBio, setEditBio] = useState('');
@@ -740,16 +753,30 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
 
               {/* Profile Actions */}
               {isAuthenticated && (
-                <div className="flex items-center gap-2 shrink-0">
+                <div className="flex flex-wrap items-center justify-center sm:justify-end gap-2 shrink-0">
                   <button
+                    type="button"
                     onClick={openEditModal}
                     className="cm-glass-control px-3.5 py-2 rounded-xl text-xs font-semibold text-white flex items-center gap-1.5 transition-colors whitespace-nowrap"
                   >
                     <Edit3 className="w-3.5 h-3.5 text-amber-400" />
                     <span>Edit Profile</span>
                   </button>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      onOpenChangePassword
+                        ? onOpenChangePassword()
+                        : setIsLocalChangePasswordOpen(true)
+                    }
+                    className="cm-glass-control px-3.5 py-2 rounded-xl text-xs font-semibold text-white flex items-center gap-1.5 transition-colors whitespace-nowrap"
+                  >
+                    <KeyRound className="w-3.5 h-3.5 text-amber-400" />
+                    <span>Change Password</span>
+                  </button>
                   {onSignOut && (
                     <button
+                      type="button"
                       onClick={onSignOut}
                       className="px-3.5 py-2 rounded-xl bg-red-500/10 hover:bg-red-500/20 border border-red-500/20 text-xs font-semibold text-red-300 flex items-center gap-1.5 transition-colors whitespace-nowrap"
                     >
@@ -966,7 +993,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
                   Account &amp; Session Settings
                 </h2>
                 <p className="text-xs text-slate-400">
-                  Signed in as <span className="text-slate-200 font-medium">{userEmail || displayName}</span> · Session persisted on this device via Supabase Auth.
+                  Signed in as <span className="text-slate-200 font-medium">{userEmail || displayName}</span> · Manage your profile, password, and active Supabase session.
                 </p>
               </div>
               <div className="flex flex-wrap items-center gap-2.5 shrink-0">
@@ -977,6 +1004,18 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
                 >
                   <Edit3 className="w-3.5 h-3.5 text-amber-400" />
                   <span>Edit Profile</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() =>
+                    onOpenChangePassword
+                      ? onOpenChangePassword()
+                      : setIsLocalChangePasswordOpen(true)
+                  }
+                  className="cm-glass-control min-h-[44px] px-4 py-2.5 rounded-xl text-xs font-semibold text-white flex items-center gap-1.5 transition-colors whitespace-nowrap"
+                >
+                  <KeyRound className="w-3.5 h-3.5 text-amber-400" />
+                  <span>Change Password</span>
                 </button>
                 {onSignOut && (
                   <button
@@ -1144,50 +1183,80 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
                 </div>
               </div>
 
-              <div className="pt-2 flex items-center justify-end gap-2">
+              <div className="pt-2 flex items-center justify-between gap-2">
                 <button
                   type="button"
-                  onClick={() => setIsEditingProfile(false)}
-                  className="cm-glass-control px-4 py-2 rounded-xl text-xs font-medium text-slate-300 hover:text-white"
+                  onClick={() => {
+                    setIsEditingProfile(false);
+                    if (onOpenChangePassword) {
+                      onOpenChangePassword();
+                    } else {
+                      setIsLocalChangePasswordOpen(true);
+                    }
+                  }}
+                  className="cm-glass-control px-3.5 py-2 rounded-xl text-xs font-semibold text-amber-300 hover:text-amber-200 flex items-center gap-1.5"
                 >
-                  Cancel
+                  <KeyRound className="w-3.5 h-3.5 text-amber-400" />
+                  <span>Change Password</span>
                 </button>
-                <button
-                  type="submit"
-                  disabled={savingProfile}
-                  className="px-5 py-2 rounded-xl bg-gradient-to-r from-amber-400 to-amber-500 hover:from-amber-300 hover:to-amber-400 text-slate-950 font-bold text-xs flex items-center gap-1.5"
-                >
-                  {savingProfile ? (
-                    <>
-                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                      <span>Saving...</span>
-                    </>
-                  ) : (
-                    <span>Save Profile</span>
-                  )}
-                </button>
+
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setIsEditingProfile(false)}
+                    className="cm-glass-control px-4 py-2 rounded-xl text-xs font-medium text-slate-300 hover:text-white"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={savingProfile}
+                    className="px-5 py-2 rounded-xl bg-gradient-to-r from-amber-400 to-amber-500 hover:from-amber-300 hover:to-amber-400 text-slate-950 font-bold text-xs flex items-center gap-1.5"
+                  >
+                    {savingProfile ? (
+                      <>
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        <span>Saving...</span>
+                      </>
+                    ) : (
+                      <span>Save Profile</span>
+                    )}
+                  </button>
+                </div>
               </div>
             </form>
           </div>
         </div>
       )}
 
-      {/* Interactive Circular Crop & Preview Modal */}
-      <AvatarCropModal
-        file={selectedAvatarFile}
-        isOpen={isCropModalOpen}
-        isUploading={isUploadingAvatar}
-        error={avatarActionError}
-        bucketSetupNeeded={bucketSetupNeeded}
-        onClose={() => {
-          if (!isUploadingAvatar) {
-            setIsCropModalOpen(false);
-            setSelectedAvatarFile(null);
-            setAvatarActionError(null);
-          }
-        }}
-        onConfirmUpload={handleConfirmCroppedUpload}
-      />
+      {/* Lazy-Loaded Interactive Circular Crop & Change Password Modals */}
+      <Suspense fallback={null}>
+        {isCropModalOpen && (
+          <AvatarCropModal
+            file={selectedAvatarFile}
+            isOpen={isCropModalOpen}
+            isUploading={isUploadingAvatar}
+            error={avatarActionError}
+            bucketSetupNeeded={bucketSetupNeeded}
+            onClose={() => {
+              if (!isUploadingAvatar) {
+                setIsCropModalOpen(false);
+                setSelectedAvatarFile(null);
+                setAvatarActionError(null);
+              }
+            }}
+            onConfirmUpload={handleConfirmCroppedUpload}
+          />
+        )}
+
+        {isLocalChangePasswordOpen && (
+          <ChangePasswordModal
+            isOpen={isLocalChangePasswordOpen}
+            onClose={() => setIsLocalChangePasswordOpen(false)}
+            userEmail={userEmail}
+          />
+        )}
+      </Suspense>
     </div>
   );
 };

@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import {
+  formatAuthErrorMessage,
+  requestPasswordResetEmail,
   signInWithEmail,
   signUpWithEmail,
   SUPABASE_SCHEMA_SQL,
@@ -17,6 +19,9 @@ import {
   Check,
   Database,
   ShieldCheck,
+  Eye,
+  EyeOff,
+  ArrowLeft,
 } from 'lucide-react';
 
 interface AuthModalProps {
@@ -24,7 +29,7 @@ interface AuthModalProps {
   onClose: () => void;
   supabaseConfigured: boolean;
   securityWarning?: string | null;
-  initialMode?: 'signin' | 'signup';
+  initialMode?: 'signin' | 'signup' | 'forgot_password';
   onAuthSuccess?: () => void;
 }
 
@@ -36,9 +41,12 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   initialMode = 'signin',
   onAuthSuccess,
 }) => {
-  const [mode, setMode] = useState<'signin' | 'signup'>(initialMode);
+  const [mode, setMode] = useState<'signin' | 'signup' | 'forgot_password'>(
+    initialMode
+  );
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [displayName, setDisplayName] = useState('');
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -73,6 +81,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (loading) return;
     setErrorMsg(null);
     setSuccessMsg(null);
 
@@ -85,19 +94,40 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     }
 
     const cleanEmail = email.trim();
-    if (!cleanEmail || !password) {
-      setErrorMsg('Please enter both your email address and password.');
+    if (!cleanEmail) {
+      setErrorMsg('Please enter your email address.');
       return;
     }
 
-    if (password.length < 6) {
-      setErrorMsg('Password must be at least 6 characters long.');
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
+      setErrorMsg('Please enter a valid email address (for example, name@example.com).');
       return;
+    }
+
+    if (mode !== 'forgot_password') {
+      if (!password) {
+        setErrorMsg('Please enter your password.');
+        return;
+      }
+
+      if (password.length < 6) {
+        setErrorMsg('Password must be at least 6 characters long.');
+        return;
+      }
     }
 
     setLoading(true);
     try {
-      if (mode === 'signup') {
+      if (mode === 'forgot_password') {
+        const { error } = await requestPasswordResetEmail(cleanEmail);
+        if (error) {
+          setErrorMsg(error);
+        } else {
+          setSuccessMsg(
+            `If an account exists for ${cleanEmail}, we've sent a password reset link. Please check your inbox and spam folder.`
+          );
+        }
+      } else if (mode === 'signup') {
         const { user, session, error } = await signUpWithEmail(
           cleanEmail,
           password,
@@ -128,7 +158,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         }
       }
     } catch (err: any) {
-      setErrorMsg(err?.message || 'Authentication failed. Please try again.');
+      setErrorMsg(formatAuthErrorMessage(err?.message));
     } finally {
       setLoading(false);
     }
@@ -140,17 +170,23 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
       <div className="relative z-10 w-full max-w-md cm-glass-panel rounded-2xl overflow-hidden my-auto">
         {/* Top Header */}
-        <div className="px-6 pt-6 pb-4 border-b border-white/[0.07] flex items-center justify-between">
+        <div className="px-6 pt-6 pb-4 border-b border-white/[0.07] cm-glass-subbar flex items-center justify-between">
           <div className="flex items-center gap-2.5">
             <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-amber-400 to-amber-600 flex items-center justify-center text-black shadow-md shadow-amber-500/20">
               <Film className="w-4 h-4 stroke-[2.5]" />
             </div>
             <div>
               <h2 className="font-['Outfit'] text-lg font-bold text-white tracking-tight">
-                {mode === 'signin' ? 'Sign In to CineMax' : 'Create Cinephile Account'}
+                {mode === 'signin'
+                  ? 'Sign In to CineMax'
+                  : mode === 'signup'
+                  ? 'Create Cinephile Account'
+                  : 'Reset Your Password'}
               </h2>
               <p className="text-xs text-slate-400">
-                Cloud-synced watchlist, favourites & viewing journal
+                {mode === 'forgot_password'
+                  ? 'Receive a secure password recovery link via email'
+                  : 'Cloud-synced watchlist, favourites & viewing journal'}
               </p>
             </div>
           </div>
@@ -165,8 +201,43 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         </div>
 
         {/* Mode Switcher Tabs */}
-        <div className="px-6 pt-4">
-          <div className="grid grid-cols-2 gap-1 p-1 cm-glass-segmented rounded-xl">
+        {mode !== 'forgot_password' ? (
+          <div className="px-6 pt-4">
+            <div className="grid grid-cols-2 gap-1 p-1 cm-glass-segmented rounded-xl">
+              <button
+                type="button"
+                onClick={() => {
+                  setMode('signin');
+                  setErrorMsg(null);
+                  setSuccessMsg(null);
+                }}
+                className={`py-2 text-xs font-semibold rounded-lg transition-colors ${
+                  mode === 'signin'
+                    ? 'bg-amber-500 text-slate-950'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                Sign In
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setMode('signup');
+                  setErrorMsg(null);
+                  setSuccessMsg(null);
+                }}
+                className={`py-2 text-xs font-semibold rounded-lg transition-colors ${
+                  mode === 'signup'
+                    ? 'bg-amber-500 text-slate-950'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                Create Account
+              </button>
+            </div>
+          </div>
+        ) : (
+          <div className="px-6 pt-4">
             <button
               type="button"
               onClick={() => {
@@ -174,31 +245,13 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                 setErrorMsg(null);
                 setSuccessMsg(null);
               }}
-              className={`py-2 text-xs font-semibold rounded-lg transition-colors ${
-                mode === 'signin'
-                  ? 'bg-amber-500 text-slate-950'
-                  : 'text-slate-400 hover:text-white'
-              }`}
+              className="inline-flex items-center gap-1.5 text-xs font-semibold text-amber-400 hover:text-amber-300 transition-colors py-1"
             >
-              Sign In
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setMode('signup');
-                setErrorMsg(null);
-                setSuccessMsg(null);
-              }}
-              className={`py-2 text-xs font-semibold rounded-lg transition-colors ${
-                mode === 'signup'
-                  ? 'bg-amber-500 text-slate-950'
-                  : 'text-slate-400 hover:text-white'
-              }`}
-            >
-              Create Account
+              <ArrowLeft className="w-3.5 h-3.5" />
+              <span>Back to Sign In</span>
             </button>
           </div>
-        </div>
+        )}
 
         {/* Configuration Notice if Supabase Env Vars Are Missing */}
         {!supabaseConfigured && (
@@ -219,7 +272,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         )}
 
         {/* Form Body */}
-        <form onSubmit={handleSubmit} className="p-6 space-y-4">
+        <form onSubmit={handleSubmit} className="p-6 space-y-4" noValidate>
           {errorMsg && (
             <div className="p-3 rounded-xl bg-red-500/10 border border-red-500/30 text-xs text-red-300 flex items-start gap-2">
               <AlertCircle className="w-4 h-4 text-red-400 shrink-0 mt-0.5" />
@@ -271,27 +324,56 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             </div>
           </div>
 
-          <div className="space-y-1.5">
-            <label className="block text-xs font-medium text-slate-300">
-              Password
-            </label>
-            <div className="relative">
-              <Lock className="w-4 h-4 text-slate-500 absolute left-3.5 top-1/2 -translate-y-1/2" />
-              <input
-                type="password"
-                required
-                minLength={6}
-                autoComplete={mode === 'signin' ? 'current-password' : 'new-password'}
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="••••••••"
-                className="w-full pl-10 pr-3.5 py-2.5 text-sm cm-glass-input rounded-xl text-white placeholder:text-slate-500 focus:outline-none"
-              />
+          {mode !== 'forgot_password' && (
+            <div className="space-y-1.5">
+              <label className="block text-xs font-medium text-slate-300">
+                Password
+              </label>
+              <div className="relative">
+                <Lock className="w-4 h-4 text-slate-500 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                <input
+                  type={showPassword ? 'text' : 'password'}
+                  required
+                  minLength={6}
+                  autoComplete={mode === 'signin' ? 'current-password' : 'new-password'}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="••••••••"
+                  className="w-full pl-10 pr-11 py-2.5 text-sm cm-glass-input rounded-xl text-white placeholder:text-slate-500 focus:outline-none"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword((prev) => !prev)}
+                  aria-label={showPassword ? 'Hide password' : 'Show password'}
+                  className="absolute right-1 top-1/2 -translate-y-1/2 min-h-[38px] min-w-[38px] flex items-center justify-center text-slate-400 hover:text-white rounded-lg transition-colors"
+                >
+                  {showPassword ? (
+                    <EyeOff className="w-4 h-4" />
+                  ) : (
+                    <Eye className="w-4 h-4" />
+                  )}
+                </button>
+              </div>
+              <div className="flex items-center justify-between gap-2 pt-0.5">
+                <p className="text-[11px] text-slate-500">
+                  Managed securely by Supabase Auth.
+                </p>
+                {mode === 'signin' && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMode('forgot_password');
+                      setErrorMsg(null);
+                      setSuccessMsg(null);
+                    }}
+                    className="ml-auto text-xs font-semibold text-amber-400 hover:text-amber-300 transition-colors focus:outline-none focus-visible:underline whitespace-nowrap py-0.5"
+                  >
+                    Forgot password?
+                  </button>
+                )}
+              </div>
             </div>
-            <p className="text-[11px] text-slate-500">
-              Managed securely by Supabase Auth. CineMax never stores raw passwords.
-            </p>
-          </div>
+          )}
 
           <button
             type="submit"
@@ -301,10 +383,22 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             {loading ? (
               <>
                 <Loader2 className="w-4 h-4 animate-spin" />
-                <span>{mode === 'signin' ? 'Signing In...' : 'Creating Account...'}</span>
+                <span>
+                  {mode === 'signin'
+                    ? 'Signing In...'
+                    : mode === 'signup'
+                    ? 'Creating Account...'
+                    : 'Sending Recovery Link...'}
+                </span>
               </>
             ) : (
-              <span>{mode === 'signin' ? 'Sign In' : 'Create Account'}</span>
+              <span>
+                {mode === 'signin'
+                  ? 'Sign In'
+                  : mode === 'signup'
+                  ? 'Create Account'
+                  : 'Send Password Reset Link'}
+              </span>
             )}
           </button>
         </form>

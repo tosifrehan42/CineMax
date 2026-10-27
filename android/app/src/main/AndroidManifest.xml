@@ -22,6 +22,27 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
 
+            <!-- Custom scheme deep link for Supabase password recovery: in.vertexstudios.cinemax://reset-password -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data
+                    android:scheme="in.vertexstudios.cinemax"
+                    android:host="reset-password" />
+            </intent-filter>
+
+            <!-- HTTPS App Link fallback for GitHub Pages password recovery: https://tosifrehan42.github.io/CineMax -->
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data
+                    android:scheme="https"
+                    android:host="tosifrehan42.github.io"
+                    android:pathPrefix="/CineMax" />
+            </intent-filter>
+
         </activity>
 
         <provider

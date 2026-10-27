@@ -45,10 +45,86 @@ const NavbarComponent: React.FC<NavbarProps> = ({
   onSignOut,
 }) => {
   const [avatarLoadError, setAvatarLoadError] = React.useState(false);
+  const mobileHubTrackRef = React.useRef<HTMLDivElement | null>(null);
+  const mobileHubButtonRefs = React.useRef<Record<HomeHubMode, HTMLButtonElement | null>>({
+    all: null,
+    movies: null,
+    series: null,
+  });
+  const [bubbleMetric, setBubbleMetric] = React.useState<{
+    left: number;
+    width: number;
+    ready: boolean;
+  }>({
+    left: 0,
+    width: 0,
+    ready: false,
+  });
 
   React.useEffect(() => {
     setAvatarLoadError(false);
   }, [userProfile?.avatarUrl]);
+
+  const updateBubbleMetric = React.useCallback(() => {
+    if (currentTab !== 'home') return;
+    const activeBtn = mobileHubButtonRefs.current[homeHubMode];
+    const trackEl = mobileHubTrackRef.current;
+    if (!activeBtn || !trackEl) return;
+
+    const nextLeft = activeBtn.offsetLeft;
+    const nextWidth = activeBtn.offsetWidth;
+    if (nextWidth > 0) {
+      setBubbleMetric((prev) => {
+        if (prev.ready && prev.left === nextLeft && prev.width === nextWidth) {
+          return prev;
+        }
+        return {
+          left: nextLeft,
+          width: nextWidth,
+          ready: true,
+        };
+      });
+    }
+  }, [currentTab, homeHubMode]);
+
+  React.useLayoutEffect(() => {
+    updateBubbleMetric();
+  }, [updateBubbleMetric]);
+
+  React.useEffect(() => {
+    if (currentTab !== 'home') return;
+
+    const handleResize = () => {
+      updateBubbleMetric();
+    };
+
+    window.addEventListener('resize', handleResize, { passive: true });
+
+    let resizeObserver: ResizeObserver | null = null;
+    if (typeof ResizeObserver !== 'undefined') {
+      resizeObserver = new ResizeObserver(() => {
+        updateBubbleMetric();
+      });
+      if (mobileHubTrackRef.current) {
+        resizeObserver.observe(mobileHubTrackRef.current);
+      }
+      (['all', 'movies', 'series'] as const).forEach((mode) => {
+        const btn = mobileHubButtonRefs.current[mode];
+        if (btn) resizeObserver?.observe(btn);
+      });
+    }
+
+    if (typeof document !== 'undefined' && 'fonts' in document) {
+      (document as Document & { fonts?: FontFaceSet }).fonts?.ready
+        .then(() => updateBubbleMetric())
+        .catch(() => {});
+    }
+
+    return () => {
+      window.removeEventListener('resize', handleResize);
+      resizeObserver?.disconnect();
+    };
+  }, [currentTab, updateBubbleMetric]);
 
   const initials = (userProfile?.displayName || userEmail || 'CM')
     .split(' ')
@@ -161,204 +237,240 @@ const NavbarComponent: React.FC<NavbarProps> = ({
 
   return (
     <>
-      {/* Sticky Top Header (Desktop Full Bar + Mobile Compact Top Bar) */}
-      <header className="sticky top-0 z-50 w-full cm-glass-nav border-b border-white/[0.08] transition-colors">
-        <div className="max-w-[1440px] mx-auto px-4 sm:px-6 lg:px-8 h-14 md:h-16 flex items-center justify-between gap-4 lg:gap-8">
-          {/* Left Zone: Brand Logo + Desktop Navigation */}
-          <div className="flex items-center gap-6 lg:gap-8 min-w-0">
-            <button
-              onClick={() => onTabChange('home', 'all')}
-              className="flex items-center gap-2.5 text-left group focus:outline-none focus-visible:ring-1 focus-visible:ring-amber-400 shrink-0"
-            >
-              <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-amber-400 to-amber-600 flex items-center justify-center text-slate-950 shadow-md shadow-amber-500/20 group-hover:scale-105 transition-transform">
-                <Film className="w-4 h-4 stroke-[2.5]" />
-              </div>
-              <span className="font-['Plus_Jakarta_Sans'] text-lg sm:text-xl font-extrabold tracking-tight text-white whitespace-nowrap group-hover:text-amber-400 transition-colors">
-                Cine<span className="text-amber-400">Max</span>
-              </span>
-            </button>
-
-            {/* Desktop Primary Navigation */}
-            <nav
-              aria-label="Main Navigation"
-              className="hidden md:flex items-center gap-4 lg:gap-6 text-sm font-medium"
-            >
-              {desktopNavItems.map((item) => (
-                <button
-                  key={item.key}
-                  onClick={() => onTabChange(item.tab, item.hubMode)}
-                  className={`relative py-1 text-xs lg:text-sm font-medium transition-colors whitespace-nowrap shrink-0 flex items-center gap-1.5 focus:outline-none focus-visible:ring-1 focus-visible:ring-amber-400 ${
-                    item.isActive
-                      ? 'text-white font-semibold'
-                      : 'text-slate-400 hover:text-slate-100'
-                  }`}
-                >
-                  {item.icon}
-                  <span>{item.label}</span>
-                  {item.badge !== undefined && (
-                    <span className="ml-0.5 px-1.5 py-0.2 text-[10px] font-mono font-bold rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30 tabular-nums">
-                      {item.badge}
-                    </span>
-                  )}
-                  {item.isActive && (
-                    <span className="absolute -bottom-[19px] left-0 right-0 h-0.5 bg-gradient-to-r from-amber-400 to-amber-500 rounded-full" />
-                  )}
-                </button>
-              ))}
-            </nav>
-          </div>
-
-          {/* Right Zone: Search, Surprise Me, Tools (Mobile), & Account Controls */}
-          <div className="flex items-center gap-1.5 sm:gap-2.5 shrink-0">
-            {/* Search Trigger */}
-            <button
-              onClick={onQuickSearchClick}
-              aria-label="Open search"
-              className="flex items-center gap-2 px-2.5 py-1.5 sm:px-3 sm:py-1.5 text-slate-300 hover:text-white cm-glass-control rounded-lg focus:outline-none focus-visible:ring-1 focus-visible:ring-amber-400"
-              title="Search movies, series, cast & directors (Ctrl+K)"
-            >
-              <Search className="w-4 h-4 text-amber-400" />
-              <span className="hidden xl:inline text-xs text-slate-300">Search...</span>
-              <kbd className="hidden xl:inline-block px-1.5 py-0.5 text-[10px] font-mono text-slate-400 bg-black/45 rounded border border-white/10">
-                ⌘K
-              </kbd>
-            </button>
-
-            {/* Mobile Quick Access to Quality & File Size Tool */}
-            <button
-              onClick={() => onTabChange('estimator')}
-              aria-label="Quality & File Size Estimator"
-              title="Quality & File Size Estimator"
-              className={`md:hidden p-2 rounded-lg transition-colors ${
-                currentTab === 'estimator'
-                  ? 'bg-amber-500/20 text-amber-400 border border-amber-500/40'
-                  : 'text-slate-300 hover:text-white cm-glass-control'
-              }`}
-            >
-              <HardDrive className="w-4 h-4" />
-            </button>
-
-            {/* Surprise Me Button */}
-            <button
-              onClick={onOpenSurprise}
-              title="Surprise Me — Instant Recommendation"
-              className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 sm:py-2 text-xs font-semibold text-slate-950 bg-gradient-to-r from-amber-400 to-amber-500 hover:from-amber-300 hover:to-amber-400 rounded-lg shadow-sm shadow-amber-500/20 transition-all hover:scale-[1.02] active:scale-[0.98] whitespace-nowrap shrink-0 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
-            >
-              <Dice5 className="w-3.5 h-3.5 stroke-[2.5]" />
-              <span className="hidden sm:inline">Surprise Me</span>
-            </button>
-
-            {/* Mobile Verified Admin Access Icon (Only shown to verified admin) */}
-            {isAuthenticated && isAdmin && (
+      {/* Sticky Inset Top Header (Desktop Rounded Panel + Mobile Unified Rounded Shell) */}
+      <header className="sticky top-0 z-50 w-full pt-[max(env(safe-area-inset-top,0px),0.5rem)] sm:pt-2.5 px-2 min-[380px]:px-3 sm:px-6 lg:px-8 pointer-events-none">
+        <div className="pointer-events-auto max-w-[1440px] mx-auto cm-glass-nav rounded-[20px] md:rounded-[22px] transition-colors overflow-visible">
+          <div className="px-2 min-[360px]:px-2.5 min-[390px]:px-3.5 sm:px-5 lg:px-6 h-13 sm:h-14 md:h-16 flex items-center justify-between gap-1.5 min-[380px]:gap-2 sm:gap-4 lg:gap-8 min-w-0">
+            {/* Left Zone: Brand Logo + Desktop Navigation */}
+            <div className="flex items-center gap-2 sm:gap-6 lg:gap-8 min-w-0 shrink-0 h-full">
               <button
-                onClick={() => onTabChange('admin')}
-                aria-label="Admin Dashboard"
-                title="Admin Dashboard"
-                className={`md:hidden p-2 rounded-lg border transition-colors ${
-                  currentTab === 'admin'
-                    ? 'bg-amber-500/20 text-amber-400 border-amber-500/40'
-                    : 'text-amber-400/90 bg-amber-500/10 border-amber-500/25'
-                }`}
+                onClick={() => onTabChange('home', 'all')}
+                className="flex items-center gap-1.5 min-[360px]:gap-2 sm:gap-2.5 text-left group focus:outline-none focus-visible:ring-1 focus-visible:ring-amber-400 rounded-lg shrink-0"
               >
-                <ShieldCheck className="w-4 h-4" />
+                <div className="w-6.5 h-6.5 min-[360px]:w-7 min-[360px]:h-7 sm:w-8 sm:h-8 rounded-lg bg-gradient-to-br from-amber-400 to-amber-600 flex items-center justify-center text-slate-950 shadow-md shadow-amber-500/20 group-hover:scale-105 transition-transform shrink-0">
+                  <Film className="w-3.5 h-3.5 sm:w-4 sm:h-4 stroke-[2.5]" />
+                </div>
+                <span className="font-['Plus_Jakarta_Sans'] text-[15px] min-[360px]:text-base sm:text-xl font-extrabold tracking-tight text-white whitespace-nowrap group-hover:text-amber-400 transition-colors">
+                  Cine<span className="text-amber-400">Max</span>
+                </span>
               </button>
-            )}
 
-            {/* Account / Profile Session Control */}
-            {isAuthenticated ? (
-              <div className="flex items-center gap-1">
-                <button
-                  onClick={() => onTabChange('profile')}
-                  className={`flex items-center gap-2 px-2 sm:px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors whitespace-nowrap shrink-0 ${
-                    currentTab === 'profile'
-                      ? 'bg-amber-500/15 border border-amber-400/50 text-white'
-                      : 'cm-glass-control text-white'
-                  }`}
-                  title={userProfile?.displayName || userEmail || 'Profile'}
-                >
-                  {showAvatarImage ? (
-                    <img
-                      src={userProfile!.avatarUrl!}
-                      alt={userProfile?.displayName || 'Profile avatar'}
-                      onError={() => setAvatarLoadError(true)}
-                      className="w-5 h-5 rounded-full object-cover border border-amber-400/60 shrink-0"
-                    />
-                  ) : (
-                    <span className="w-5 h-5 rounded-full bg-amber-500/20 border border-amber-400/40 text-amber-300 font-mono text-[10px] font-bold flex items-center justify-center shrink-0">
-                      {initials}
-                    </span>
-                  )}
-                  <span className="hidden lg:inline max-w-[100px] truncate">
-                    {userProfile?.displayName || userEmail?.split('@')[0] || 'Account'}
-                  </span>
-                </button>
-                <button
-                  onClick={onSignOut}
-                  aria-label="Sign out"
-                  title="Sign Out"
-                  className="flex items-center justify-center min-h-[36px] min-w-[36px] p-2 text-slate-400 hover:text-red-400 hover:bg-white/5 rounded-lg transition-colors focus:outline-none focus-visible:ring-1 focus-visible:ring-amber-400"
-                >
-                  <LogOut className="w-4 h-4" />
-                </button>
-              </div>
-            ) : (
-              <button
-                onClick={() => onOpenAuthModal?.('signin')}
-                className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 sm:py-2 text-xs font-semibold text-white cm-glass-control rounded-lg whitespace-nowrap shrink-0 focus:outline-none focus-visible:ring-1 focus-visible:ring-amber-400"
+              {/* Desktop Primary Navigation */}
+              <nav
+                aria-label="Main Navigation"
+                className="hidden md:flex items-center h-full gap-4 lg:gap-6 text-sm font-medium"
               >
-                <LogIn className="w-3.5 h-3.5 text-amber-400" />
-                <span>Sign In</span>
-              </button>
-            )}
-          </div>
-        </div>
-
-        {/* Mobile Sub-Hub Pill Bar when on Home Tab (All / Movies / Series) */}
-        {currentTab === 'home' && (
-          <div className="md:hidden px-4 py-2 border-t border-white/[0.06] cm-glass-subbar flex items-center justify-between gap-2">
-            <div className="flex items-center gap-1.5">
-              {(
-                [
-                  { id: 'all', label: 'All Titles', icon: null },
-                  { id: 'movies', label: 'Movies', icon: <Film className="w-3 h-3" /> },
-                  { id: 'series', label: 'Series', icon: <Tv className="w-3 h-3" /> },
-                ] as const
-              ).map((hub) => {
-                const active = homeHubMode === hub.id;
-                return (
+                {desktopNavItems.map((item) => (
                   <button
-                    key={hub.id}
-                    onClick={() => onTabChange('home', hub.id)}
-                    className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-semibold transition-all ${
-                      active
-                        ? 'bg-amber-500 text-slate-950 shadow-sm'
-                        : 'cm-glass-control text-slate-300 hover:text-white'
+                    key={item.key}
+                    onClick={() => onTabChange(item.tab, item.hubMode)}
+                    className={`relative h-full text-xs lg:text-sm font-medium transition-colors whitespace-nowrap shrink-0 flex items-center gap-1.5 focus:outline-none focus-visible:ring-1 focus-visible:ring-amber-400 ${
+                      item.isActive
+                        ? 'text-white font-semibold'
+                        : 'text-slate-400 hover:text-slate-100'
                     }`}
                   >
-                    {hub.icon}
-                    <span>{hub.label}</span>
+                    {item.icon}
+                    <span>{item.label}</span>
+                    {item.badge !== undefined && (
+                      <span className="ml-0.5 px-1.5 py-0.2 text-[10px] font-mono font-bold rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30 tabular-nums">
+                        {item.badge}
+                      </span>
+                    )}
+                    {item.isActive && (
+                      <span className="absolute bottom-0 left-0 right-0 h-[2.5px] bg-gradient-to-r from-amber-400 to-amber-500 rounded-full shadow-[0_0_8px_rgba(245,158,11,0.45)]" />
+                    )}
                   </button>
-                );
-              })}
+                ))}
+              </nav>
             </div>
 
-            <button
-              onClick={() => onTabChange('estimator')}
-              className="flex items-center gap-1 text-[11px] font-medium text-amber-400 hover:text-amber-300 px-2 py-1 rounded bg-amber-500/10 border border-amber-500/20"
-            >
-              <HardDrive className="w-3 h-3" />
-              <span>Size Tool</span>
-            </button>
+            {/* Right Zone: Search, Surprise Me, Tools (Mobile), & Account Controls */}
+            <div className="flex items-center gap-1 min-[390px]:gap-1.5 sm:gap-2.5 shrink-0 min-w-0">
+              {/* Search Trigger */}
+              <button
+                onClick={onQuickSearchClick}
+                aria-label="Open search"
+                className="flex items-center justify-center gap-2 w-7 h-7 min-[360px]:w-8 min-[360px]:h-8 min-[400px]:w-9 min-[400px]:h-9 sm:w-auto sm:min-h-[36px] sm:px-3 sm:py-1.5 text-slate-300 hover:text-white cm-glass-control rounded-xl shrink-0 focus:outline-none focus-visible:ring-1 focus-visible:ring-amber-400"
+                title="Search movies, series, cast & directors (Ctrl+K)"
+              >
+                <Search className="w-3.5 h-3.5 min-[400px]:w-4 min-[400px]:h-4 text-amber-400 shrink-0" />
+                <span className="hidden xl:inline text-xs text-slate-300">Search...</span>
+                <kbd className="hidden xl:inline-block px-1.5 py-0.5 text-[10px] font-mono text-slate-400 bg-black/45 rounded border border-white/10">
+                  ⌘K
+                </kbd>
+              </button>
+
+              {/* Mobile Quick Access to Quality & File Size Tool */}
+              <button
+                onClick={() => onTabChange('estimator')}
+                aria-label="Quality & File Size Estimator"
+                title="Quality & File Size Estimator"
+                className={`md:hidden w-7 h-7 min-[360px]:w-8 min-[360px]:h-8 min-[400px]:w-9 min-[400px]:h-9 flex items-center justify-center rounded-xl transition-colors shrink-0 ${
+                  currentTab === 'estimator'
+                    ? 'bg-amber-500/20 text-amber-400 border border-amber-500/40'
+                    : 'text-slate-300 hover:text-white cm-glass-control'
+                }`}
+              >
+                <HardDrive className="w-3.5 h-3.5 min-[400px]:w-4 min-[400px]:h-4 shrink-0" />
+              </button>
+
+              {/* Surprise Me Button */}
+              <button
+                onClick={onOpenSurprise}
+                aria-label="Surprise Me — Instant Recommendation"
+                title="Surprise Me — Instant Recommendation"
+                className="flex items-center justify-center gap-1.5 w-7 h-7 min-[360px]:w-8 min-[360px]:h-8 min-[400px]:w-9 min-[400px]:h-9 sm:w-auto sm:min-h-[36px] sm:px-3 sm:py-2 text-xs font-semibold text-slate-950 bg-gradient-to-r from-amber-400 to-amber-500 hover:from-amber-300 hover:to-amber-400 rounded-xl shadow-sm shadow-amber-500/20 transition-all hover:scale-[1.02] active:scale-[0.98] whitespace-nowrap shrink-0 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
+              >
+                <Dice5 className="w-3.5 h-3.5 stroke-[2.5] shrink-0" />
+                <span className="hidden sm:inline">Surprise Me</span>
+              </button>
+
+              {/* Mobile Verified Admin Access Icon (Only shown to verified admin) */}
+              {isAuthenticated && isAdmin && (
+                <button
+                  onClick={() => onTabChange('admin')}
+                  aria-label="Admin Dashboard"
+                  title="Admin Dashboard"
+                  className={`md:hidden w-7 h-7 min-[360px]:w-8 min-[360px]:h-8 min-[400px]:w-9 min-[400px]:h-9 flex items-center justify-center rounded-xl border transition-colors shrink-0 ${
+                    currentTab === 'admin'
+                      ? 'bg-amber-500/20 text-amber-400 border-amber-500/40'
+                      : 'text-amber-400/90 bg-amber-500/10 border-amber-500/25'
+                  }`}
+                >
+                  <ShieldCheck className="w-3.5 h-3.5 min-[400px]:w-4 min-[400px]:h-4 shrink-0" />
+                </button>
+              )}
+
+              {/* Account / Profile Session Control */}
+              {isAuthenticated ? (
+                <div className="flex items-center gap-1 shrink-0">
+                  <button
+                    onClick={() => onTabChange('profile')}
+                    aria-label={userProfile?.displayName || userEmail || 'Profile'}
+                    className={`flex items-center justify-center gap-2 w-7 h-7 min-[360px]:w-8 min-[360px]:h-8 min-[400px]:w-9 min-[400px]:h-9 lg:w-auto sm:min-h-[36px] lg:px-2.5 rounded-xl text-xs font-medium transition-colors whitespace-nowrap shrink-0 ${
+                      currentTab === 'profile'
+                        ? 'bg-amber-500/15 border border-amber-400/50 text-white'
+                        : 'cm-glass-control text-white'
+                    }`}
+                    title={userProfile?.displayName || userEmail || 'Profile'}
+                  >
+                    {showAvatarImage ? (
+                      <img
+                        src={userProfile!.avatarUrl!}
+                        alt={userProfile?.displayName || 'Profile avatar'}
+                        onError={() => setAvatarLoadError(true)}
+                        className="w-4.5 h-4.5 min-[360px]:w-5 min-[360px]:h-5 rounded-full object-cover border border-amber-400/60 shrink-0"
+                      />
+                    ) : (
+                      <span className="w-4.5 h-4.5 min-[360px]:w-5 min-[360px]:h-5 rounded-full bg-amber-500/20 border border-amber-400/40 text-amber-300 font-mono text-[9px] min-[360px]:text-[10px] font-bold flex items-center justify-center shrink-0">
+                        {initials}
+                      </span>
+                    )}
+                    <span className="hidden lg:inline max-w-[100px] truncate">
+                      {userProfile?.displayName || userEmail?.split('@')[0] || 'Account'}
+                    </span>
+                  </button>
+                  <button
+                    onClick={onSignOut}
+                    aria-label="Sign out"
+                    title="Sign Out"
+                    className="flex items-center justify-center w-7 h-7 min-[360px]:w-8 min-[360px]:h-8 min-[400px]:w-9 min-[400px]:h-9 sm:min-h-[36px] sm:min-w-[36px] text-slate-400 hover:text-red-400 hover:bg-white/5 rounded-xl transition-colors shrink-0 focus:outline-none focus-visible:ring-1 focus-visible:ring-amber-400"
+                  >
+                    <LogOut className="w-3.5 h-3.5 min-[400px]:w-4 min-[400px]:h-4 shrink-0" />
+                  </button>
+                </div>
+              ) : (
+                <button
+                  onClick={() => onOpenAuthModal?.('signin')}
+                  className="flex items-center gap-1 min-[360px]:gap-1.5 px-2 min-[360px]:px-2.5 sm:px-3 h-7 min-[360px]:h-8 min-[400px]:h-9 sm:min-h-[36px] text-[11px] min-[360px]:text-xs font-semibold text-white cm-glass-control rounded-xl whitespace-nowrap shrink-0 focus:outline-none focus-visible:ring-1 focus-visible:ring-amber-400"
+                >
+                  <LogIn className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                  <span>Sign In</span>
+                </button>
+              )}
+            </div>
           </div>
-        )}
+
+          {/* Mobile Sub-Hub Pill Bar when on Home Tab (All Titles / Movies / Series + Size Tool) inside unified rounded shell */}
+          {currentTab === 'home' && (
+            <div className="md:hidden px-2 min-[380px]:px-3 py-1.5 border-t border-white/[0.07] cm-glass-subbar rounded-b-[20px] flex items-center justify-between gap-1.5 min-[380px]:gap-2 min-w-0">
+              <div
+                ref={mobileHubTrackRef}
+                role="tablist"
+                aria-label="Content category filter"
+                className="relative flex-1 min-w-0 flex items-center gap-0.5 min-[360px]:gap-1 p-1 rounded-xl cm-glass-segmented overflow-hidden"
+              >
+                {/* Animated Liquid Glass Water-Bubble Active Indicator */}
+                <span
+                  aria-hidden="true"
+                  className="pointer-events-none absolute top-1 bottom-1 left-0 rounded-[9px] cm-water-bubble transition-[transform,width,opacity] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]"
+                  style={{
+                    width: `${bubbleMetric.width}px`,
+                    transform: `translate3d(${bubbleMetric.left}px, 0, 0)`,
+                    opacity: bubbleMetric.ready ? 1 : 0,
+                  }}
+                />
+                {(
+                  [
+                    { id: 'all', label: 'All Titles', icon: null },
+                    {
+                      id: 'movies',
+                      label: 'Movies',
+                      icon: <Film className="hidden min-[365px]:inline-block w-3 h-3 shrink-0" />,
+                    },
+                    {
+                      id: 'series',
+                      label: 'Series',
+                      icon: <Tv className="hidden min-[365px]:inline-block w-3 h-3 shrink-0" />,
+                    },
+                  ] as const
+                ).map((hub) => {
+                  const active = homeHubMode === hub.id;
+                  return (
+                    <button
+                      key={hub.id}
+                      ref={(el) => {
+                        mobileHubButtonRefs.current[hub.id] = el;
+                      }}
+                      role="tab"
+                      aria-selected={active}
+                      onClick={() => onTabChange('home', hub.id)}
+                      className={`relative z-10 flex-1 min-w-0 shrink flex items-center justify-center gap-1 px-1.5 min-[360px]:px-2.5 py-1.5 min-h-[30px] rounded-[9px] text-[11px] min-[360px]:text-xs font-semibold leading-none transition-colors whitespace-nowrap select-none focus:outline-none focus-visible:ring-1 focus-visible:ring-amber-400 ${
+                        active
+                          ? bubbleMetric.ready
+                            ? 'text-slate-950'
+                            : 'bg-amber-500 text-slate-950 shadow-sm'
+                          : 'text-slate-300 hover:text-white'
+                      }`}
+                    >
+                      {hub.icon}
+                      <span className="whitespace-nowrap">{hub.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+
+              <button
+                onClick={() => onTabChange('estimator')}
+                aria-label="Quality & File Size Estimator"
+                title="Quality & File Size Estimator"
+                className="flex items-center justify-center gap-1.5 text-[11px] font-medium text-amber-400 hover:text-amber-300 px-2.5 min-[390px]:px-3 py-1.5 min-h-[34px] min-w-[34px] rounded-xl bg-amber-500/10 border border-amber-500/25 hover:bg-amber-500/15 transition-colors whitespace-nowrap shrink-0 focus:outline-none focus-visible:ring-1 focus-visible:ring-amber-400"
+              >
+                <HardDrive className="w-3.5 h-3.5 shrink-0" />
+                <span className="hidden min-[390px]:inline">Size Tool</span>
+              </button>
+            </div>
+          )}
+        </div>
       </header>
 
-      {/* Mobile Fixed Bottom Navigation Bar (Home, Discover, Watchlist, Profile) */}
+      {/* Mobile Floating Inset Bottom Navigation Bar (Home, Discover, Watchlist, Profile) */}
       <nav
         aria-label="Mobile Bottom Navigation"
-        className="md:hidden fixed bottom-0 inset-x-0 z-50 cm-glass-nav border-t border-white/10 cm-safe-bottom"
+        className="md:hidden fixed inset-x-3 sm:inset-x-4 bottom-[calc(env(safe-area-inset-bottom,0px)+0.5rem)] z-50 cm-glass-nav rounded-[20px] overflow-hidden"
       >
-        <div className="grid grid-cols-4 h-14">
+        <div className="grid grid-cols-4 h-14 px-1">
           {mobileBottomItems.map((item) => (
             <button
               key={item.id}
@@ -370,7 +482,7 @@ const NavbarComponent: React.FC<NavbarProps> = ({
               }`}
             >
               {item.isActive && (
-                <span className="absolute top-0 w-8 h-0.5 bg-amber-400 rounded-full" />
+                <span className="absolute top-0 w-8 h-0.5 bg-amber-400 rounded-full shadow-[0_0_8px_rgba(245,158,11,0.5)]" />
               )}
               <div className="relative">
                 {item.id === 'profile' && isAuthenticated && showAvatarImage ? (

@@ -329,6 +329,248 @@ function buildClientIfValid(url: string, key: string): SupabaseClient | null {
   });
 }
 
+export interface RecoveryUrlSnapshot {
+  isRecoveryLink: boolean;
+  recoveryError: string | null;
+  code: string | null;
+  tokenHash: string | null;
+  accessToken: string | null;
+  refreshToken: string | null;
+  rawUrl: string;
+}
+
+const RECOVERY_SESSION_STORAGE_KEY = 'cinemax_password_recovery_active';
+const RECOVERY_ERROR_STORAGE_KEY = 'cinemax_password_recovery_error';
+
+function parseParamsFromSegment(segment: string): URLSearchParams {
+  const cleaned = (segment || '').replace(/^[#?]/, '');
+  return new URLSearchParams(cleaned);
+}
+
+export function inspectRecoveryUrlState(urlString?: string): RecoveryUrlSnapshot {
+  const rawUrl =
+    urlString ?? (typeof window !== 'undefined' ? window.location.href : '');
+  if (!rawUrl) {
+    return {
+      isRecoveryLink: false,
+      recoveryError: null,
+      code: null,
+      tokenHash: null,
+      accessToken: null,
+      refreshToken: null,
+      rawUrl: '',
+    };
+  }
+
+  let searchStr = '';
+  let hashStr = '';
+  const isCustomScheme = rawUrl.startsWith('in.vertexstudios.cinemax://');
+
+  try {
+    const parsed = new URL(rawUrl);
+    searchStr = parsed.search || '';
+    hashStr = parsed.hash || '';
+  } catch {
+    const hashIdx = rawUrl.indexOf('#');
+    const queryIdx = rawUrl.indexOf('?');
+    if (queryIdx !== -1) {
+      searchStr =
+        hashIdx !== -1 && hashIdx > queryIdx
+          ? rawUrl.slice(queryIdx, hashIdx)
+          : rawUrl.slice(queryIdx);
+    }
+    if (hashIdx !== -1) {
+      hashStr = rawUrl.slice(hashIdx);
+    }
+  }
+
+  // Handle cases where hash itself contains a query string (e.g. #/reset-password?type=recovery)
+  let hashPath = hashStr.replace(/^#/, '');
+  let extraHashQuery = '';
+  const hashQueryIdx = hashPath.indexOf('?');
+  if (hashQueryIdx !== -1) {
+    extraHashQuery = hashPath.slice(hashQueryIdx + 1);
+    hashPath = hashPath.slice(0, hashQueryIdx);
+  }
+
+  const searchParams = parseParamsFromSegment(searchStr);
+  const hashParams = parseParamsFromSegment(
+    extraHashQuery ? `${hashPath}&${extraHashQuery}` : hashStr
+  );
+
+  const mode = (
+    searchParams.get('mode') ||
+    hashParams.get('mode') ||
+    ''
+  ).toLowerCase();
+  const type = (
+    searchParams.get('type') ||
+    hashParams.get('type') ||
+    ''
+  ).toLowerCase();
+  const code = searchParams.get('code') || hashParams.get('code') || null;
+  const tokenHash =
+    searchParams.get('token_hash') || hashParams.get('token_hash') || null;
+  const accessToken =
+    hashParams.get('access_token') || searchParams.get('access_token') || null;
+  const refreshToken =
+    hashParams.get('refresh_token') ||
+    searchParams.get('refresh_token') ||
+    null;
+
+  const errorCode =
+    hashParams.get('error_code') || searchParams.get('error_code') || '';
+  const errorDesc =
+    hashParams.get('error_description') ||
+    searchParams.get('error_description') ||
+    hashParams.get('error') ||
+    searchParams.get('error') ||
+    '';
+
+  const hasExplicitRecoveryMarker =
+    mode === 'reset-password' ||
+    type === 'recovery' ||
+    (isCustomScheme && rawUrl.toLowerCase().includes('reset-password')) ||
+    hashPath.toLowerCase().includes('reset-password');
+
+  const hasOtpExpiredOnUrl =
+    errorCode.toLowerCase() === 'otp_expired' ||
+    errorDesc.toLowerCase().includes('email link is invalid or has expired');
+
+  let recoveryError: string | null = null;
+  if ((hasExplicitRecoveryMarker || hasOtpExpiredOnUrl) && (errorCode || errorDesc)) {
+    const decoded = decodeURIComponent(errorDesc.replace(/\+/g, ' ')).trim();
+    if (
+      errorCode.toLowerCase() === 'otp_expired' ||
+      decoded.toLowerCase().includes('expired') ||
+      decoded.toLowerCase().includes('invalid')
+    ) {
+      recoveryError =
+        'This password reset link is invalid, has expired, or has already been used. Please request a new password reset link below.';
+    } else {
+      recoveryError =
+        decoded ||
+        'Unable to verify this password reset link. Please request a new link.';
+    }
+  }
+
+  return {
+    isRecoveryLink: Boolean(hasExplicitRecoveryMarker || hasOtpExpiredOnUrl),
+    recoveryError,
+    code,
+    tokenHash,
+    accessToken,
+    refreshToken,
+    rawUrl,
+  };
+}
+
+// Capture the initial URL snapshot BEFORE createClient(detectSessionInUrl: true) strips the URL hash
+let activeRecoverySnapshot: RecoveryUrlSnapshot =
+  typeof window !== 'undefined'
+    ? inspectRecoveryUrlState(window.location.href)
+    : {
+        isRecoveryLink: false,
+        recoveryError: null,
+        code: null,
+        tokenHash: null,
+        accessToken: null,
+        refreshToken: null,
+        rawUrl: '',
+      };
+
+if (typeof window !== 'undefined') {
+  try {
+    if (activeRecoverySnapshot.isRecoveryLink) {
+      sessionStorage.setItem(RECOVERY_SESSION_STORAGE_KEY, '1');
+      if (activeRecoverySnapshot.recoveryError) {
+        sessionStorage.setItem(
+          RECOVERY_ERROR_STORAGE_KEY,
+          activeRecoverySnapshot.recoveryError
+        );
+      } else {
+        sessionStorage.removeItem(RECOVERY_ERROR_STORAGE_KEY);
+      }
+    } else if (sessionStorage.getItem(RECOVERY_SESSION_STORAGE_KEY) === '1') {
+      const savedErr = sessionStorage.getItem(RECOVERY_ERROR_STORAGE_KEY);
+      activeRecoverySnapshot = {
+        ...activeRecoverySnapshot,
+        isRecoveryLink: true,
+        recoveryError: savedErr || null,
+      };
+    }
+  } catch {
+    // Ignore storage access errors in restricted webviews
+  }
+}
+
+export function isPasswordRecoveryFlowActive(): boolean {
+  if (activeRecoverySnapshot.isRecoveryLink) return true;
+  if (typeof window !== 'undefined') {
+    const current = inspectRecoveryUrlState(window.location.href);
+    if (current.isRecoveryLink) {
+      activeRecoverySnapshot = current;
+      return true;
+    }
+    try {
+      return sessionStorage.getItem(RECOVERY_SESSION_STORAGE_KEY) === '1';
+    } catch {
+      return false;
+    }
+  }
+  return false;
+}
+
+export function getPasswordRecoveryError(): string | null {
+  if (activeRecoverySnapshot.recoveryError) {
+    return activeRecoverySnapshot.recoveryError;
+  }
+  if (typeof window !== 'undefined') {
+    try {
+      return sessionStorage.getItem(RECOVERY_ERROR_STORAGE_KEY);
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
+
+export function clearPasswordRecoveryFlowState(): void {
+  activeRecoverySnapshot = {
+    isRecoveryLink: false,
+    recoveryError: null,
+    code: null,
+    tokenHash: null,
+    accessToken: null,
+    refreshToken: null,
+    rawUrl: '',
+  };
+  if (typeof window !== 'undefined') {
+    try {
+      sessionStorage.removeItem(RECOVERY_SESSION_STORAGE_KEY);
+      sessionStorage.removeItem(RECOVERY_ERROR_STORAGE_KEY);
+    } catch {
+      // Ignore
+    }
+    try {
+      const url = new URL(window.location.href);
+      url.searchParams.delete('mode');
+      url.searchParams.delete('type');
+      url.searchParams.delete('code');
+      url.searchParams.delete('token_hash');
+      url.searchParams.delete('error');
+      url.searchParams.delete('error_code');
+      url.searchParams.delete('error_description');
+      const cleanSearch = url.searchParams.toString();
+      const cleanPath =
+        url.pathname + (cleanSearch ? `?${cleanSearch}` : '');
+      window.history.replaceState({}, document.title, cleanPath);
+    } catch {
+      // Ignore URL cleanup errors on non-standard schemes
+    }
+  }
+}
+
 // Attempt immediate build-time initialization if VITE_SUPABASE_* is already baked in
 supabaseInstance = buildClientIfValid(resolvedUrl, resolvedAnonKey);
 
@@ -464,8 +706,104 @@ function fromDbStatus(dbStatus: string): WatchStatus {
 }
 
 // ============================================================================
-// Authentication Operations
+// Authentication & Password Management Operations
 // ============================================================================
+
+export const ANDROID_RESET_PASSWORD_DEEP_LINK =
+  'in.vertexstudios.cinemax://reset-password';
+export const GITHUB_PAGES_RESET_PASSWORD_URL =
+  'https://tosifrehan42.github.io/CineMax/?mode=reset-password';
+
+export function isCapacitorNativePlatform(): boolean {
+  if (typeof window === 'undefined') return false;
+  return (
+    Boolean((window as any).Capacitor?.isNativePlatform?.()) ||
+    window.location.protocol === 'capacitor:' ||
+    window.location.protocol === 'file:'
+  );
+}
+
+export function getPasswordResetRedirectUrl(): {
+  redirectTo: string;
+  androidSchemeUrl: string;
+  webFallbackUrl: string;
+} {
+  const customEnvRedirect = (
+    import.meta.env?.VITE_PASSWORD_RESET_REDIRECT_URL || ''
+  ).trim();
+  if (customEnvRedirect) {
+    return {
+      redirectTo: customEnvRedirect,
+      androidSchemeUrl: ANDROID_RESET_PASSWORD_DEEP_LINK,
+      webFallbackUrl: GITHUB_PAGES_RESET_PASSWORD_URL,
+    };
+  }
+
+  if (typeof window === 'undefined' || isCapacitorNativePlatform()) {
+    // Use the universal HTTPS GitHub Pages reset URL by default so links work on both
+    // Android (via App Links / "Open in CineMax App" deep link bridge) and desktop/mobile browsers
+    return {
+      redirectTo: GITHUB_PAGES_RESET_PASSWORD_URL,
+      androidSchemeUrl: ANDROID_RESET_PASSWORD_DEEP_LINK,
+      webFallbackUrl: GITHUB_PAGES_RESET_PASSWORD_URL,
+    };
+  }
+
+  const origin = window.location.origin;
+  const host = window.location.hostname.toLowerCase();
+  if (host.endsWith('.github.io')) {
+    return {
+      redirectTo: `${origin}/CineMax/?mode=reset-password`,
+      androidSchemeUrl: ANDROID_RESET_PASSWORD_DEEP_LINK,
+      webFallbackUrl: `${origin}/CineMax/?mode=reset-password`,
+    };
+  }
+
+  const rawBase = import.meta.env?.BASE_URL || '/';
+  const normalizedBase = rawBase.endsWith('/') ? rawBase : `${rawBase}/`;
+  const redirectTo = `${origin}${normalizedBase}?mode=reset-password`;
+
+  return {
+    redirectTo,
+    androidSchemeUrl: ANDROID_RESET_PASSWORD_DEEP_LINK,
+    webFallbackUrl: GITHUB_PAGES_RESET_PASSWORD_URL,
+  };
+}
+
+export function buildAndroidDeepLinkFromCurrentUrl(): string {
+  if (typeof window === 'undefined') return ANDROID_RESET_PASSWORD_DEEP_LINK;
+  const search = window.location.search || '';
+  const hash = window.location.hash || '';
+  return `${ANDROID_RESET_PASSWORD_DEEP_LINK}${search}${hash}`;
+}
+
+export function validatePasswordPolicy(
+  password: string,
+  confirmPassword?: string
+): { valid: boolean; error: string | null } {
+  if (!password) {
+    return { valid: false, error: 'Please enter a password.' };
+  }
+  if (password.length < 6) {
+    return {
+      valid: false,
+      error: 'Password must be at least 6 characters long.',
+    };
+  }
+  if (password.length > 72) {
+    return {
+      valid: false,
+      error: 'Password must be 72 characters or fewer.',
+    };
+  }
+  if (confirmPassword !== undefined && password !== confirmPassword) {
+    return {
+      valid: false,
+      error: 'Passwords do not match. Please re-enter your confirmation password.',
+    };
+  }
+  return { valid: true, error: null };
+}
 
 export function formatAuthErrorMessage(rawMessage: string | null | undefined): string {
   const msg = (rawMessage || '').trim();
@@ -480,11 +818,25 @@ export function formatAuthErrorMessage(rawMessage: string | null | undefined): s
   if (lower.includes('user already registered') || lower.includes('already been registered')) {
     return 'An account with this email already exists. Please switch to Sign In to access your account.';
   }
+  if (lower.includes('same_password') || lower.includes('different from the old password')) {
+    return 'Your new password must be different from your current password.';
+  }
+  if (
+    lower.includes('otp_expired') ||
+    lower.includes('email link is invalid or has expired') ||
+    lower.includes('token has expired') ||
+    lower.includes('auth session missing')
+  ) {
+    return 'This password reset session has expired or is no longer valid. Please request a new password reset link.';
+  }
+  if (lower.includes('redirect') && (lower.includes('not allowed') || lower.includes('invalid'))) {
+    return 'The password reset redirect URL is not allowlisted in Supabase Auth yet. Ensure https://tosifrehan42.github.io/CineMax/** and in.vertexstudios.cinemax://reset-password are added under Authentication → URL Configuration.';
+  }
   if (lower.includes('failed to fetch') || lower.includes('networkerror') || lower.includes('load failed')) {
     return 'Unable to reach the authentication service. Please check your internet connection and try again.';
   }
-  if (lower.includes('rate limit') || lower.includes('too many requests')) {
-    return 'Too many authentication attempts. Please wait a moment before trying again.';
+  if (lower.includes('rate limit') || lower.includes('too many requests') || lower.includes('over_email_send_rate_limit') || lower.includes('for security purposes, you can only request this')) {
+    return 'Too many requests in a short period. Please wait a minute before requesting another email.';
   }
   return msg;
 }
@@ -565,10 +917,277 @@ export async function signInWithEmail(
 }
 
 export async function signOutUser(): Promise<{ error: string | null }> {
+  clearPasswordRecoveryFlowState();
   const { client } = await ensureSupabaseClient();
   if (!client) return { error: null };
   const { error } = await client.auth.signOut();
   return { error: error ? formatAuthErrorMessage(error.message) : null };
+}
+
+export async function requestPasswordResetEmail(
+  email: string
+): Promise<{ error: string | null; redirectTo: string }> {
+  const cleanEmail = (email || '').trim();
+  const { redirectTo } = getPasswordResetRedirectUrl();
+
+  if (!cleanEmail) {
+    return { error: 'Please enter your email address.', redirectTo };
+  }
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
+    return {
+      error: 'Please enter a valid email address (for example, name@example.com).',
+      redirectTo,
+    };
+  }
+
+  const { client, securityWarning: secWarn } = await ensureSupabaseClient();
+  if (!client) {
+    return {
+      error:
+        secWarn ||
+        'Supabase is not configured yet. Please set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY in your environment secrets.',
+      redirectTo,
+    };
+  }
+
+  const { error } = await client.auth.resetPasswordForEmail(cleanEmail, {
+    redirectTo,
+  });
+
+  if (error) {
+    return {
+      error: formatAuthErrorMessage(error.message),
+      redirectTo,
+    };
+  }
+
+  return { error: null, redirectTo };
+}
+
+export async function exchangeRecoveryUrlForSession(
+  incomingUrl?: string
+): Promise<{ session: Session | null; error: string | null }> {
+  const { client, securityWarning: secWarn } = await ensureSupabaseClient();
+  if (!client) {
+    return {
+      session: null,
+      error:
+        secWarn ||
+        'Supabase authentication service is not configured yet.',
+    };
+  }
+
+  const snapshot = incomingUrl
+    ? inspectRecoveryUrlState(incomingUrl)
+    : activeRecoverySnapshot.rawUrl
+    ? activeRecoverySnapshot
+    : inspectRecoveryUrlState(
+        typeof window !== 'undefined' ? window.location.href : ''
+      );
+
+  if (incomingUrl && snapshot.isRecoveryLink) {
+    activeRecoverySnapshot = snapshot;
+    try {
+      sessionStorage.setItem(RECOVERY_SESSION_STORAGE_KEY, '1');
+      if (snapshot.recoveryError) {
+        sessionStorage.setItem(
+          RECOVERY_ERROR_STORAGE_KEY,
+          snapshot.recoveryError
+        );
+      } else {
+        sessionStorage.removeItem(RECOVERY_ERROR_STORAGE_KEY);
+      }
+    } catch {
+      // Ignore
+    }
+  }
+
+  if (snapshot.recoveryError) {
+    return { session: null, error: snapshot.recoveryError };
+  }
+
+  try {
+    // 1. Explicit #access_token & #refresh_token (Implicit flow or Android custom scheme deep link)
+    if (snapshot.accessToken && snapshot.refreshToken) {
+      const { data, error } = await client.auth.setSession({
+        access_token: snapshot.accessToken,
+        refresh_token: snapshot.refreshToken,
+      });
+      if (error) {
+        return {
+          session: null,
+          error: formatAuthErrorMessage(error.message),
+        };
+      }
+      if (data.session) {
+        return { session: data.session, error: null };
+      }
+    }
+
+    // 2. Explicit token_hash OTP verification (?token_hash=...&type=recovery)
+    if (snapshot.tokenHash) {
+      const { data, error } = await client.auth.verifyOtp({
+        token_hash: snapshot.tokenHash,
+        type: 'recovery',
+      });
+      if (error) {
+        return {
+          session: null,
+          error: formatAuthErrorMessage(error.message),
+        };
+      }
+      if (data.session) {
+        return { session: data.session, error: null };
+      }
+    }
+
+    // 3. PKCE code exchange (?code=...)
+    if (snapshot.code) {
+      // Check if detectSessionInUrl already exchanged it
+      const existing = await client.auth.getSession();
+      if (existing.data.session) {
+        return { session: existing.data.session, error: null };
+      }
+      const { data, error } = await client.auth.exchangeCodeForSession(
+        snapshot.code
+      );
+      if (error) {
+        return {
+          session: null,
+          error: formatAuthErrorMessage(error.message),
+        };
+      }
+      if (data.session) {
+        return { session: data.session, error: null };
+      }
+    }
+
+    // 4. Check existing session established automatically by Supabase detectSessionInUrl
+    const { data, error } = await client.auth.getSession();
+    if (error) {
+      return { session: null, error: formatAuthErrorMessage(error.message) };
+    }
+    if (data.session) {
+      return { session: data.session, error: null };
+    }
+
+    return {
+      session: null,
+      error:
+        'This password reset link is invalid, has expired, or has already been used. Please request a new password reset link.',
+    };
+  } catch (err: any) {
+    return {
+      session: null,
+      error: formatAuthErrorMessage(err?.message),
+    };
+  }
+}
+
+export async function completePasswordReset(
+  newPassword: string,
+  confirmPassword?: string
+): Promise<{ user: User | null; error: string | null }> {
+  const validation = validatePasswordPolicy(newPassword, confirmPassword);
+  if (!validation.valid) {
+    return { user: null, error: validation.error };
+  }
+
+  const { client, securityWarning: secWarn } = await ensureSupabaseClient();
+  if (!client) {
+    return {
+      user: null,
+      error:
+        secWarn ||
+        'Supabase authentication service is not configured yet.',
+    };
+  }
+
+  const { data: sessionData } = await client.auth.getSession();
+  if (!sessionData?.session) {
+    return {
+      user: null,
+      error:
+        'Your password recovery session has expired or is missing. Please request a new password reset link.',
+    };
+  }
+
+  const { data, error } = await client.auth.updateUser({
+    password: newPassword,
+  });
+
+  if (error) {
+    return { user: null, error: formatAuthErrorMessage(error.message) };
+  }
+
+  clearPasswordRecoveryFlowState();
+  return { user: data.user, error: null };
+}
+
+export async function changeSignedInUserPassword(
+  email: string,
+  currentPassword: string,
+  newPassword: string,
+  confirmPassword?: string
+): Promise<{ error: string | null }> {
+  if (!currentPassword) {
+    return { error: 'Please enter your current password to verify your identity.' };
+  }
+
+  const validation = validatePasswordPolicy(newPassword, confirmPassword);
+  if (!validation.valid) {
+    return { error: validation.error };
+  }
+
+  if (currentPassword === newPassword) {
+    return {
+      error: 'Your new password must be different from your current password.',
+    };
+  }
+
+  const cleanEmail = (email || '').trim();
+  if (!cleanEmail) {
+    return {
+      error: 'Unable to determine your account email address. Please sign out and sign in again.',
+    };
+  }
+
+  const { client, securityWarning: secWarn } = await ensureSupabaseClient();
+  if (!client) {
+    return {
+      error:
+        secWarn ||
+        'Supabase authentication service is not configured yet.',
+    };
+  }
+
+  // Step 1: Re-authenticate with current password to verify user identity
+  const { error: verifyError } = await client.auth.signInWithPassword({
+    email: cleanEmail,
+    password: currentPassword,
+  });
+
+  if (verifyError) {
+    const lower = (verifyError.message || '').toLowerCase();
+    if (lower.includes('invalid login credentials')) {
+      return {
+        error:
+          'Your current password is incorrect. Please check your current password and try again.',
+      };
+    }
+    return { error: formatAuthErrorMessage(verifyError.message) };
+  }
+
+  // Step 2: Update password via Supabase Auth
+  const { error: updateError } = await client.auth.updateUser({
+    password: newPassword,
+  });
+
+  if (updateError) {
+    return { error: formatAuthErrorMessage(updateError.message) };
+  }
+
+  return { error: null };
 }
 
 // ============================================================================

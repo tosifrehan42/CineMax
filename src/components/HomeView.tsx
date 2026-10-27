@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useCallback, useRef, startTransition } from 'react';
+import React, { useState, useEffect, useMemo, useCallback, useRef, startTransition, Suspense } from 'react';
 import {
   FranchiseCollection,
   HomeHubMode,
@@ -11,8 +11,11 @@ import {
 } from '../types';
 import { HeroSpotlight } from './HeroSpotlight';
 import { MediaCarouselRow } from './MediaCarouselRow';
-import { FranchiseModal } from './FranchiseModal';
 import { GENRES } from '../data/mediaData';
+
+const FranchiseModal = React.lazy(() =>
+  import('./FranchiseModal').then((m) => ({ default: m.FranchiseModal }))
+);
 import {
   EXTRA_ANCHOR_ITEMS,
   FRANCHISE_COLLECTIONS,
@@ -964,16 +967,20 @@ const HomeViewComponent: React.FC<HomeViewProps> = ({
       </section>
 
       {/* Franchise Watch-Order Modal */}
-      <FranchiseModal
-        collection={activeFranchise}
-        onClose={() => setActiveFranchise(null)}
-        isInWatchlist={isInWatchlist}
-        getWatchlistStatus={getWatchlistStatus}
-        onToggleWatchlist={onToggleWatchlist}
-        onUpdateStatus={onUpdateStatus}
-        onSelectMedia={onSelectMedia}
-        onPlayTrailer={onPlayTrailer}
-      />
+      {activeFranchise && (
+        <Suspense fallback={null}>
+          <FranchiseModal
+            collection={activeFranchise}
+            onClose={() => setActiveFranchise(null)}
+            isInWatchlist={isInWatchlist}
+            getWatchlistStatus={getWatchlistStatus}
+            onToggleWatchlist={onToggleWatchlist}
+            onUpdateStatus={onUpdateStatus}
+            onSelectMedia={onSelectMedia}
+            onPlayTrailer={onPlayTrailer}
+          />
+        </Suspense>
+      )}
     </div>
   );
 };

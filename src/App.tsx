@@ -37,10 +37,13 @@ import {
   batchImportLocalWatchedEpisodes,
   signOutUser,
   parseRuntimeMinutes,
+  isPasswordRecoveryFlowActive,
+  clearPasswordRecoveryFlowState,
+  inspectRecoveryUrlState,
 } from './services/supabaseClient';
 import { Navbar } from './components/Navbar';
 import { HomeView } from './components/HomeView';
-import { AuthScreen } from './components/AuthScreen';
+import { AuthScreen, AuthScreenMode } from './components/AuthScreen';
 import {
   AdminAccessState,
   checkAdminAccess,
@@ -90,6 +93,16 @@ const SearchOverlay = React.lazy(() =>
 );
 const AuthModal = React.lazy(() =>
   import('./components/AuthModal').then((m) => ({ default: m.AuthModal }))
+);
+const ResetPasswordScreen = React.lazy(() =>
+  import('./components/ResetPasswordScreen').then((m) => ({
+    default: m.ResetPasswordScreen,
+  }))
+);
+const ChangePasswordModal = React.lazy(() =>
+  import('./components/ChangePasswordModal').then((m) => ({
+    default: m.ChangePasswordModal,
+  }))
 );
 
 function isUrlAdminRoute(): boolean {
@@ -231,7 +244,20 @@ export default function App() {
   const [isSurpriseOpen, setIsSurpriseOpen] = useState(false);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
-  const [authModalMode, setAuthModalMode] = useState<'signin' | 'signup'>('signin');
+  const [isChangePasswordModalOpen, setIsChangePasswordModalOpen] =
+    useState(false);
+  const [authModalMode, setAuthModalMode] = useState<AuthScreenMode>('signin');
+  const [authScreenInitialEmail, setAuthScreenInitialEmail] =
+    useState<string>('');
+  const [authScreenSuccessNotice, setAuthScreenSuccessNotice] = useState<
+    string | null
+  >(null);
+  const [isRecoveryFlow, setIsRecoveryFlow] = useState<boolean>(() =>
+    isPasswordRecoveryFlowActive()
+  );
+  const [incomingRecoveryUrl, setIncomingRecoveryUrl] = useState<string | null>(
+    null
+  );
   const [discoverInitialMood, setDiscoverInitialMood] = useState('all');
   const [discoverInitialGenre, setDiscoverInitialGenre] = useState('All');
   const [discoverInitialCategory, setDiscoverInitialCategory] =
@@ -242,6 +268,63 @@ export default function App() {
   const [estimatorInitialSeason, setEstimatorInitialSeason] = useState<
     number | undefined
   >(undefined);
+
+  // Listen for Capacitor Android deep-link intents (custom scheme in.vertexstudios.cinemax://reset-password or HTTPS App Link)
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    const handleDeepLinkUrl = (urlStr?: string | null) => {
+      if (!urlStr) return;
+      const snapshot = inspectRecoveryUrlState(urlStr);
+      if (snapshot.isRecoveryLink) {
+        setIncomingRecoveryUrl(urlStr);
+        setIsRecoveryFlow(true);
+      }
+    };
+
+    const initialNativeDeepLink = (window as any).__CINEMAX_INITIAL_DEEPLINK__;
+    if (typeof initialNativeDeepLink === 'string' && initialNativeDeepLink) {
+      handleDeepLinkUrl(initialNativeDeepLink);
+      (window as any).__CINEMAX_INITIAL_DEEPLINK__ = null;
+    }
+
+    const handleCustomEvent = (e: Event) => {
+      const detail = (e as CustomEvent<{ url?: string }>).detail;
+      if (detail?.url) {
+        handleDeepLinkUrl(detail.url);
+      }
+    };
+    window.addEventListener('cinemax:deeplink', handleCustomEvent);
+
+    let capListenerRemove: (() => void) | null = null;
+    const capAppPlugin = (window as any).Capacitor?.Plugins?.App;
+    if (capAppPlugin?.addListener) {
+      try {
+        const sub = capAppPlugin.addListener(
+          'appUrlOpen',
+          (data: { url?: string }) => {
+            if (data?.url) {
+              handleDeepLinkUrl(data.url);
+            }
+          }
+        );
+        if (sub && typeof sub.then === 'function') {
+          sub.then((handle: any) => {
+            capListenerRemove = () => handle?.remove?.();
+          });
+        } else if (sub && typeof sub.remove === 'function') {
+          capListenerRemove = () => sub.remove();
+        }
+      } catch {
+        // Ignore if App plugin is not registered
+      }
+    }
+
+    return () => {
+      window.removeEventListener('cinemax:deeplink', handleCustomEvent);
+      capListenerRemove?.();
+    };
+  }, []);
 
   // Dynamic registry of all loaded media items across pages so Watchlist, Profile & Roulette have full access
   const [knownMedia, setKnownMedia] = useState<MediaItem[]>(() =>
@@ -438,6 +521,10 @@ export default function App() {
 
         const { data: sub } = client.auth.onAuthStateChange((event, session) => {
           if (!active) return;
+          if (event === 'PASSWORD_RECOVERY') {
+            setIsRecoveryFlow(true);
+          }
+
           const nextUser = session?.user ?? null;
           const nextUserId = nextUser?.id ?? null;
           const prevUserId = activeAuthUserIdRef.current;
@@ -471,6 +558,7 @@ export default function App() {
             setIsSurpriseOpen(false);
             setIsSearchOpen(false);
             setIsAuthModalOpen(false);
+            setIsChangePasswordModalOpen(false);
             setCurrentTab('home');
             setHomeHubMode('all');
           }
@@ -1368,18 +1456,73 @@ export default function App() {
     );
   }
 
-  // 2. When no valid session exists, show the full-screen Sign In / Sign Up screen before the Home page
+  // 2. When a password recovery link or PASSWORD_RECOVERY auth event is active, render ResetPasswordScreen
+  if (isRecoveryFlow) {
+    return (
+      <Suspense fallback={viewFallback}>
+        <ResetPasswordScreen
+          incomingRecoveryUrl={incomingRecoveryUrl}
+          userEmail={authUser?.email || null}
+          onResetComplete={async (resetEmail) => {
+            const targetEmail = resetEmail || authUser?.email || '';
+            clearPasswordRecoveryFlowState();
+            setIsRecoveryFlow(false);
+            setIncomingRecoveryUrl(null);
+            if (targetEmail) {
+              setAuthScreenInitialEmail(targetEmail);
+            }
+            setAuthScreenSuccessNotice(
+              'Password updated! Sign in below with your new password on the CineMax website or Android app.'
+            );
+            setAuthModalMode('signin');
+            if (authUser) {
+              await handleSignOut();
+            }
+            window.scrollTo({ top: 0, behavior: 'smooth' });
+          }}
+          onRequestNewResetLink={async (prefillEmail) => {
+            clearPasswordRecoveryFlowState();
+            setIsRecoveryFlow(false);
+            setIncomingRecoveryUrl(null);
+            setAuthScreenSuccessNotice(null);
+            if (prefillEmail) {
+              setAuthScreenInitialEmail(prefillEmail);
+            }
+            setAuthModalMode('forgot_password');
+            if (authUser) {
+              await handleSignOut();
+            }
+          }}
+          onCancelToSignIn={async () => {
+            clearPasswordRecoveryFlowState();
+            setIsRecoveryFlow(false);
+            setIncomingRecoveryUrl(null);
+            setAuthScreenSuccessNotice(null);
+            setAuthModalMode('signin');
+            if (authUser) {
+              await handleSignOut();
+            }
+          }}
+        />
+      </Suspense>
+    );
+  }
+
+  // 3. When no valid session exists, show the full-screen Sign In / Sign Up / Forgot Password screen before the Home page
   if (!isAuthenticated) {
     return (
       <AuthScreen
         supabaseConfigured={supabaseConfigured}
         securityWarning={securityWarning}
         initialMode={authModalMode}
+        initialEmail={authScreenInitialEmail}
+        initialSuccessNotice={authScreenSuccessNotice}
         onSupabaseReconnected={(configured, secWarn) => {
           setSupabaseConfigured(configured);
           setSecurityWarning(secWarn);
         }}
         onAuthSuccess={() => {
+          setAuthScreenSuccessNotice(null);
           navigateToTab('home', 'all');
           window.scrollTo({ top: 0, behavior: 'smooth' });
         }}
@@ -1388,7 +1531,7 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen bg-[#0A0D12] text-slate-100 flex flex-col font-['Plus_Jakarta_Sans'] pb-16 md:pb-0">
+    <div className="min-h-screen bg-[#0A0D12] text-slate-100 flex flex-col font-['Plus_Jakarta_Sans'] pb-24 md:pb-0">
       {/* Responsive OTT Navigation */}
       <Navbar
         currentTab={currentTab}
@@ -1499,6 +1642,7 @@ export default function App() {
               schemaMissing={schemaMissing}
               onRetry={authUser ? () => loadCloudUserData(authUser) : undefined}
               onOpenAuthModal={handleOpenAuthModal}
+              onOpenChangePassword={() => setIsChangePasswordModalOpen(true)}
               onSignOut={handleSignOut}
               onUpdateProfile={handleUpdateProfile}
               onUploadAvatar={handleUploadAvatar}
@@ -1614,6 +1758,14 @@ export default function App() {
             supabaseConfigured={supabaseConfigured}
             securityWarning={securityWarning}
             initialMode={authModalMode}
+          />
+        )}
+
+        {isChangePasswordModalOpen && (
+          <ChangePasswordModal
+            isOpen={isChangePasswordModalOpen}
+            onClose={() => setIsChangePasswordModalOpen(false)}
+            userEmail={authUser?.email}
           />
         )}
       </Suspense>
