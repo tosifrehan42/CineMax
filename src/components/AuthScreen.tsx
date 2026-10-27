@@ -9,6 +9,7 @@ import {
 } from '../services/supabaseClient';
 import { MEDIA_ITEMS } from '../data/mediaData';
 import { MediaPoster } from './MediaPoster';
+import { LiquidTabBubble, useLiquidTabBubble } from './LiquidTabBubble';
 import {
   Film,
   Mail,
@@ -55,6 +56,10 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
   onAuthSuccess,
 }) => {
   const [mode, setMode] = useState<AuthScreenMode>(initialMode);
+  const modeBubble = useLiquidTabBubble<'signin' | 'signup'>(
+    mode === 'signin' || mode === 'signup' ? mode : null,
+    [mode]
+  );
   const [displayName, setDisplayName] = useState('');
   const [email, setEmail] = useState(initialEmail);
   const [password, setPassword] = useState('');
@@ -353,24 +358,38 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
               {/* Segmented Mode Switcher (44px+ touch targets) */}
               {mode !== 'forgot_password' ? (
                 <div className="px-6 pt-5">
-                  <div className="grid grid-cols-2 gap-1.5 p-1 cm-glass-segmented rounded-xl">
+                  <div
+                    ref={modeBubble.containerRef}
+                    className="relative grid grid-cols-2 gap-1.5 p-1 cm-glass-segmented rounded-xl overflow-hidden"
+                  >
+                    <LiquidTabBubble
+                      controller={modeBubble}
+                      variant="amber"
+                      className="top-1 bottom-1 rounded-lg"
+                    />
                     <button
+                      ref={modeBubble.registerTab('signin')}
                       type="button"
                       onClick={() => handleModeSwitch('signin')}
-                      className={`min-h-[44px] py-2.5 px-3 text-xs font-bold rounded-lg transition-colors whitespace-nowrap ${
+                      className={`relative z-10 min-h-[44px] py-2.5 px-3 text-xs font-bold rounded-lg transition-colors whitespace-nowrap ${
                         mode === 'signin'
-                          ? 'bg-amber-500 text-slate-950 shadow-sm'
+                          ? modeBubble.ready
+                            ? 'text-slate-950'
+                            : 'bg-amber-500 text-slate-950 shadow-sm'
                           : 'text-slate-400 hover:text-white'
                       }`}
                     >
                       Sign In
                     </button>
                     <button
+                      ref={modeBubble.registerTab('signup')}
                       type="button"
                       onClick={() => handleModeSwitch('signup')}
-                      className={`min-h-[44px] py-2.5 px-3 text-xs font-bold rounded-lg transition-colors whitespace-nowrap ${
+                      className={`relative z-10 min-h-[44px] py-2.5 px-3 text-xs font-bold rounded-lg transition-colors whitespace-nowrap ${
                         mode === 'signup'
-                          ? 'bg-amber-500 text-slate-950 shadow-sm'
+                          ? modeBubble.ready
+                            ? 'text-slate-950'
+                            : 'bg-amber-500 text-slate-950 shadow-sm'
                           : 'text-slate-400 hover:text-white'
                       }`}
                     >

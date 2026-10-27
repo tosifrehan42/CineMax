@@ -8,6 +8,7 @@ import {
   WATCH_STATUS_ORDER,
 } from '../types';
 import { MediaPoster } from './MediaPoster';
+import { LiquidTabBubble, useLiquidTabBubble } from './LiquidTabBubble';
 import {
   parseRuntimeMinutes,
   SUPABASE_SCHEMA_SQL,
@@ -119,6 +120,24 @@ export const WatchlistView: React.FC<WatchlistViewProps> = ({
   const planCount = entriesWithMedia.filter((i) => i.entry.status === 'plan_to_watch').length;
   const onHoldCount = entriesWithMedia.filter((i) => i.entry.status === 'on_hold').length;
   const droppedCount = entriesWithMedia.filter((i) => i.entry.status === 'dropped').length;
+
+  const viewModeBubble = useLiquidTabBubble<'grid' | 'table'>(
+    totalCount > 0 ? viewMode : null,
+    [totalCount]
+  );
+  const statusBubble = useLiquidTabBubble<string>(filterStatus, [
+    totalCount,
+    planCount,
+    watchingCount,
+    completedCount,
+    onHoldCount,
+    droppedCount,
+    favouritesCount,
+  ]);
+  const mediaTypeBubble = useLiquidTabBubble<'all' | 'movie' | 'tv'>(
+    totalCount > 0 ? mediaTypeFilter : null,
+    [totalCount, moviesCount, tvCount]
+  );
   const remainingCount = Math.max(0, totalCount - completedCount - droppedCount);
   const completionPct =
     totalCount > 0 ? Math.min(100, Math.round((completedCount / totalCount) * 100)) : 0;
@@ -238,22 +257,36 @@ export const WatchlistView: React.FC<WatchlistViewProps> = ({
 
         <div className="flex items-center gap-3 self-start sm:self-auto">
           {totalCount > 0 && (
-            <div className="cm-glass-segmented flex items-center gap-1.5 p-1 rounded-lg text-xs">
+            <div
+              ref={viewModeBubble.containerRef}
+              className="relative cm-glass-segmented flex items-center gap-1.5 p-1 rounded-lg text-xs overflow-hidden"
+            >
+              <LiquidTabBubble
+                controller={viewModeBubble}
+                variant="glass"
+                className="top-1 bottom-1 rounded"
+              />
               <button
+                ref={viewModeBubble.registerTab('grid')}
                 onClick={() => setViewMode('grid')}
-                className={`px-3 py-1.5 rounded transition-colors whitespace-nowrap ${
+                className={`relative z-10 px-3 py-1.5 rounded transition-colors whitespace-nowrap ${
                   viewMode === 'grid'
-                    ? 'bg-white/20 text-white font-medium'
+                    ? viewModeBubble.ready
+                      ? 'text-white font-semibold'
+                      : 'bg-white/20 text-white font-semibold'
                     : 'text-slate-400 hover:text-white'
                 }`}
               >
                 Poster Grid
               </button>
               <button
+                ref={viewModeBubble.registerTab('table')}
                 onClick={() => setViewMode('table')}
-                className={`px-3 py-1.5 rounded transition-colors whitespace-nowrap ${
+                className={`relative z-10 px-3 py-1.5 rounded transition-colors whitespace-nowrap ${
                   viewMode === 'table'
-                    ? 'bg-white/20 text-white font-medium'
+                    ? viewModeBubble.ready
+                      ? 'text-white font-semibold'
+                      : 'bg-white/20 text-white font-semibold'
                     : 'text-slate-400 hover:text-white'
                 }`}
               >
@@ -483,72 +516,101 @@ export const WatchlistView: React.FC<WatchlistViewProps> = ({
       </div>
 
       {/* Status Segmented Tabs (All, Want to Watch, Watching, Completed, On Hold, Dropped, Favourites) */}
-      <div className="cm-glass-segmented flex items-center gap-1.5 p-1.5 rounded-xl overflow-x-auto max-w-full">
+      <div
+        ref={statusBubble.containerRef}
+        className="relative cm-glass-segmented flex items-center gap-1.5 p-1.5 rounded-xl overflow-x-auto max-w-full"
+      >
+        <LiquidTabBubble
+          controller={statusBubble}
+          variant={filterStatus === 'favourites' ? 'rose' : 'amber'}
+          className="top-1.5 bottom-1.5 rounded-lg"
+        />
         <button
+          ref={statusBubble.registerTab('all')}
           onClick={() => setFilterStatus('all')}
-          className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors whitespace-nowrap ${
+          className={`relative z-10 px-3 py-1.5 text-xs font-medium rounded-lg transition-colors whitespace-nowrap ${
             filterStatus === 'all'
-              ? 'bg-amber-500 text-slate-950 font-bold'
+              ? statusBubble.ready
+                ? 'text-slate-950 font-bold'
+                : 'bg-amber-500 text-slate-950 font-bold'
               : 'text-slate-400 hover:text-white'
           }`}
         >
           All ({totalCount})
         </button>
         <button
+          ref={statusBubble.registerTab('plan_to_watch')}
           onClick={() => setFilterStatus('plan_to_watch')}
-          className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors whitespace-nowrap ${
+          className={`relative z-10 px-3 py-1.5 text-xs font-medium rounded-lg transition-colors whitespace-nowrap ${
             filterStatus === 'plan_to_watch'
-              ? 'bg-amber-500 text-slate-950 font-bold'
+              ? statusBubble.ready
+                ? 'text-slate-950 font-bold'
+                : 'bg-amber-500 text-slate-950 font-bold'
               : 'text-slate-400 hover:text-white'
           }`}
         >
           Want to Watch ({planCount})
         </button>
         <button
+          ref={statusBubble.registerTab('watching')}
           onClick={() => setFilterStatus('watching')}
-          className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors whitespace-nowrap ${
+          className={`relative z-10 px-3 py-1.5 text-xs font-medium rounded-lg transition-colors whitespace-nowrap ${
             filterStatus === 'watching'
-              ? 'bg-amber-500 text-slate-950 font-bold'
+              ? statusBubble.ready
+                ? 'text-slate-950 font-bold'
+                : 'bg-amber-500 text-slate-950 font-bold'
               : 'text-slate-400 hover:text-white'
           }`}
         >
           Watching ({watchingCount})
         </button>
         <button
+          ref={statusBubble.registerTab('completed')}
           onClick={() => setFilterStatus('completed')}
-          className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors whitespace-nowrap ${
+          className={`relative z-10 px-3 py-1.5 text-xs font-medium rounded-lg transition-colors whitespace-nowrap ${
             filterStatus === 'completed'
-              ? 'bg-amber-500 text-slate-950 font-bold'
+              ? statusBubble.ready
+                ? 'text-slate-950 font-bold'
+                : 'bg-amber-500 text-slate-950 font-bold'
               : 'text-slate-400 hover:text-white'
           }`}
         >
           Completed ({completedCount})
         </button>
         <button
+          ref={statusBubble.registerTab('on_hold')}
           onClick={() => setFilterStatus('on_hold')}
-          className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors whitespace-nowrap ${
+          className={`relative z-10 px-3 py-1.5 text-xs font-medium rounded-lg transition-colors whitespace-nowrap ${
             filterStatus === 'on_hold'
-              ? 'bg-amber-500 text-slate-950 font-bold'
+              ? statusBubble.ready
+                ? 'text-slate-950 font-bold'
+                : 'bg-amber-500 text-slate-950 font-bold'
               : 'text-slate-400 hover:text-white'
           }`}
         >
           On Hold ({onHoldCount})
         </button>
         <button
+          ref={statusBubble.registerTab('dropped')}
           onClick={() => setFilterStatus('dropped')}
-          className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors whitespace-nowrap ${
+          className={`relative z-10 px-3 py-1.5 text-xs font-medium rounded-lg transition-colors whitespace-nowrap ${
             filterStatus === 'dropped'
-              ? 'bg-amber-500 text-slate-950 font-bold'
+              ? statusBubble.ready
+                ? 'text-slate-950 font-bold'
+                : 'bg-amber-500 text-slate-950 font-bold'
               : 'text-slate-400 hover:text-white'
           }`}
         >
           Dropped ({droppedCount})
         </button>
         <button
+          ref={statusBubble.registerTab('favourites')}
           onClick={() => setFilterStatus('favourites')}
-          className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors whitespace-nowrap flex items-center gap-1.5 ${
+          className={`relative z-10 px-3 py-1.5 text-xs font-medium rounded-lg transition-colors whitespace-nowrap flex items-center gap-1.5 ${
             filterStatus === 'favourites'
-              ? 'bg-rose-500 text-white font-bold'
+              ? statusBubble.ready
+                ? 'text-white font-bold'
+                : 'bg-rose-500 text-white font-bold'
               : 'text-slate-400 hover:text-white'
           }`}
         >
@@ -584,35 +646,52 @@ export const WatchlistView: React.FC<WatchlistViewProps> = ({
 
           <div className="flex flex-wrap items-center gap-3">
             {/* Media Type Filter */}
-            <div className="cm-glass-segmented flex items-center gap-1 p-1 rounded-lg text-xs">
+            <div
+              ref={mediaTypeBubble.containerRef}
+              className="relative cm-glass-segmented flex items-center gap-1 p-1 rounded-lg text-xs overflow-hidden"
+            >
+              <LiquidTabBubble
+                controller={mediaTypeBubble}
+                variant="glass"
+                className="top-1 bottom-1 rounded"
+              />
               <button
+                ref={mediaTypeBubble.registerTab('all')}
                 type="button"
                 onClick={() => setMediaTypeFilter('all')}
-                className={`px-2.5 py-1 rounded transition-colors whitespace-nowrap ${
+                className={`relative z-10 px-2.5 py-1 rounded transition-colors whitespace-nowrap ${
                   mediaTypeFilter === 'all'
-                    ? 'bg-white/15 text-white font-semibold'
+                    ? mediaTypeBubble.ready
+                      ? 'text-white font-semibold'
+                      : 'bg-white/15 text-white font-semibold'
                     : 'text-slate-400 hover:text-white'
                 }`}
               >
                 All Types
               </button>
               <button
+                ref={mediaTypeBubble.registerTab('movie')}
                 type="button"
                 onClick={() => setMediaTypeFilter('movie')}
-                className={`px-2.5 py-1 rounded transition-colors whitespace-nowrap ${
+                className={`relative z-10 px-2.5 py-1 rounded transition-colors whitespace-nowrap ${
                   mediaTypeFilter === 'movie'
-                    ? 'bg-white/15 text-white font-semibold'
+                    ? mediaTypeBubble.ready
+                      ? 'text-white font-semibold'
+                      : 'bg-white/15 text-white font-semibold'
                     : 'text-slate-400 hover:text-white'
                 }`}
               >
                 Movies ({moviesCount})
               </button>
               <button
+                ref={mediaTypeBubble.registerTab('tv')}
                 type="button"
                 onClick={() => setMediaTypeFilter('tv')}
-                className={`px-2.5 py-1 rounded transition-colors whitespace-nowrap ${
+                className={`relative z-10 px-2.5 py-1 rounded transition-colors whitespace-nowrap ${
                   mediaTypeFilter === 'tv'
-                    ? 'bg-white/15 text-white font-semibold'
+                    ? mediaTypeBubble.ready
+                      ? 'text-white font-semibold'
+                      : 'bg-white/15 text-white font-semibold'
                     : 'text-slate-400 hover:text-white'
                 }`}
               >

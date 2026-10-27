@@ -1,5 +1,6 @@
 import React from 'react';
 import { HomeHubMode, TabView, UserProfile } from '../types';
+import { LiquidTabBubble, useLiquidTabBubble } from './LiquidTabBubble';
 import {
   Film,
   Tv,
@@ -45,86 +46,10 @@ const NavbarComponent: React.FC<NavbarProps> = ({
   onSignOut,
 }) => {
   const [avatarLoadError, setAvatarLoadError] = React.useState(false);
-  const mobileHubTrackRef = React.useRef<HTMLDivElement | null>(null);
-  const mobileHubButtonRefs = React.useRef<Record<HomeHubMode, HTMLButtonElement | null>>({
-    all: null,
-    movies: null,
-    series: null,
-  });
-  const [bubbleMetric, setBubbleMetric] = React.useState<{
-    left: number;
-    width: number;
-    ready: boolean;
-  }>({
-    left: 0,
-    width: 0,
-    ready: false,
-  });
 
   React.useEffect(() => {
     setAvatarLoadError(false);
   }, [userProfile?.avatarUrl]);
-
-  const updateBubbleMetric = React.useCallback(() => {
-    if (currentTab !== 'home') return;
-    const activeBtn = mobileHubButtonRefs.current[homeHubMode];
-    const trackEl = mobileHubTrackRef.current;
-    if (!activeBtn || !trackEl) return;
-
-    const nextLeft = activeBtn.offsetLeft;
-    const nextWidth = activeBtn.offsetWidth;
-    if (nextWidth > 0) {
-      setBubbleMetric((prev) => {
-        if (prev.ready && prev.left === nextLeft && prev.width === nextWidth) {
-          return prev;
-        }
-        return {
-          left: nextLeft,
-          width: nextWidth,
-          ready: true,
-        };
-      });
-    }
-  }, [currentTab, homeHubMode]);
-
-  React.useLayoutEffect(() => {
-    updateBubbleMetric();
-  }, [updateBubbleMetric]);
-
-  React.useEffect(() => {
-    if (currentTab !== 'home') return;
-
-    const handleResize = () => {
-      updateBubbleMetric();
-    };
-
-    window.addEventListener('resize', handleResize, { passive: true });
-
-    let resizeObserver: ResizeObserver | null = null;
-    if (typeof ResizeObserver !== 'undefined') {
-      resizeObserver = new ResizeObserver(() => {
-        updateBubbleMetric();
-      });
-      if (mobileHubTrackRef.current) {
-        resizeObserver.observe(mobileHubTrackRef.current);
-      }
-      (['all', 'movies', 'series'] as const).forEach((mode) => {
-        const btn = mobileHubButtonRefs.current[mode];
-        if (btn) resizeObserver?.observe(btn);
-      });
-    }
-
-    if (typeof document !== 'undefined' && 'fonts' in document) {
-      (document as Document & { fonts?: FontFaceSet }).fonts?.ready
-        .then(() => updateBubbleMetric())
-        .catch(() => {});
-    }
-
-    return () => {
-      window.removeEventListener('resize', handleResize);
-      resizeObserver?.disconnect();
-    };
-  }, [currentTab, updateBubbleMetric]);
 
   const initials = (userProfile?.displayName || userEmail || 'CM')
     .split(' ')
@@ -235,6 +160,22 @@ const NavbarComponent: React.FC<NavbarProps> = ({
     },
   ];
 
+  const activeDesktopKey = desktopNavItems.find((item) => item.isActive)?.key ?? null;
+  const activeMobileBottomKey = mobileBottomItems.find((item) => item.isActive)?.id ?? null;
+
+  const desktopBubble = useLiquidTabBubble(activeDesktopKey, [
+    isAuthenticated,
+    isAdmin,
+    watchlistCount,
+  ]);
+  const mobileHubBubble = useLiquidTabBubble<HomeHubMode>(
+    currentTab === 'home' ? homeHubMode : null,
+    [currentTab]
+  );
+  const mobileBottomBubble = useLiquidTabBubble<TabView>(activeMobileBottomKey, [
+    watchlistCount,
+  ]);
+
   return (
     <>
       {/* Sticky Inset Top Header (Desktop Rounded Panel + Mobile Unified Rounded Shell) */}
@@ -242,7 +183,7 @@ const NavbarComponent: React.FC<NavbarProps> = ({
         <div className="pointer-events-auto max-w-[1440px] mx-auto cm-glass-nav rounded-[20px] md:rounded-[22px] transition-colors overflow-visible">
           <div className="px-2 min-[360px]:px-2.5 min-[390px]:px-3.5 sm:px-5 lg:px-6 h-13 sm:h-14 md:h-16 flex items-center justify-between gap-1.5 min-[380px]:gap-2 sm:gap-4 lg:gap-8 min-w-0">
             {/* Left Zone: Brand Logo + Desktop Navigation */}
-            <div className="flex items-center gap-2 sm:gap-6 lg:gap-8 min-w-0 shrink-0 h-full">
+            <div className="flex items-center gap-2 sm:gap-5 lg:gap-7 min-w-0 shrink-0 h-full">
               <button
                 onClick={() => onTabChange('home', 'all')}
                 className="flex items-center gap-1.5 min-[360px]:gap-2 sm:gap-2.5 text-left group focus:outline-none focus-visible:ring-1 focus-visible:ring-amber-400 rounded-lg shrink-0"
@@ -255,16 +196,24 @@ const NavbarComponent: React.FC<NavbarProps> = ({
                 </span>
               </button>
 
-              {/* Desktop Primary Navigation */}
+              {/* Desktop Primary Navigation with Shared Animated Liquid Glass Water Bubble */}
               <nav
+                ref={desktopBubble.containerRef}
                 aria-label="Main Navigation"
-                className="hidden md:flex items-center h-full gap-4 lg:gap-6 text-sm font-medium"
+                className="relative hidden md:flex items-center h-full gap-1 lg:gap-1.5 text-sm font-medium"
               >
+                <LiquidTabBubble
+                  controller={desktopBubble}
+                  variant="nav"
+                  className="top-2.5 bottom-2.5 rounded-xl"
+                  showBottomCaustic
+                />
                 {desktopNavItems.map((item) => (
                   <button
                     key={item.key}
+                    ref={desktopBubble.registerTab(item.key)}
                     onClick={() => onTabChange(item.tab, item.hubMode)}
-                    className={`relative h-full text-xs lg:text-sm font-medium transition-colors whitespace-nowrap shrink-0 flex items-center gap-1.5 focus:outline-none focus-visible:ring-1 focus-visible:ring-amber-400 ${
+                    className={`relative z-10 h-11 px-2.5 lg:px-3.5 rounded-xl text-xs lg:text-sm font-medium transition-colors whitespace-nowrap shrink-0 flex items-center gap-1.5 focus:outline-none focus-visible:ring-1 focus-visible:ring-amber-400 ${
                       item.isActive
                         ? 'text-white font-semibold'
                         : 'text-slate-400 hover:text-slate-100'
@@ -277,8 +226,8 @@ const NavbarComponent: React.FC<NavbarProps> = ({
                         {item.badge}
                       </span>
                     )}
-                    {item.isActive && (
-                      <span className="absolute bottom-0 left-0 right-0 h-[2.5px] bg-gradient-to-r from-amber-400 to-amber-500 rounded-full shadow-[0_0_8px_rgba(245,158,11,0.45)]" />
+                    {item.isActive && !desktopBubble.ready && (
+                      <span className="absolute bottom-1 left-2 right-2 h-[2px] bg-gradient-to-r from-amber-400 to-amber-500 rounded-full shadow-[0_0_8px_rgba(245,158,11,0.45)]" />
                     )}
                   </button>
                 ))}
@@ -396,20 +345,15 @@ const NavbarComponent: React.FC<NavbarProps> = ({
           {currentTab === 'home' && (
             <div className="md:hidden px-2 min-[380px]:px-3 py-1.5 border-t border-white/[0.07] cm-glass-subbar rounded-b-[20px] flex items-center justify-between gap-1.5 min-[380px]:gap-2 min-w-0">
               <div
-                ref={mobileHubTrackRef}
+                ref={mobileHubBubble.containerRef}
                 role="tablist"
                 aria-label="Content category filter"
                 className="relative flex-1 min-w-0 flex items-center gap-0.5 min-[360px]:gap-1 p-1 rounded-xl cm-glass-segmented overflow-hidden"
               >
-                {/* Animated Liquid Glass Water-Bubble Active Indicator */}
-                <span
-                  aria-hidden="true"
-                  className="pointer-events-none absolute top-1 bottom-1 left-0 rounded-[9px] cm-water-bubble transition-[transform,width,opacity] duration-300 ease-[cubic-bezier(0.22,1,0.36,1)]"
-                  style={{
-                    width: `${bubbleMetric.width}px`,
-                    transform: `translate3d(${bubbleMetric.left}px, 0, 0)`,
-                    opacity: bubbleMetric.ready ? 1 : 0,
-                  }}
+                <LiquidTabBubble
+                  controller={mobileHubBubble}
+                  variant="amber"
+                  className="top-1 bottom-1 rounded-[9px]"
                 />
                 {(
                   [
@@ -430,17 +374,15 @@ const NavbarComponent: React.FC<NavbarProps> = ({
                   return (
                     <button
                       key={hub.id}
-                      ref={(el) => {
-                        mobileHubButtonRefs.current[hub.id] = el;
-                      }}
+                      ref={mobileHubBubble.registerTab(hub.id)}
                       role="tab"
                       aria-selected={active}
                       onClick={() => onTabChange('home', hub.id)}
                       className={`relative z-10 flex-1 min-w-0 shrink flex items-center justify-center gap-1 px-1.5 min-[360px]:px-2.5 py-1.5 min-h-[30px] rounded-[9px] text-[11px] min-[360px]:text-xs font-semibold leading-none transition-colors whitespace-nowrap select-none focus:outline-none focus-visible:ring-1 focus-visible:ring-amber-400 ${
                         active
-                          ? bubbleMetric.ready
-                            ? 'text-slate-950'
-                            : 'bg-amber-500 text-slate-950 shadow-sm'
+                          ? mobileHubBubble.ready
+                            ? 'text-slate-950 font-bold'
+                            : 'bg-amber-500 text-slate-950 font-bold shadow-sm'
                           : 'text-slate-300 hover:text-white'
                       }`}
                     >
@@ -470,18 +412,28 @@ const NavbarComponent: React.FC<NavbarProps> = ({
         aria-label="Mobile Bottom Navigation"
         className="md:hidden fixed inset-x-3 sm:inset-x-4 bottom-[calc(env(safe-area-inset-bottom,0px)+0.5rem)] z-50 cm-glass-nav rounded-[20px] overflow-hidden"
       >
-        <div className="grid grid-cols-4 h-14 px-1">
+        <div
+          ref={mobileBottomBubble.containerRef}
+          className="relative grid grid-cols-4 h-14 px-1.5 py-1.5"
+        >
+          <LiquidTabBubble
+            controller={mobileBottomBubble}
+            variant="nav"
+            className="top-1.5 bottom-1.5 rounded-[14px]"
+            showBottomCaustic
+          />
           {mobileBottomItems.map((item) => (
             <button
               key={item.id}
+              ref={mobileBottomBubble.registerTab(item.id)}
               onClick={item.onClick}
-              className={`relative flex flex-col items-center justify-center gap-1 transition-colors focus:outline-none ${
+              className={`relative z-10 flex flex-col items-center justify-center gap-1 rounded-[14px] transition-colors focus:outline-none ${
                 item.isActive
                   ? 'text-amber-400 font-semibold'
                   : 'text-slate-400 hover:text-slate-200 font-medium'
               }`}
             >
-              {item.isActive && (
+              {item.isActive && !mobileBottomBubble.ready && (
                 <span className="absolute top-0 w-8 h-0.5 bg-amber-400 rounded-full shadow-[0_0_8px_rgba(245,158,11,0.5)]" />
               )}
               <div className="relative">

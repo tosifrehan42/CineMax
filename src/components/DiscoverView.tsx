@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { MediaItem, WatchStatus } from '../types';
 import { MOODS, GENRES } from '../data/mediaData';
 import { MediaCard } from './MediaCard';
+import { LiquidTabBubble, useLiquidTabBubble } from './LiquidTabBubble';
 import { CatalogueCategory, fetchCatalogue } from '../services/mediaApi';
 import { dedupeMediaItems } from '../utils/mediaIntegrity';
 import {
@@ -116,6 +117,11 @@ const DiscoverViewComponent: React.FC<DiscoverViewProps> = ({
     'relevance' | 'popularity' | 'rating' | 'year' | 'title'
   >('popularity');
   const [minRating, setMinRating] = useState<number>(0);
+
+  const effectiveFormatType: 'all' | 'movie' | 'tv' =
+    debouncedQuery && !hasCustomTypeFilter ? 'all' : selectedType;
+  const categoryBubble = useLiquidTabBubble<CatalogueCategory>(category);
+  const formatBubble = useLiquidTabBubble<'all' | 'movie' | 'tv'>(effectiveFormatType);
 
   const [items, setItems] = useState<MediaItem[]>([]);
   const [page, setPage] = useState<number>(1);
@@ -424,12 +430,21 @@ const DiscoverViewComponent: React.FC<DiscoverViewProps> = ({
       </div>
 
       {/* Category Preset Strip */}
-      <div className="flex items-center gap-2 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+      <div
+        ref={categoryBubble.containerRef}
+        className="relative flex items-center gap-1.5 overflow-x-auto p-1 rounded-2xl cm-glass-segmented [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+      >
+        <LiquidTabBubble
+          controller={categoryBubble}
+          variant="amber"
+          className="top-1 bottom-1 rounded-xl"
+        />
         {CATEGORY_TABS.map((tab) => {
           const isActive = category === tab.id;
           return (
             <button
               key={tab.id}
+              ref={categoryBubble.registerTab(tab.id)}
               type="button"
               onClick={() => {
                 setCategory(tab.id);
@@ -438,10 +453,12 @@ const DiscoverViewComponent: React.FC<DiscoverViewProps> = ({
                 else if (tab.id.includes('_tv')) setSelectedType('tv');
                 else setSelectedType('all');
               }}
-              className={`px-3.5 py-2 text-xs font-semibold rounded-xl transition-all whitespace-nowrap shrink-0 ${
+              className={`relative z-10 px-3.5 py-2 text-xs font-semibold rounded-xl transition-colors whitespace-nowrap shrink-0 ${
                 isActive
-                  ? 'bg-amber-500 text-slate-950 shadow-sm shadow-amber-500/20'
-                  : 'cm-glass-control text-slate-400 hover:text-white'
+                  ? categoryBubble.ready
+                    ? 'text-slate-950 font-bold'
+                    : 'bg-amber-500 text-slate-950 font-bold shadow-sm shadow-amber-500/20'
+                  : 'text-slate-300 hover:text-white'
               }`}
             >
               {tab.label}
@@ -459,36 +476,50 @@ const DiscoverViewComponent: React.FC<DiscoverViewProps> = ({
               <SlidersHorizontal className="w-3 h-3 text-amber-400" />
               <span>Format</span>
             </label>
-            <div className="cm-glass-segmented grid grid-cols-3 p-0.5 rounded-lg">
+            <div
+              ref={formatBubble.containerRef}
+              className="relative cm-glass-segmented grid grid-cols-3 p-0.5 rounded-lg overflow-hidden"
+            >
+              <LiquidTabBubble
+                controller={formatBubble}
+                variant="amber"
+                className="top-0.5 bottom-0.5 rounded-md"
+              />
               {(
                 [
                   { id: 'all', label: 'All' },
                   { id: 'movie', label: 'Movies' },
                   { id: 'tv', label: 'Series' },
                 ] as const
-              ).map((fmt) => (
-                <button
-                  key={fmt.id}
-                  type="button"
-                  onClick={() => {
-                    setSelectedType(fmt.id);
-                    setHasCustomTypeFilter(fmt.id !== 'all');
-                    if (
-                      (fmt.id === 'movie' && category.includes('_tv')) ||
-                      (fmt.id === 'tv' && category.includes('movies'))
-                    ) {
-                      setCategory('discover');
-                    }
-                  }}
-                  className={`py-1.5 text-xs font-semibold rounded-md transition-colors ${
-                    (debouncedQuery && !hasCustomTypeFilter ? 'all' : selectedType) === fmt.id
-                      ? 'bg-amber-500 text-slate-950'
-                      : 'text-slate-400 hover:text-white'
-                  }`}
-                >
-                  {fmt.label}
-                </button>
-              ))}
+              ).map((fmt) => {
+                const isFmtActive = effectiveFormatType === fmt.id;
+                return (
+                  <button
+                    key={fmt.id}
+                    ref={formatBubble.registerTab(fmt.id)}
+                    type="button"
+                    onClick={() => {
+                      setSelectedType(fmt.id);
+                      setHasCustomTypeFilter(fmt.id !== 'all');
+                      if (
+                        (fmt.id === 'movie' && category.includes('_tv')) ||
+                        (fmt.id === 'tv' && category.includes('movies'))
+                      ) {
+                        setCategory('discover');
+                      }
+                    }}
+                    className={`relative z-10 py-1.5 text-xs font-semibold rounded-md transition-colors ${
+                      isFmtActive
+                        ? formatBubble.ready
+                          ? 'text-slate-950 font-bold'
+                          : 'bg-amber-500 text-slate-950 font-bold'
+                        : 'text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    {fmt.label}
+                  </button>
+                );
+              })}
             </div>
           </div>
 

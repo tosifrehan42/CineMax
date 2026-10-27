@@ -1,6 +1,6 @@
 {
-  "summary":  "Implementation plan for fixing mobile navbar crowding, preventing Series tab clipping in the mobile sub-navigation row, adding adaptive icon collapse for the Size Tool button on narrow screens, and maintaining the animated Liquid Glass water-bubble active-tab indicator across 320px–430px and desktop viewports.",
-  "updatedAt":  "2026-10-27T19:13:40.429090006Z",
+  "summary":  "Implementation plan for the reusable spring-animated Liquid Glass Water Bubble active-tab indicator across Desktop primary navigation, Mobile bottom navigation, Mobile All Titles/Movies/Series sub-bar, and existing segmented tab controls in Auth, Discover, and Watchlist views.",
+  "updatedAt":  "2026-10-27T19:27:56.811783247Z",
   "requestFeedback":  true,
   "userFacing":  true
 }

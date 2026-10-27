@@ -6,6 +6,7 @@ import {
   signUpWithEmail,
   SUPABASE_SCHEMA_SQL,
 } from '../services/supabaseClient';
+import { LiquidTabBubble, useLiquidTabBubble } from './LiquidTabBubble';
 import {
   X,
   Film,
@@ -43,6 +44,10 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 }) => {
   const [mode, setMode] = useState<'signin' | 'signup' | 'forgot_password'>(
     initialMode
+  );
+  const modeBubble = useLiquidTabBubble<'signin' | 'signup'>(
+    isOpen && (mode === 'signin' || mode === 'signup') ? mode : null,
+    [isOpen, mode]
   );
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -203,32 +208,46 @@ export const AuthModal: React.FC<AuthModalProps> = ({
         {/* Mode Switcher Tabs */}
         {mode !== 'forgot_password' ? (
           <div className="px-6 pt-4">
-            <div className="grid grid-cols-2 gap-1 p-1 cm-glass-segmented rounded-xl">
+            <div
+              ref={modeBubble.containerRef}
+              className="relative grid grid-cols-2 gap-1 p-1 cm-glass-segmented rounded-xl overflow-hidden"
+            >
+              <LiquidTabBubble
+                controller={modeBubble}
+                variant="amber"
+                className="top-1 bottom-1 rounded-lg"
+              />
               <button
+                ref={modeBubble.registerTab('signin')}
                 type="button"
                 onClick={() => {
                   setMode('signin');
                   setErrorMsg(null);
                   setSuccessMsg(null);
                 }}
-                className={`py-2 text-xs font-semibold rounded-lg transition-colors ${
+                className={`relative z-10 py-2 text-xs font-semibold rounded-lg transition-colors ${
                   mode === 'signin'
-                    ? 'bg-amber-500 text-slate-950'
+                    ? modeBubble.ready
+                      ? 'text-slate-950 font-bold'
+                      : 'bg-amber-500 text-slate-950 font-bold'
                     : 'text-slate-400 hover:text-white'
                 }`}
               >
                 Sign In
               </button>
               <button
+                ref={modeBubble.registerTab('signup')}
                 type="button"
                 onClick={() => {
                   setMode('signup');
                   setErrorMsg(null);
                   setSuccessMsg(null);
                 }}
-                className={`py-2 text-xs font-semibold rounded-lg transition-colors ${
+                className={`relative z-10 py-2 text-xs font-semibold rounded-lg transition-colors ${
                   mode === 'signup'
-                    ? 'bg-amber-500 text-slate-950'
+                    ? modeBubble.ready
+                      ? 'text-slate-950 font-bold'
+                      : 'bg-amber-500 text-slate-950 font-bold'
                     : 'text-slate-400 hover:text-white'
                 }`}
               >
