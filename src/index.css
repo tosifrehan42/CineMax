@@ -30,6 +30,186 @@
   contain: style;
 }
 
+/* ============================================================================
+   CineMax Liquid Glass Material System
+   Preserves dark obsidian palette (#0A0D12 / #090A0F) and amber accents while
+   adding translucent depth, specular top-edge highlights, and safe fallbacks.
+   ============================================================================ */
+
+.cm-glass-nav {
+  background-color: rgba(10, 13, 18, 0.94);
+  box-shadow:
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.08),
+    0 8px 28px -10px rgba(0, 0, 0, 0.65);
+}
+
+.cm-glass-subbar {
+  background-color: rgba(10, 13, 18, 0.92);
+  box-shadow: inset 0 1px 0 0 rgba(255, 255, 255, 0.06);
+}
+
+.cm-glass-panel {
+  background-color: rgba(13, 16, 23, 0.96);
+  border: 1px solid rgba(255, 255, 255, 0.11);
+  box-shadow:
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.14),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.03),
+    0 24px 60px -12px rgba(0, 0, 0, 0.82);
+}
+
+.cm-glass-popover {
+  background-color: rgba(14, 18, 26, 0.96);
+  border: 1px solid rgba(255, 255, 255, 0.13);
+  box-shadow:
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.14),
+    0 18px 40px -8px rgba(0, 0, 0, 0.82);
+}
+
+.cm-glass-surface {
+  background-color: rgba(15, 19, 28, 0.9);
+  border: 1px solid rgba(255, 255, 255, 0.085);
+  box-shadow:
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.09),
+    0 12px 32px -12px rgba(0, 0, 0, 0.55);
+}
+
+.cm-glass-control {
+  background: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.065) 0%,
+    rgba(255, 255, 255, 0.03) 100%
+  );
+  border: 1px solid rgba(255, 255, 255, 0.095);
+  box-shadow:
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.09),
+    0 2px 8px rgba(0, 0, 0, 0.28);
+  transition:
+    background 160ms ease,
+    border-color 160ms ease,
+    color 160ms ease,
+    box-shadow 160ms ease,
+    transform 160ms ease;
+}
+
+.cm-glass-control:hover:not(:disabled) {
+  background: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.11) 0%,
+    rgba(255, 255, 255, 0.055) 100%
+  );
+  border-color: rgba(255, 255, 255, 0.16);
+  box-shadow:
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.15),
+    0 4px 12px rgba(0, 0, 0, 0.35);
+}
+
+.cm-glass-segmented {
+  background: rgba(5, 7, 11, 0.58);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow:
+    inset 0 1px 2px rgba(0, 0, 0, 0.55),
+    0 1px 0 rgba(255, 255, 255, 0.05);
+}
+
+.cm-glass-input {
+  background: rgba(6, 8, 13, 0.58);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow:
+    inset 0 1px 2px rgba(0, 0, 0, 0.45),
+    inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  transition:
+    border-color 160ms ease,
+    box-shadow 160ms ease,
+    background-color 160ms ease;
+}
+
+.cm-glass-input:focus {
+  background: rgba(8, 11, 18, 0.78);
+  border-color: rgba(245, 158, 11, 0.65);
+  box-shadow:
+    inset 0 1px 2px rgba(0, 0, 0, 0.45),
+    0 0 0 3px rgba(245, 158, 11, 0.14);
+}
+
+.cm-glass-backdrop {
+  background-color: rgba(4, 6, 10, 0.86);
+}
+
+.cm-safe-bottom {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+@supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .cm-glass-nav {
+    background: linear-gradient(
+      180deg,
+      rgba(16, 20, 30, 0.78) 0%,
+      rgba(10, 13, 18, 0.72) 100%
+    );
+    -webkit-backdrop-filter: blur(16px) saturate(140%);
+    backdrop-filter: blur(16px) saturate(140%);
+  }
+
+  .cm-glass-subbar {
+    background: rgba(12, 15, 23, 0.68);
+    -webkit-backdrop-filter: blur(12px) saturate(130%);
+    backdrop-filter: blur(12px) saturate(130%);
+  }
+
+  .cm-glass-panel {
+    background: linear-gradient(
+      165deg,
+      rgba(19, 24, 36, 0.84) 0%,
+      rgba(11, 14, 21, 0.8) 100%
+    );
+    -webkit-backdrop-filter: blur(20px) saturate(140%);
+    backdrop-filter: blur(20px) saturate(140%);
+  }
+
+  .cm-glass-popover {
+    background: linear-gradient(
+      180deg,
+      rgba(20, 26, 38, 0.88) 0%,
+      rgba(12, 16, 24, 0.85) 100%
+    );
+    -webkit-backdrop-filter: blur(16px) saturate(140%);
+    backdrop-filter: blur(16px) saturate(140%);
+  }
+
+  .cm-glass-surface {
+    background: linear-gradient(
+      180deg,
+      rgba(20, 25, 37, 0.68) 0%,
+      rgba(13, 17, 25, 0.64) 100%
+    );
+    -webkit-backdrop-filter: blur(12px) saturate(125%);
+    backdrop-filter: blur(12px) saturate(125%);
+  }
+
+  .cm-glass-backdrop {
+    background-color: rgba(4, 6, 10, 0.74);
+    -webkit-backdrop-filter: blur(10px) saturate(120%);
+    backdrop-filter: blur(10px) saturate(120%);
+  }
+
+  /* Cap blur radius on mobile viewports for smooth 60fps Android WebView performance */
+  @media (max-width: 767px) {
+    .cm-glass-nav,
+    .cm-glass-panel,
+    .cm-glass-popover {
+      -webkit-backdrop-filter: blur(12px) saturate(130%);
+      backdrop-filter: blur(12px) saturate(130%);
+    }
+
+    .cm-glass-subbar,
+    .cm-glass-surface,
+    .cm-glass-backdrop {
+      -webkit-backdrop-filter: blur(8px) saturate(120%);
+      backdrop-filter: blur(8px) saturate(120%);
+    }
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

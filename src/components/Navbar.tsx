@@ -162,7 +162,7 @@ const NavbarComponent: React.FC<NavbarProps> = ({
   return (
     <>
       {/* Sticky Top Header (Desktop Full Bar + Mobile Compact Top Bar) */}
-      <header className="sticky top-0 z-50 w-full bg-[#0A0D12]/95 md:bg-[#0A0D12]/90 md:backdrop-blur-xl border-b border-white/[0.07] transition-colors">
+      <header className="sticky top-0 z-50 w-full cm-glass-nav border-b border-white/[0.08] transition-colors">
         <div className="max-w-[1440px] mx-auto px-4 sm:px-6 lg:px-8 h-14 md:h-16 flex items-center justify-between gap-4 lg:gap-8">
           {/* Left Zone: Brand Logo + Desktop Navigation */}
           <div className="flex items-center gap-6 lg:gap-8 min-w-0">
@@ -214,12 +214,12 @@ const NavbarComponent: React.FC<NavbarProps> = ({
             <button
               onClick={onQuickSearchClick}
               aria-label="Open search"
-              className="flex items-center gap-2 px-2.5 py-1.5 sm:px-3 sm:py-1.5 text-slate-300 hover:text-white bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.08] rounded-lg transition-colors focus:outline-none focus-visible:ring-1 focus-visible:ring-amber-400"
+              className="flex items-center gap-2 px-2.5 py-1.5 sm:px-3 sm:py-1.5 text-slate-300 hover:text-white cm-glass-control rounded-lg focus:outline-none focus-visible:ring-1 focus-visible:ring-amber-400"
               title="Search movies, series, cast & directors (Ctrl+K)"
             >
               <Search className="w-4 h-4 text-amber-400" />
-              <span className="hidden xl:inline text-xs text-slate-400">Search...</span>
-              <kbd className="hidden xl:inline-block px-1.5 py-0.5 text-[10px] font-mono text-slate-400 bg-black/40 rounded border border-white/10">
+              <span className="hidden xl:inline text-xs text-slate-300">Search...</span>
+              <kbd className="hidden xl:inline-block px-1.5 py-0.5 text-[10px] font-mono text-slate-400 bg-black/45 rounded border border-white/10">
                 ⌘K
               </kbd>
             </button>
@@ -229,10 +229,10 @@ const NavbarComponent: React.FC<NavbarProps> = ({
               onClick={() => onTabChange('estimator')}
               aria-label="Quality & File Size Estimator"
               title="Quality & File Size Estimator"
-              className={`md:hidden p-2 rounded-lg border transition-colors ${
+              className={`md:hidden p-2 rounded-lg transition-colors ${
                 currentTab === 'estimator'
-                  ? 'bg-amber-500/20 text-amber-400 border-amber-500/40'
-                  : 'text-slate-300 hover:text-white bg-white/[0.04] border-white/[0.08]'
+                  ? 'bg-amber-500/20 text-amber-400 border border-amber-500/40'
+                  : 'text-slate-300 hover:text-white cm-glass-control'
               }`}
             >
               <HardDrive className="w-4 h-4" />
@@ -269,10 +269,10 @@ const NavbarComponent: React.FC<NavbarProps> = ({
               <div className="flex items-center gap-1">
                 <button
                   onClick={() => onTabChange('profile')}
-                  className={`flex items-center gap-2 px-2 sm:px-2.5 py-1.5 rounded-lg border text-xs font-medium transition-colors whitespace-nowrap shrink-0 ${
+                  className={`flex items-center gap-2 px-2 sm:px-2.5 py-1.5 rounded-lg text-xs font-medium transition-colors whitespace-nowrap shrink-0 ${
                     currentTab === 'profile'
-                      ? 'bg-amber-500/15 border-amber-400/50 text-white'
-                      : 'bg-white/[0.05] hover:bg-white/[0.1] border-white/10 text-white'
+                      ? 'bg-amber-500/15 border border-amber-400/50 text-white'
+                      : 'cm-glass-control text-white'
                   }`}
                   title={userProfile?.displayName || userEmail || 'Profile'}
                 >
@@ -304,7 +304,7 @@ const NavbarComponent: React.FC<NavbarProps> = ({
             ) : (
               <button
                 onClick={() => onOpenAuthModal?.('signin')}
-                className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 sm:py-2 text-xs font-semibold text-white bg-white/[0.06] hover:bg-white/[0.12] border border-white/10 rounded-lg transition-colors whitespace-nowrap shrink-0 focus:outline-none focus-visible:ring-1 focus-visible:ring-amber-400"
+                className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1.5 sm:py-2 text-xs font-semibold text-white cm-glass-control rounded-lg whitespace-nowrap shrink-0 focus:outline-none focus-visible:ring-1 focus-visible:ring-amber-400"
               >
                 <LogIn className="w-3.5 h-3.5 text-amber-400" />
                 <span>Sign In</span>
@@ -315,7 +315,7 @@ const NavbarComponent: React.FC<NavbarProps> = ({
 
         {/* Mobile Sub-Hub Pill Bar when on Home Tab (All / Movies / Series) */}
         {currentTab === 'home' && (
-          <div className="md:hidden px-4 py-2 border-t border-white/[0.05] bg-[#0A0D12]/95 flex items-center justify-between gap-2">
+          <div className="md:hidden px-4 py-2 border-t border-white/[0.06] cm-glass-subbar flex items-center justify-between gap-2">
             <div className="flex items-center gap-1.5">
               {(
                 [
@@ -332,7 +332,7 @@ const NavbarComponent: React.FC<NavbarProps> = ({
                     className={`flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-semibold transition-all ${
                       active
                         ? 'bg-amber-500 text-slate-950 shadow-sm'
-                        : 'bg-white/[0.05] text-slate-300 hover:text-white border border-white/[0.08]'
+                        : 'cm-glass-control text-slate-300 hover:text-white'
                     }`}
                   >
                     {hub.icon}
@@ -356,7 +356,7 @@ const NavbarComponent: React.FC<NavbarProps> = ({
       {/* Mobile Fixed Bottom Navigation Bar (Home, Discover, Watchlist, Profile) */}
       <nav
         aria-label="Mobile Bottom Navigation"
-        className="md:hidden fixed bottom-0 inset-x-0 z-50 bg-[#0A0D12]/95 border-t border-white/10 pb-[env(safe-area-inset-bottom)]"
+        className="md:hidden fixed bottom-0 inset-x-0 z-50 cm-glass-nav border-t border-white/10 cm-safe-bottom"
       >
         <div className="grid grid-cols-4 h-14">
           {mobileBottomItems.map((item) => (

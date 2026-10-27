@@ -170,12 +170,12 @@ export const SearchOverlay: React.FC<SearchOverlayProps> = ({
   const showBusy = isLoading || isPendingDebounce;
 
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto bg-black/85 backdrop-blur-md flex items-start justify-center pt-16 sm:pt-24 px-4 animate-in fade-in duration-150">
+    <div className="fixed inset-0 z-50 overflow-y-auto cm-glass-backdrop flex items-start justify-center pt-16 sm:pt-24 px-4 animate-in fade-in duration-150">
       <div className="fixed inset-0" onClick={onClose} />
 
-      <div className="relative z-10 w-full max-w-2xl bg-[#0f1118] border border-white/10 rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[80vh]">
+      <div className="relative z-10 w-full max-w-2xl cm-glass-panel rounded-2xl overflow-hidden flex flex-col max-h-[80vh]">
         {/* Search Bar Input */}
-        <div className="flex items-center gap-3 px-5 py-4 border-b border-white/10 bg-slate-900/60">
+        <div className="flex items-center gap-3 px-5 py-4 border-b border-white/10 cm-glass-subbar">
           {showBusy ? (
             <Loader2 className="w-5 h-5 text-amber-400 animate-spin shrink-0" />
           ) : (
@@ -187,7 +187,7 @@ export const SearchOverlay: React.FC<SearchOverlayProps> = ({
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Search movies and TV series across the catalogue..."
-            className="w-full bg-transparent text-white placeholder:text-slate-500 text-sm focus:outline-none"
+            className="w-full bg-transparent text-white placeholder:text-slate-400 text-sm focus:outline-none"
           />
           {query && (
             <button
@@ -200,47 +200,47 @@ export const SearchOverlay: React.FC<SearchOverlayProps> = ({
               <X className="w-4 h-4" />
             </button>
           )}
-          <kbd className="hidden sm:inline-block px-2 py-0.5 text-[10px] font-mono text-slate-400 bg-white/5 border border-white/10 rounded">
+          <kbd className="hidden sm:inline-block px-2 py-0.5 text-[10px] font-mono text-slate-300 cm-glass-control rounded">
             ESC
           </kbd>
         </div>
 
         {/* Filter Tabs */}
-        <div className="flex items-center justify-between px-5 py-2.5 bg-black/30 border-b border-white/5 text-xs">
+        <div className="flex items-center justify-between px-5 py-2.5 bg-black/35 border-b border-white/[0.06] text-xs">
           <div className="flex items-center gap-2">
-            <span className="text-slate-500 font-medium mr-1">Filter:</span>
+            <span className="text-slate-400 font-medium mr-1">Filter:</span>
             <button
               onClick={() => setTypeFilter('all')}
-              className={`px-2.5 py-1 rounded transition-colors whitespace-nowrap ${
+              className={`px-2.5 py-1 rounded-md transition-colors whitespace-nowrap ${
                 typeFilter === 'all'
-                  ? 'bg-amber-500 text-black font-semibold'
-                  : 'text-slate-400 hover:text-white'
+                  ? 'bg-amber-500 text-black font-semibold shadow-sm'
+                  : 'cm-glass-control text-slate-300 hover:text-white'
               }`}
             >
               All Formats
             </button>
             <button
               onClick={() => setTypeFilter('movie')}
-              className={`px-2.5 py-1 rounded transition-colors whitespace-nowrap ${
+              className={`px-2.5 py-1 rounded-md transition-colors whitespace-nowrap ${
                 typeFilter === 'movie'
-                  ? 'bg-amber-500 text-black font-semibold'
-                  : 'text-slate-400 hover:text-white'
+                  ? 'bg-amber-500 text-black font-semibold shadow-sm'
+                  : 'cm-glass-control text-slate-300 hover:text-white'
               }`}
             >
               Movies
             </button>
             <button
               onClick={() => setTypeFilter('tv')}
-              className={`px-2.5 py-1 rounded transition-colors whitespace-nowrap ${
+              className={`px-2.5 py-1 rounded-md transition-colors whitespace-nowrap ${
                 typeFilter === 'tv'
-                  ? 'bg-amber-500 text-black font-semibold'
-                  : 'text-slate-400 hover:text-white'
+                  ? 'bg-amber-500 text-black font-semibold shadow-sm'
+                  : 'cm-glass-control text-slate-300 hover:text-white'
               }`}
             >
               TV Series
             </button>
           </div>
-          <span className="text-slate-500 font-mono text-[11px] tabular-nums">
+          <span className="text-slate-400 font-mono text-[11px] tabular-nums">
             {totalResults} matches
           </span>
         </div>
@@ -340,7 +340,7 @@ export const SearchOverlay: React.FC<SearchOverlayProps> = ({
                   <button
                     onClick={handleLoadMore}
                     disabled={isLoadingMore}
-                    className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg bg-white/5 hover:bg-white/10 text-xs font-semibold text-amber-400 border border-white/10 transition-colors"
+                    className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg cm-glass-control text-xs font-semibold text-amber-400"
                   >
                     {isLoadingMore ? (
                       <>

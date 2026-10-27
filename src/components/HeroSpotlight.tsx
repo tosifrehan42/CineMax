@@ -112,7 +112,7 @@ const HeroSpotlightComponent: React.FC<HeroSpotlightProps> = ({
 
           {/* Rotation Controls */}
           {featuredItems.length > 1 && (
-            <div className="flex items-center gap-1 bg-black/55 backdrop-blur-md p-1 rounded-lg border border-white/10">
+            <div className="flex items-center gap-1 cm-glass-popover p-1 rounded-lg">
               <button
                 type="button"
                 onClick={() =>
@@ -209,7 +209,7 @@ const HeroSpotlightComponent: React.FC<HeroSpotlightProps> = ({
               <button
                 type="button"
                 onClick={() => onSelectMedia(current)}
-                className="flex items-center gap-2 px-4 sm:px-5 py-2.5 rounded-xl bg-white/15 hover:bg-white/25 text-white font-semibold text-xs sm:text-sm border border-white/15 backdrop-blur-md transition-all"
+                className="flex items-center gap-2 px-4 sm:px-5 py-2.5 rounded-xl cm-glass-control text-white font-semibold text-xs sm:text-sm"
               >
                 <Info className="w-4 h-4" />
                 <span>View Details</span>
@@ -219,10 +219,10 @@ const HeroSpotlightComponent: React.FC<HeroSpotlightProps> = ({
               <button
                 type="button"
                 onClick={() => onToggleWatchlist(current.id)}
-                className={`flex items-center gap-2 px-3.5 sm:px-4 py-2.5 rounded-xl font-semibold text-xs sm:text-sm border transition-all ${
+                className={`flex items-center gap-2 px-3.5 sm:px-4 py-2.5 rounded-xl font-semibold text-xs sm:text-sm transition-all ${
                   inWatchlist
-                    ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
-                    : 'bg-black/50 hover:bg-white/10 text-slate-200 border-white/15 backdrop-blur-sm'
+                    ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-500/40'
+                    : 'cm-glass-control text-slate-200 hover:text-white'
                 }`}
               >
                 {inWatchlist ? (
@@ -262,7 +262,7 @@ const HeroSpotlightComponent: React.FC<HeroSpotlightProps> = ({
                   className={`flex items-center gap-2 px-2.5 py-1 rounded-lg text-left transition-all shrink-0 ${
                     idx === safeIndex
                       ? 'bg-amber-500/20 border border-amber-400/50 text-white'
-                      : 'bg-black/40 border border-white/[0.06] text-slate-400 hover:text-white hover:bg-white/10'
+                      : 'cm-glass-control text-slate-300 hover:text-white'
                   }`}
                 >
                   <span

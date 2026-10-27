@@ -1,107 +1,73 @@
-# CineMax — Custom Android Launcher Icon & Pre-Home Authentication Gate
+# CineMax — Subtle Liquid Glass Visual Enhancement Plan
 
-This update replaces the default Capacitor launcher icon with a custom dark-obsidian and golden **"CM" monogram** Android app icon across all density buckets and adaptive icon layers, and introduces a full-screen **Sign In / Sign Up authentication gate** powered by the existing Supabase Auth client before users enter the CineMax home experience.
-
-## User Review & Critical Decisions
-
-> [!IMPORTANT]
-> The following product and design choices have been confirmed and govern the implementation:
-
-- **Confirmed Decision 1 — Android Launcher Icon Motif**: Bold golden **"CM" monogram** with a subtle cinema spotlight glow set against CineMax's deep obsidian background (`#0A0D12`), keeping the website's existing header emblem unchanged.
-- **Confirmed Decision 2 — Post-Sign-Up Email Confirmation Flow**: When Supabase requires email verification before issuing an active session, display a clear verification banner and automatically switch the authentication gate to the **Sign In** tab with the user's email address pre-filled.
-- **Confirmed Decision 3 — Session Persistence & Route Protection**: Reuse the single existing Supabase client (`persistSession: true`, `autoRefreshToken: true`) and gate all primary views (`home`, `discover`, `watchlist`, `estimator`, `profile`, `admin`) behind an active authenticated session so direct URL navigation cannot bypass login.
-
----
-
-## 1. Overview & Core Concept
-
-- **What It Does**:
-  1. **Custom Android App Icon**: Gives the installed `CineMax` Android application (`in.vertexstudios.cinemax`) a recognizable, cinema-grade launcher icon across both legacy density mipmaps (`mdpi` through `xxxhdpi`) and Android 8.0+ adaptive icon foreground/background layers (`mipmap-anydpi-v26`).
-  2. **Mandatory Pre-Home Authentication Gate**: Presents a responsive, full-screen Sign In / Sign Up experience when the app opens without an active session, while immediately restoring the authenticated Home screen on subsequent launches when a valid Supabase session is persisted.
-- **Target Audience / Persona**: CineMax web and Android users who want a cohesive native app identity on their device home screen and immediate, automatic cloud synchronization of their watchlist, episode progress, and viewing history upon entering the app.
-- **Key Value**: Eliminates the generic default Capacitor icon on Android devices and ensures every user session is backed by authenticated Supabase cloud state from the moment the home screen loads.
+## 1. App Identity & Design Direction
+- **Core Aesthetic Philosophy**: Enhance CineMax's existing dark obsidian and warm amber cinema aesthetic with a refined, physically grounded **Liquid Glass** material layer—adding subtle depth, translucent refraction, and crisp top-edge specular highlights to floating UI surfaces while leaving movie artwork, typography, layout structure, and brand colors untouched.
+- **Color & Atmospheric Polarity**:
+  - **Primary Canvas & Backdrop**: Preserved deep cinema obsidian (`#0A0D12` and `#090A0F`).
+  - **Liquid Glass Navigation Surface**: Translucent obsidian (`rgba(10, 13, 18, 0.72)`) with `backdrop-filter: blur(16px) saturate(140%)`, paired with a `rgba(255, 255, 255, 0.09)` border and a top specular highlight (`inset 0 1px 0 0 rgba(255, 255, 255, 0.08)`).
+  - **Liquid Glass Elevated Dialog & Panel Surface**: Deep translucent slate (`rgba(13, 16, 24, 0.78)`) with `backdrop-filter: blur(20px) saturate(135%)`, hairline edge (`rgba(255, 255, 255, 0.10)`), inner specular top highlight (`inset 0 1px 0 0 rgba(255, 255, 255, 0.12)`), and layered ambient elevation shadow.
+  - **Liquid Glass Secondary Surface & Floating Controls**: Subtle smoked glass (`rgba(15, 19, 29, 0.65)` for cards/bars; `rgba(255, 255, 255, 0.045)` for interactive chips, search triggers, and segmented controls) with crisp inner edge highlights and smooth hover transitions (`rgba(255, 255, 255, 0.085)`).
+  - **Brand Accents (Unchanged)**: Primary interactive amber (`#F59E0B` to `#D97706`) buttons, active indicators, and IMDb/TMDB rating badges remain crisp and recognizable in their existing brand colors.
+- **Typography & Scannability**: Preserve `Outfit` for display headers, `Plus Jakarta Sans` for readable body copy and controls, and `JetBrains Mono` for metadata, runtime, and release years. Ensure high-contrast text legibility over all translucent surfaces.
 
 ---
 
-## 2. User Experience & Visual Design
-
-- **Key User Flows**:
-  1. **App Launch & Session Check**:
-     - On startup, CineMax checks for an existing persisted Supabase session (`client.auth.getSession()`).
-     - While the initial session check resolves, a branded dark-cinema loading screen prevents any flash of unauthenticated home content or premature login form flicker.
-  2. **Unauthenticated Launch → Sign In / Sign Up Gate**:
-     - If no valid session exists, the user sees the full-screen CineMax Authentication Gate instead of the Home view or navigation bars.
-     - Users can switch cleanly between **Sign In** and **Create Account (Sign Up)** using single-line segmented controls with generous $\ge 44\text{px}$ touch hitboxes.
-     - **Sign In**: Validates email and password ($\ge 6$ characters), authenticates via `signInWithEmail()`, and transitions directly into the CineMax Home page.
-     - **Sign Up**: Collects Display Name, Email Address, and Password, registers via `signUpWithEmail()`, and either enters the Home page immediately (if a session is returned) or switches to **Sign In** with the email pre-filled and a clear confirmation notice (if email verification is enabled in Supabase).
-  3. **Authenticated Session & Sign Out**:
-     - Once signed in, the full CineMax experience (Home, Movies, Series, Discover, Watchlist, Quality & File Size Estimator, Profile, and verified Admin Dashboard) unlocks, and the session persists across refreshes and Android app restarts.
-     - Clicking **Sign Out** in either the top navigation bar or the **Profile / Account** view clears the Supabase session, resets in-memory cloud state, and immediately returns the user to the Authentication Gate.
-- **Visual Identity & Theme**:
-  - *Aesthetic Direction*: Atmospheric Dark Cinema (`#0A0D12` obsidian canvas, `#121621` elevated slate cards, hairline `rgba(255,255,255,0.08)` borders).
-  - *Color Palette & Mood*: 60% deep obsidian neutral canvas (`#0A0D12`), 30% structural slate surfaces (`#0d0e14` / `#121621`), and 10% warm cinema-gold accent (`#F59E0B` to `#D97706`) concentrated on primary CTAs, active tabs, and the Android launcher monogram.
-  - *Typography & Hierarchy*: `Outfit` display headlines (`clamp(1.75rem, 3vw, 2.5rem)`, `text-wrap: balance`) paired with `Plus Jakarta Sans` body prose and `JetBrains Mono` (`tabular-nums`) for technical metadata.
-  - *Component Styling & Layout*: Full-viewport split layout on desktop (`max-w-6xl` two-column showcase with curated cinema highlights on the left and the interactive authentication card on the right) that adapts seamlessly to a one-handed, thumb-friendly mobile layout ($375\text{px}$–$430\text{px}$) with $\ge 44\text{px}$ interactive controls.
-- **Interactive Feedback & Motion**:
-  - Instant inline validation and clear, human-readable error banners paired with icons (never color alone).
-  - Smooth `150ms` opacity/transform transitions and disabled loading states (`Signing In...` / `Creating Account...`) to prevent duplicate submissions.
+## 2. Core User Flows
+1. **Pre-Home Sign In / Sign Up Gate**:
+   - Users opening CineMax encounter the full-screen authentication gate featuring a Liquid Glass card with a subtle specular top edge, a recessed Liquid Glass segmented tab selector (`Sign In` / `Create Account`), and translucent glass input fields that illuminate with a warm amber focus ring.
+2. **Sticky Desktop Navigation & Mobile Bottom Bar**:
+   - As users scroll through hero banners and movie rows, the sticky desktop header and mobile bottom navigation bar softly refract underlying ambient colors without reducing label or icon contrast, while respecting Android and iOS bottom safe-area insets.
+3. **Interactive Discovery, Filtering & Search**:
+   - Clicking the search trigger opens the Liquid Glass search overlay with a frosted header bar, translucent filter chips (`All`, `Movies`, `TV Series`), and crisp poster thumbnails.
+   - On the Discover and Watchlist views, floating filter bars, genre pills, sort selectors, and segmented tabs use unified Liquid Glass control treatments while keeping movie poster grids completely sharp and unblurred.
+4. **Cinematic Detail, Trailer & Player Modals**:
+   - Opening a movie or TV series detail modal, trailer overlay, or player dialog presents an elevated Liquid Glass sheet with a subtle inner highlight and floating glass action controls (`Watchlist`, `Watched`, `Share`, season selectors, and close buttons), keeping backdrop art and episode lists crisp.
 
 ---
 
-## 3. Key Product Decisions & Trade-Offs
-
-- **Decision 1: Unified Authentication Gate Reusing Existing Supabase Client**
-  - *Chosen Approach*: Drive both the pre-home Authentication Gate and session lifecycle from the existing `ensureSupabaseClient()`, `signInWithEmail()`, `signUpWithEmail()`, and `signOutUser()` service functions.
-  - *Why*: Guarantees a single source of truth for JWT tokens, Row Level Security (RLS), admin verification, and Capacitor Android WebView origin compatibility (`https://localhost` -> `https://cinemax-kxpv.onrender.com/api/status` runtime fallback if build-time env vars are absent).
-  - *Alternatives Considered*: Creating a separate login page router or secondary auth store, which would duplicate session listeners and risk state desynchronization.
-- **Decision 2: Adaptive + Legacy Mipmap Android Launcher Icons**
-  - *Chosen Approach*: Provide both Android 8.0+ adaptive icon layers (`ic_launcher_background` color `#0A0D12` + safe-zone `ic_launcher_foreground` mipmaps) and legacy square/round PNG mipmaps (`ic_launcher.png` and `ic_launcher_round.png`) across `mdpi`, `hdpi`, `xhdpi`, `xxhdpi`, and `xxxhdpi`.
-  - *Why*: Ensures crisp rendering across all Android launcher shapes (circle, squircle, rounded square, teardrop) while keeping the web navbar logo untouched.
+## 3. Key Features & Scope
+- **Reusable Liquid Glass Styling System**:
+  - Define a centralized, composable suite of utility classes in the global stylesheet for navigation bars, elevated modal panels, secondary floating surfaces, interactive glass controls, and segmented tab tracks.
+  - Provide automatic `@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px)))` solid dark fallbacks so older browsers and restricted WebViews remain high-contrast and legible.
+  - Respect `@media (prefers-reduced-motion: reduce)` and cap blur radii on mobile viewports to maintain smooth 60fps scrolling in the Capacitor Android WebView.
+- **Selective Component Enhancements**:
+  - **Navigation**: Sticky desktop header, search trigger button, user avatar pill, and mobile bottom navigation bar (with safe-area padding).
+  - **Authentication**: Pre-home authentication card, segmented mode switcher, and secondary modal dialog.
+  - **Overlays & Modals**: Search overlay panel and input bar, Movie/TV detail modal container and floating action pills, Trailer modal frame, Online Player modal header/controls, and Surprise Me modal card.
+  - **Views & Floating Controls**: Hero secondary action controls, category/genre filter chips, Discover filter bar, Watchlist status tabs/menus, and Profile account summary cards.
+- **Strict Non-Interference Boundaries**:
+  - Zero blur or glass overlays covering movie posters, hero backdrop artwork, tables, or dense text blocks.
+  - Primary amber CTA buttons keep their solid brand styling.
+  - Existing routes, Supabase authentication, TMDB API integration, GitHub Pages `/CineMax/` build configuration, and Android `/` root path configuration remain completely intact.
 
 ---
 
-## 4. Technical Architecture & Data Strategy *(Technical Reference)*
-
-### Architecture & Component Diagram
+## 4. Technical Architecture & Data Strategy
 
 ```
-┌──────────────────────────────────────────────────────────────────────────┐
-│                     CineMax Application Startup                          │
-│         (GitHub Pages /CineMax/  OR  Capacitor Android https://localhost)│
-└────────────────────────────────────┬─────────────────────────────────────┘
-                                     │
-                                     ▼
-┌──────────────────────────────────────────────────────────────────────────┐
-│              Supabase Session Manager (supabaseClient.ts)                │
-│  • Build-time VITE_SUPABASE_* or runtime /api/status fallback            │
-│  • client.auth.getSession() + client.auth.onAuthStateChange()            │
-└───────────────┬───────────────────────┬───────────────────────┬──────────┘
-                │                       │                       │
-     [isAuthInitializing]        [!authUser]              [authUser]
-                │                       │                       │
-                ▼                       ▼                       ▼
-┌───────────────────────┐ ┌───────────────────────────┐ ┌──────────────────┐
-│  Cinema Startup       │ │  Full-Screen Auth Gate    │ │ Authenticated    │
-│  Splash Loader        │ │  • Sign In / Sign Up Tabs │ │ CineMax Shell    │
-│  (Prevents UI flash)  │ │  • Email Pre-fill on      │ │ • Navbar         │
-└───────────────────────┘ │    Verify Notice          │ │ • Home / Movies  │
-                          │  • Input & Error Handling │ │   / Series       │
-                          └───────────────────────────┘ │ • Discover &     │
-                                                        │   Live Search    │
-                                                        │ • Cloud Watchlist│
-                                                        │ • Profile &      │
-                                                        │   Sign Out       │
-                                                        └──────────────────┘
++-----------------------------------------------------------------------+
+|                   Shared Liquid Glass Design Tokens                   |
+|  - Navigation Glass   : blur(16px) saturate(140%) + specular border   |
+|  - Elevated Panel     : blur(20px) saturate(135%) + inner highlight   |
+|  - Secondary Surface  : blur(12px) saturate(125%) + hairline edge     |
+|  - Interactive Control: translucent fill + top inset highlight        |
+|  - Fallback & Mobile  : @supports solid fallback + mobile blur cap    |
++-----------------------------------+-----------------------------------+
+                                    |
+        +---------------------------+---------------------------+
+        |                           |                           |
+        v                           v                           v
++-------------------+     +-------------------+     +-------------------+
+| Navigation & Auth |     | Dialogs & Modals  |     | Floating Controls |
+| - Desktop Navbar  |     | - Search Overlay  |     | - Hero Controls   |
+| - Mobile Nav Bar  |     | - Detail Modal    |     | - Discover Chips  |
+| - Pre-Home Auth   |     | - Trailer/Player  |     | - Watchlist Tabs  |
+| - Auth Modal      |     | - Surprise Modal  |     | - Profile Cards   |
++-------------------+     +-------------------+     +-------------------+
 ```
 
-### Data Model & State
-- **`isAuthInitializing` (`boolean`)**: Holds the startup gate in a clean loading state until `ensureSupabaseClient()` and `client.auth.getSession()` complete.
-- **`authUser` (`User | null`)**: Determines whether the user enters the authenticated CineMax shell or remains at the Authentication Gate.
-- **Route & Modal Protection**:
-  - When `authUser` is `null` (including immediately after `handleSignOut()`), any open modals (`selectedMedia`, `trailerMedia`, `onlinePlaybackTarget`, `isSurpriseOpen`, `isSearchOpen`) are closed, any `/admin` URL state is reset to the root path, and the Authentication Gate is rendered exclusively.
-
-### Interactive Component & State Mapping
-- **Sign In / Sign Up Mode Toggle**: Switches between `'signin'` and `'signup'`, clearing stale error banners while preserving typed email text.
-- **Sign Up Verification Transition**: When `signUpWithEmail()` returns `user && !session`, switches mode to `'signin'`, keeps the `email` input populated, clears the password field, and displays a confirmation banner instructing the user to verify their email and sign in.
-- **Sign Out Action (Navbar & ProfileView)**: Calls `handleSignOut()`, invoking `signOutUser()`, clearing cached admin and cloud state, resetting active tab to `'home'`, and returning immediately to the Authentication Gate.
-- **Android Icon Pipeline**: Updates `/android/app/src/main/res/values/ic_launcher_background.xml` (`#0A0D12`) and generates all density PNGs (`mdpi` 48px/108px, `hdpi` 72px/162px, `xhdpi` 96px/216px, `xxhdpi` 144px/324px, `xxxhdpi` 192px/432px) for `ic_launcher.png`, `ic_launcher_round.png`, and `ic_launcher_foreground.png`.
+- **Performance & Android WebView Optimization**:
+  - Apply `backdrop-filter` strictly to fixed, sticky, or modal container layers and standalone control bars—never to repeating movie poster cards inside horizontal carousels or large grids—preventing GPU overdraw on Android devices.
+  - Include `-webkit-backdrop-filter` alongside `backdrop-filter` for full cross-browser and WebView compatibility.
+- **Build & Deployment Verification**:
+  - Run static type/lint checks, build the GitHub Pages production bundle (`/CineMax/`), and build/sync the Android Capacitor web bundle (`/`) to confirm both targets compile cleanly without regressions.

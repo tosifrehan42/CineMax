@@ -47,10 +47,10 @@ export const SurpriseMeModal: React.FC<SurpriseMeModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto bg-black/85 backdrop-blur-md flex items-center justify-center p-4 animate-in fade-in duration-200">
+    <div className="fixed inset-0 z-50 overflow-y-auto cm-glass-backdrop flex items-center justify-center p-4 animate-in fade-in duration-200">
       <div className="fixed inset-0" onClick={onClose} />
 
-      <div className="relative z-10 w-full max-w-xl bg-[#0f1118] border border-white/10 rounded-2xl shadow-2xl overflow-hidden p-6 sm:p-8">
+      <div className="relative z-10 w-full max-w-xl cm-glass-panel rounded-2xl overflow-hidden p-6 sm:p-8">
         {/* Header */}
         <div className="flex items-center justify-between pb-4 border-b border-white/10">
           <div className="flex items-center gap-2.5">
@@ -69,7 +69,7 @@ export const SurpriseMeModal: React.FC<SurpriseMeModalProps> = ({
 
           <button
             onClick={onClose}
-            className="p-1.5 text-slate-400 hover:text-white rounded-lg hover:bg-white/5"
+            className="p-1.5 text-slate-400 hover:text-white rounded-lg cm-glass-control"
           >
             <X className="w-5 h-5" />
           </button>
@@ -87,8 +87,8 @@ export const SurpriseMeModal: React.FC<SurpriseMeModalProps> = ({
                 onClick={() => setSelectedMood(m.id)}
                 className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors whitespace-nowrap ${
                   selectedMood === m.id
-                    ? 'bg-amber-500 text-black font-semibold'
-                    : 'bg-white/5 text-slate-300 hover:bg-white/10 hover:text-white border border-white/5'
+                    ? 'bg-amber-500 text-black font-semibold shadow-sm'
+                    : 'cm-glass-control text-slate-300 hover:text-white'
                 }`}
               >
                 {m.label}
@@ -100,7 +100,7 @@ export const SurpriseMeModal: React.FC<SurpriseMeModalProps> = ({
         {/* Revealed Title Display */}
         {pickedItem && (
           <div
-            className={`mt-6 p-4 rounded-xl border border-white/10 bg-black/40 transition-all duration-200 flex gap-4 items-center ${
+            className={`mt-6 p-4 rounded-xl cm-glass-surface transition-all duration-200 flex gap-4 items-center ${
               isRolling ? 'opacity-50 scale-95' : 'opacity-100 scale-100'
             }`}
           >

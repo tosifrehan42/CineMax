@@ -575,7 +575,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
       ) : (
         <>
           {/* Profile Header Hero */}
-          <div className="relative overflow-hidden rounded-2xl border border-white/10 bg-gradient-to-r from-slate-900 via-slate-900/80 to-[#12141f] p-6 sm:p-8 shadow-xl">
+          <div className="cm-glass-surface relative overflow-hidden rounded-2xl p-6 sm:p-8 shadow-xl">
             <div className="relative z-10 flex flex-col lg:flex-row items-center lg:items-start justify-between gap-6 text-center sm:text-left">
               <div className="flex flex-col sm:flex-row items-center sm:items-start gap-6">
                 {/* Avatar container + Quick Photo Controls */}
@@ -627,7 +627,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
                         type="button"
                         disabled={isUploadingAvatar || isRemovingAvatar}
                         onClick={handleTriggerFileSelect}
-                        className="px-2.5 py-1 rounded-lg bg-white/5 hover:bg-white/10 border border-white/10 text-[11px] font-semibold text-amber-300 hover:text-amber-200 flex items-center gap-1 transition-colors disabled:opacity-40"
+                        className="cm-glass-control px-2.5 py-1 rounded-lg text-[11px] font-semibold text-amber-300 hover:text-amber-200 flex items-center gap-1 transition-colors disabled:opacity-40"
                       >
                         <Upload className="w-3 h-3" />
                         <span>{hasValidAvatar ? 'Change Photo' : 'Upload Photo'}</span>
@@ -743,7 +743,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
                 <div className="flex items-center gap-2 shrink-0">
                   <button
                     onClick={openEditModal}
-                    className="px-3.5 py-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-xs font-semibold text-white flex items-center gap-1.5 transition-colors whitespace-nowrap"
+                    className="cm-glass-control px-3.5 py-2 rounded-xl text-xs font-semibold text-white flex items-center gap-1.5 transition-colors whitespace-nowrap"
                   >
                     <Edit3 className="w-3.5 h-3.5 text-amber-400" />
                     <span>Edit Profile</span>
@@ -960,7 +960,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
 
           {/* Account & Session Management Section */}
           {isAuthenticated && (
-            <div className="rounded-2xl border border-white/10 bg-slate-900/50 p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div className="cm-glass-surface rounded-2xl p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div className="space-y-1">
                 <h2 className="font-['Outfit'] text-base font-bold text-white">
                   Account &amp; Session Settings
@@ -973,7 +973,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
                 <button
                   type="button"
                   onClick={openEditModal}
-                  className="min-h-[44px] px-4 py-2.5 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-xs font-semibold text-white flex items-center gap-1.5 transition-colors whitespace-nowrap"
+                  className="cm-glass-control min-h-[44px] px-4 py-2.5 rounded-xl text-xs font-semibold text-white flex items-center gap-1.5 transition-colors whitespace-nowrap"
                 >
                   <Edit3 className="w-3.5 h-3.5 text-amber-400" />
                   <span>Edit Profile</span>
@@ -996,16 +996,16 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
 
       {/* Edit Profile Modal */}
       {isEditingProfile && (
-        <div className="fixed inset-0 z-50 overflow-y-auto bg-black/80 backdrop-blur-md flex items-center justify-center p-4 animate-in fade-in duration-200">
+        <div className="cm-glass-backdrop fixed inset-0 z-50 overflow-y-auto flex items-center justify-center p-4 animate-in fade-in duration-200">
           <div className="fixed inset-0" onClick={() => setIsEditingProfile(false)} />
-          <div className="relative z-10 w-full max-w-lg bg-[#0d0e14] border border-white/10 rounded-2xl shadow-2xl overflow-hidden my-auto">
-            <div className="px-6 py-4 border-b border-white/5 flex items-center justify-between">
+          <div className="cm-glass-panel relative z-10 w-full max-w-lg rounded-2xl overflow-hidden my-auto">
+            <div className="cm-glass-subbar px-6 py-4 flex items-center justify-between">
               <h3 className="font-['Outfit'] text-lg font-bold text-white">
                 Edit Cinephile Profile
               </h3>
               <button
                 onClick={() => setIsEditingProfile(false)}
-                className="p-1.5 text-slate-400 hover:text-white rounded-lg"
+                className="cm-glass-control p-1.5 text-slate-400 hover:text-white rounded-lg"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -1020,7 +1020,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
               )}
 
               {/* Profile Photo Section inside Edit Profile Modal */}
-              <div className="p-3.5 rounded-xl bg-black/40 border border-white/10 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <div className="cm-glass-surface p-3.5 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <div className="flex items-center gap-3">
                   <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-amber-400 to-amber-600 p-0.5 shrink-0">
                     <div className="w-full h-full rounded-xl bg-[#090a0f] flex items-center justify-center overflow-hidden">
@@ -1087,7 +1087,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
                   maxLength={80}
                   value={editDisplayName}
                   onChange={(e) => setEditDisplayName(e.target.value)}
-                  className="w-full px-3.5 py-2 text-sm bg-black/50 border border-white/10 rounded-xl text-white focus:outline-none focus:border-amber-400"
+                  className="cm-glass-input w-full px-3.5 py-2 text-sm rounded-xl text-white focus:outline-none"
                 />
               </div>
 
@@ -1101,7 +1101,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
                   placeholder="cinephile_alex"
                   value={editUsername}
                   onChange={(e) => setEditUsername(e.target.value)}
-                  className="w-full px-3.5 py-2 text-sm bg-black/50 border border-white/10 rounded-xl text-white placeholder:text-slate-600 focus:outline-none focus:border-amber-400 font-mono"
+                  className="cm-glass-input w-full px-3.5 py-2 text-sm rounded-xl text-white placeholder:text-slate-600 focus:outline-none font-mono"
                 />
               </div>
 
@@ -1115,7 +1115,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
                   placeholder="Share your favourite movements, directors, or cinema philosophy..."
                   value={editBio}
                   onChange={(e) => setEditBio(e.target.value)}
-                  className="w-full px-3.5 py-2 text-sm bg-black/50 border border-white/10 rounded-xl text-white placeholder:text-slate-600 focus:outline-none focus:border-amber-400 resize-none"
+                  className="cm-glass-input w-full px-3.5 py-2 text-sm rounded-xl text-white placeholder:text-slate-600 focus:outline-none resize-none"
                 />
               </div>
 
@@ -1131,10 +1131,10 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
                         type="button"
                         key={genre}
                         onClick={() => toggleEditGenre(genre)}
-                        className={`px-2.5 py-1 rounded-lg text-xs font-medium border transition-colors ${
+                        className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-colors ${
                           active
-                            ? 'bg-amber-500 text-slate-950 border-amber-400 font-semibold'
-                            : 'bg-white/5 text-slate-300 border-white/10 hover:bg-white/10'
+                            ? 'bg-amber-500 text-slate-950 border border-amber-400 font-semibold'
+                            : 'cm-glass-control text-slate-300 hover:text-white'
                         }`}
                       >
                         {genre}
@@ -1148,7 +1148,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
                 <button
                   type="button"
                   onClick={() => setIsEditingProfile(false)}
-                  className="px-4 py-2 rounded-xl text-xs font-medium text-slate-400 hover:text-white"
+                  className="cm-glass-control px-4 py-2 rounded-xl text-xs font-medium text-slate-300 hover:text-white"
                 >
                   Cancel
                 </button>

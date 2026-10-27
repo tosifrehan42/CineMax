@@ -238,7 +238,7 @@ export const WatchlistView: React.FC<WatchlistViewProps> = ({
 
         <div className="flex items-center gap-3 self-start sm:self-auto">
           {totalCount > 0 && (
-            <div className="flex items-center gap-1.5 p-1 bg-black/40 rounded-lg border border-white/5 text-xs">
+            <div className="cm-glass-segmented flex items-center gap-1.5 p-1 rounded-lg text-xs">
               <button
                 onClick={() => setViewMode('grid')}
                 className={`px-3 py-1.5 rounded transition-colors whitespace-nowrap ${
@@ -381,7 +381,7 @@ export const WatchlistView: React.FC<WatchlistViewProps> = ({
       )}
 
       {/* Checklist Progress Summary & KPI Strip */}
-      <div className="p-5 rounded-2xl bg-slate-900/75 border border-white/10 space-y-4">
+      <div className="cm-glass-surface p-5 rounded-2xl space-y-4">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
           <div>
             <h2 className="font-['Outfit'] text-sm font-bold text-white uppercase tracking-wider">
@@ -483,7 +483,7 @@ export const WatchlistView: React.FC<WatchlistViewProps> = ({
       </div>
 
       {/* Status Segmented Tabs (All, Want to Watch, Watching, Completed, On Hold, Dropped, Favourites) */}
-      <div className="flex items-center gap-1.5 p-1.5 bg-slate-900/90 rounded-xl border border-white/5 overflow-x-auto max-w-full">
+      <div className="cm-glass-segmented flex items-center gap-1.5 p-1.5 rounded-xl overflow-x-auto max-w-full">
         <button
           onClick={() => setFilterStatus('all')}
           className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors whitespace-nowrap ${
@@ -559,7 +559,7 @@ export const WatchlistView: React.FC<WatchlistViewProps> = ({
 
       {/* Search Within Saved Titles, Format Filter & Sort Controls */}
       {totalCount > 0 && (
-        <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3 p-3.5 rounded-xl bg-slate-900/60 border border-white/5">
+        <div className="cm-glass-surface flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3 p-3.5 rounded-xl">
           {/* Search Input */}
           <div className="relative flex-1 max-w-md">
             <Search className="w-4 h-4 text-amber-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
@@ -568,7 +568,7 @@ export const WatchlistView: React.FC<WatchlistViewProps> = ({
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="Search saved titles by name, director, or genre..."
-              className="w-full pl-9 pr-8 py-2 bg-black/40 border border-white/10 rounded-lg text-xs text-white placeholder:text-slate-500 focus:outline-none focus:border-amber-400"
+              className="cm-glass-input w-full pl-9 pr-8 py-2 rounded-lg text-xs text-white placeholder:text-slate-500 focus:outline-none"
             />
             {searchQuery && (
               <button
@@ -584,7 +584,7 @@ export const WatchlistView: React.FC<WatchlistViewProps> = ({
 
           <div className="flex flex-wrap items-center gap-3">
             {/* Media Type Filter */}
-            <div className="flex items-center gap-1 p-1 bg-black/40 rounded-lg border border-white/5 text-xs">
+            <div className="cm-glass-segmented flex items-center gap-1 p-1 rounded-lg text-xs">
               <button
                 type="button"
                 onClick={() => setMediaTypeFilter('all')}
@@ -629,7 +629,7 @@ export const WatchlistView: React.FC<WatchlistViewProps> = ({
               <select
                 value={sortBy}
                 onChange={(e) => setSortBy(e.target.value as SortOption)}
-                className="bg-black/50 border border-white/10 text-xs text-slate-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-amber-400"
+                className="cm-glass-input text-xs text-slate-200 rounded-lg px-2.5 py-1.5 focus:outline-none"
               >
                 <option value="date_added">Date Added (Newest)</option>
                 <option value="title">Title (A–Z)</option>

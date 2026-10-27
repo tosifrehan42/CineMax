@@ -772,7 +772,7 @@ const HomeViewComponent: React.FC<HomeViewProps> = ({
           type="button"
           onClick={() => setRefreshSeed((s) => s + 1)}
           disabled={isRefreshing}
-          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#121721] hover:bg-[#19202E] border border-white/10 text-slate-300 hover:text-white font-medium transition-colors disabled:opacity-50"
+          className="cm-glass-control inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-slate-300 hover:text-white font-medium transition-colors disabled:opacity-50"
         >
           <RefreshCw className={`w-3.5 h-3.5 text-amber-400 ${isRefreshing ? 'animate-spin' : ''}`} />
           <span>{isRefreshing ? 'Refreshing Feeds…' : 'Refresh Catalogue'}</span>
@@ -850,7 +850,7 @@ const HomeViewComponent: React.FC<HomeViewProps> = ({
                 className={`px-3.5 py-1.5 rounded-xl text-xs font-semibold transition-all whitespace-nowrap shrink-0 ${
                   active
                     ? 'bg-amber-500 text-slate-950 shadow-sm shadow-amber-500/20'
-                    : 'bg-[#121721] hover:bg-[#19202E] text-slate-300 hover:text-white border border-white/[0.07]'
+                    : 'cm-glass-control text-slate-300 hover:text-white'
                 }`}
               >
                 {genre}

@@ -135,12 +135,12 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto bg-black/80 backdrop-blur-md flex items-center justify-center p-4 animate-in fade-in duration-200">
+    <div className="fixed inset-0 z-50 overflow-y-auto cm-glass-backdrop flex items-center justify-center p-4 animate-in fade-in duration-200">
       <div className="fixed inset-0" onClick={onClose} />
 
-      <div className="relative z-10 w-full max-w-md bg-[#0d0e14] border border-white/10 rounded-2xl shadow-2xl overflow-hidden my-auto">
+      <div className="relative z-10 w-full max-w-md cm-glass-panel rounded-2xl overflow-hidden my-auto">
         {/* Top Header */}
-        <div className="px-6 pt-6 pb-4 border-b border-white/5 flex items-center justify-between">
+        <div className="px-6 pt-6 pb-4 border-b border-white/[0.07] flex items-center justify-between">
           <div className="flex items-center gap-2.5">
             <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-amber-400 to-amber-600 flex items-center justify-center text-black shadow-md shadow-amber-500/20">
               <Film className="w-4 h-4 stroke-[2.5]" />
@@ -158,7 +158,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           <button
             onClick={onClose}
             aria-label="Close authentication modal"
-            className="p-2 rounded-lg text-slate-400 hover:text-white hover:bg-white/5 transition-colors"
+            className="p-2 rounded-lg text-slate-400 hover:text-white cm-glass-control"
           >
             <X className="w-4 h-4" />
           </button>
@@ -166,7 +166,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
         {/* Mode Switcher Tabs */}
         <div className="px-6 pt-4">
-          <div className="grid grid-cols-2 gap-1 p-1 bg-black/50 rounded-xl border border-white/5">
+          <div className="grid grid-cols-2 gap-1 p-1 cm-glass-segmented rounded-xl">
             <button
               type="button"
               onClick={() => {
@@ -247,7 +247,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                   onChange={(e) => setDisplayName(e.target.value)}
                   placeholder="Alex Rivera"
                   maxLength={80}
-                  className="w-full pl-10 pr-3.5 py-2.5 text-sm bg-black/50 border border-white/10 rounded-xl text-white placeholder:text-slate-500 focus:outline-none focus:border-amber-400"
+                  className="w-full pl-10 pr-3.5 py-2.5 text-sm cm-glass-input rounded-xl text-white placeholder:text-slate-500 focus:outline-none"
                 />
               </div>
             </div>
@@ -266,7 +266,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="you@example.com"
-                className="w-full pl-10 pr-3.5 py-2.5 text-sm bg-black/50 border border-white/10 rounded-xl text-white placeholder:text-slate-500 focus:outline-none focus:border-amber-400"
+                className="w-full pl-10 pr-3.5 py-2.5 text-sm cm-glass-input rounded-xl text-white placeholder:text-slate-500 focus:outline-none"
               />
             </div>
           </div>
@@ -285,7 +285,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="••••••••"
-                className="w-full pl-10 pr-3.5 py-2.5 text-sm bg-black/50 border border-white/10 rounded-xl text-white placeholder:text-slate-500 focus:outline-none focus:border-amber-400"
+                className="w-full pl-10 pr-3.5 py-2.5 text-sm cm-glass-input rounded-xl text-white placeholder:text-slate-500 focus:outline-none"
               />
             </div>
             <p className="text-[11px] text-slate-500">

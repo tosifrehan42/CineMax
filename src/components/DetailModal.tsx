@@ -382,11 +382,11 @@ export const DetailModal: React.FC<DetailModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto bg-black/80 backdrop-blur-md flex items-center justify-center p-3 sm:p-6 animate-in fade-in duration-200">
+    <div className="fixed inset-0 z-50 overflow-y-auto cm-glass-backdrop flex items-center justify-center p-3 sm:p-6 animate-in fade-in duration-200">
       {/* Background click dismiss */}
       <div className="fixed inset-0" onClick={onClose} />
 
-      <div className="relative z-10 w-full max-w-4xl bg-[#0d0e14] border border-white/10 rounded-2xl shadow-2xl overflow-hidden my-auto max-h-[92vh] flex flex-col">
+      <div className="relative z-10 w-full max-w-4xl cm-glass-panel rounded-2xl overflow-hidden my-auto max-h-[92vh] flex flex-col">
         {/* Top Backdrop Header */}
         <div className="relative w-full h-48 sm:h-64 shrink-0 overflow-hidden">
           <MediaPoster
@@ -399,7 +399,7 @@ export const DetailModal: React.FC<DetailModalProps> = ({
           <button
             onClick={onClose}
             aria-label="Close modal"
-            className="absolute top-4 right-4 z-20 p-2.5 rounded-full bg-black/60 hover:bg-black/90 text-white/80 hover:text-white border border-white/10 transition-colors"
+            className="absolute top-4 right-4 z-20 p-2.5 rounded-full cm-glass-control text-white/85 hover:text-white"
           >
             <X className="w-5 h-5" />
           </button>
@@ -408,7 +408,7 @@ export const DetailModal: React.FC<DetailModalProps> = ({
           <button
             onClick={handleShare}
             aria-label="Share title"
-            className="absolute top-4 right-16 z-20 p-2.5 rounded-full bg-black/60 hover:bg-black/90 text-white/80 hover:text-white border border-white/10 transition-colors"
+            className="absolute top-4 right-16 z-20 p-2.5 rounded-full cm-glass-control text-white/85 hover:text-white"
             title="Copy link"
           >
             <Share2 className="w-5 h-5" />
@@ -492,10 +492,10 @@ export const DetailModal: React.FC<DetailModalProps> = ({
                 <div className="flex gap-2">
                   <button
                     onClick={() => onToggleWatchlist(activeMedia.id, activeMedia)}
-                    className={`flex-1 flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl font-semibold text-xs sm:text-sm border transition-all whitespace-nowrap ${
+                    className={`flex-1 flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl font-semibold text-xs sm:text-sm transition-all whitespace-nowrap ${
                       isInWatchlist
-                        ? 'bg-amber-500/20 text-amber-300 border-amber-500/40 hover:bg-amber-500/30'
-                        : 'bg-white/5 hover:bg-white/10 text-white border-white/10'
+                        ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40 hover:bg-amber-500/30'
+                        : 'cm-glass-control text-white'
                     }`}
                   >
                     {isInWatchlist ? (
@@ -516,10 +516,10 @@ export const DetailModal: React.FC<DetailModalProps> = ({
                       onClick={() => onToggleFavourite(activeMedia.id, activeMedia)}
                       aria-label={isFavourite ? 'Remove from favourites' : 'Add to favourites'}
                       title={isFavourite ? 'In Favourites' : 'Mark as Favourite'}
-                      className={`px-3.5 py-2.5 rounded-xl border transition-all flex items-center justify-center ${
+                      className={`px-3.5 py-2.5 rounded-xl transition-all flex items-center justify-center ${
                         isFavourite
-                          ? 'bg-rose-500/20 text-rose-400 border-rose-500/40 hover:bg-rose-500/30'
-                          : 'bg-white/5 hover:bg-white/10 text-slate-300 border-white/10'
+                          ? 'bg-rose-500/20 text-rose-400 border border-rose-500/40 hover:bg-rose-500/30'
+                          : 'cm-glass-control text-slate-300 hover:text-white'
                       }`}
                     >
                       <Heart
@@ -538,7 +538,7 @@ export const DetailModal: React.FC<DetailModalProps> = ({
                         activeMedia.type === 'tv' ? selectedSeason : undefined
                       )
                     }
-                    className="w-full flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl bg-white/[0.04] hover:bg-amber-500/15 text-slate-200 hover:text-amber-300 border border-white/10 hover:border-amber-500/30 font-semibold text-xs sm:text-sm transition-all"
+                    className="w-full flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl cm-glass-control text-slate-200 hover:text-amber-300 font-semibold text-xs sm:text-sm"
                   >
                     <HardDrive className="w-4 h-4 text-amber-400" />
                     <span>Estimate Quality &amp; File Size</span>
@@ -603,7 +603,7 @@ export const DetailModal: React.FC<DetailModalProps> = ({
                           href={offer.url}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="group flex items-center justify-between gap-2.5 p-2 rounded-xl bg-white/[0.04] hover:bg-amber-500/15 border border-white/10 hover:border-amber-400/40 transition-all"
+                          className="group flex items-center justify-between gap-2.5 p-2 rounded-xl cm-glass-control hover:border-amber-400/40 transition-all"
                           title={`Watch ${activeMedia.title} on ${offer.providerName} (${offer.categoryLabel}) in India`}
                         >
                           <div className="flex items-center gap-2.5 min-w-0">
@@ -761,7 +761,7 @@ export const DetailModal: React.FC<DetailModalProps> = ({
               </div>
 
               {/* Personal Cinephile Checklist, Watch Status & Journal */}
-              <div className="mt-6 p-4 rounded-xl bg-slate-900/60 border border-white/5 space-y-3.5">
+              <div className="mt-6 p-4 rounded-xl cm-glass-surface space-y-3.5">
                 <div className="flex items-center justify-between gap-2">
                   <h4 className="text-xs uppercase tracking-wider text-slate-300 font-semibold flex items-center gap-1.5">
                     <Edit3 className="w-3.5 h-3.5 text-amber-400" />
@@ -790,7 +790,7 @@ export const DetailModal: React.FC<DetailModalProps> = ({
                 </div>
 
                 {/* 5-Stage Status Selector */}
-                <div className="grid grid-cols-2 sm:grid-cols-5 gap-1.5 p-1 bg-black/40 rounded-lg border border-white/5">
+                <div className="grid grid-cols-2 sm:grid-cols-5 gap-1.5 p-1 cm-glass-segmented rounded-lg">
                   {WATCH_STATUS_ORDER.map((st) => {
                     const isActive = isInWatchlist && currentStatus === st;
                     let activeStyle = 'bg-white/15 text-white border border-white/20 shadow-sm';
@@ -933,7 +933,7 @@ export const DetailModal: React.FC<DetailModalProps> = ({
                   </p>
                 </div>
 
-                <div className="flex items-center gap-3 shrink-0 bg-slate-900/80 border border-white/10 px-3.5 py-2 rounded-xl">
+                <div className="cm-glass-surface flex items-center gap-3 shrink-0 px-3.5 py-2 rounded-xl">
                   <div className="text-right">
                     <div className="text-xs font-mono font-bold text-white tabular-nums">
                       {totalWatchedCount} / {effectiveTotalEpisodes || '?'} Episodes Watched
@@ -973,7 +973,7 @@ export const DetailModal: React.FC<DetailModalProps> = ({
                         className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors whitespace-nowrap flex items-center gap-1.5 ${
                           isSelected
                             ? 'bg-amber-500 text-slate-950 font-bold'
-                            : 'bg-slate-900/90 text-slate-300 hover:text-white border border-white/5'
+                            : 'cm-glass-control text-slate-300 hover:text-white'
                         }`}
                       >
                         <span>Season {s.seasonNumber}</span>
@@ -1003,10 +1003,10 @@ export const DetailModal: React.FC<DetailModalProps> = ({
                         effectiveTotalEpisodes
                       )
                     }
-                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition-colors flex items-center gap-1.5 whitespace-nowrap ${
+                    className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors flex items-center gap-1.5 whitespace-nowrap ${
                       isEntireSeasonWatched
-                        ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30 hover:bg-emerald-500/25'
-                        : 'bg-white/5 text-slate-200 border-white/10 hover:bg-white/10'
+                        ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 hover:bg-emerald-500/25'
+                        : 'cm-glass-control text-slate-200 hover:text-white'
                     }`}
                   >
                     {isEntireSeasonWatched ? (

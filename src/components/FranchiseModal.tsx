@@ -58,7 +58,7 @@ export const FranchiseModal: React.FC<FranchiseModalProps> = ({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 bg-black/85 backdrop-blur-md overflow-y-auto"
+      className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 cm-glass-backdrop overflow-y-auto"
       onClick={onClose}
       role="dialog"
       aria-modal="true"
@@ -66,7 +66,7 @@ export const FranchiseModal: React.FC<FranchiseModalProps> = ({
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        className="relative w-full max-w-4xl max-h-[90vh] overflow-y-auto rounded-2xl bg-[#0E131C] border border-white/15 shadow-2xl text-slate-100"
+        className="relative w-full max-w-4xl max-h-[90vh] overflow-y-auto rounded-2xl cm-glass-panel text-slate-100"
       >
         {/* Top Cinematic Banner */}
         <div className="relative h-56 sm:h-64 w-full overflow-hidden">
@@ -80,7 +80,7 @@ export const FranchiseModal: React.FC<FranchiseModalProps> = ({
           <button
             onClick={onClose}
             aria-label="Close franchise modal"
-            className="absolute top-4 right-4 z-20 p-2 rounded-full bg-black/60 hover:bg-black/85 text-slate-300 hover:text-white border border-white/15 transition-colors"
+            className="absolute top-4 right-4 z-20 p-2 rounded-full cm-glass-control text-slate-300 hover:text-white"
           >
             <X className="w-5 h-5" />
           </button>
@@ -100,7 +100,7 @@ export const FranchiseModal: React.FC<FranchiseModalProps> = ({
             </div>
 
             {/* Franchise Completion Progress Pill */}
-            <div className="shrink-0 bg-black/60 backdrop-blur-md border border-white/10 rounded-xl p-3 min-w-[170px]">
+            <div className="shrink-0 cm-glass-popover rounded-xl p-3 min-w-[170px]">
               <div className="flex items-center justify-between text-xs mb-1.5">
                 <span className="text-slate-400 font-medium">Saga Progress</span>
                 <span className="font-mono font-bold text-amber-400">

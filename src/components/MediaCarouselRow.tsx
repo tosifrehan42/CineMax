@@ -139,7 +139,7 @@ const MediaCarouselRowComponent: React.FC<MediaCarouselRowProps> = ({
               onClick={() => handleScrollBy('left')}
               disabled={!canScrollLeft}
               aria-label={`Scroll ${title} left`}
-              className="p-1.5 rounded-lg bg-white/[0.05] hover:bg-white/[0.12] border border-white/[0.08] text-slate-300 hover:text-white disabled:opacity-25 disabled:pointer-events-none transition-colors"
+              className="p-1.5 rounded-lg cm-glass-control text-slate-300 hover:text-white disabled:opacity-25 disabled:pointer-events-none"
             >
               <ChevronLeft className="w-4 h-4" />
             </button>
@@ -148,7 +148,7 @@ const MediaCarouselRowComponent: React.FC<MediaCarouselRowProps> = ({
               onClick={() => handleScrollBy('right')}
               disabled={!canScrollRight}
               aria-label={`Scroll ${title} right`}
-              className="p-1.5 rounded-lg bg-white/[0.05] hover:bg-white/[0.12] border border-white/[0.08] text-slate-300 hover:text-white disabled:opacity-25 disabled:pointer-events-none transition-colors"
+              className="p-1.5 rounded-lg cm-glass-control text-slate-300 hover:text-white disabled:opacity-25 disabled:pointer-events-none"
             >
               <ChevronRight className="w-4 h-4" />
             </button>

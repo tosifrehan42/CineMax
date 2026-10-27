@@ -194,7 +194,7 @@ export const AvatarCropModal: React.FC<AvatarCropModalProps> = ({
   const fileSizeMb = (file.size / (1024 * 1024)).toFixed(2);
 
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto bg-black/85 backdrop-blur-md flex items-center justify-center p-4 animate-in fade-in duration-200">
+    <div className="fixed inset-0 z-50 overflow-y-auto cm-glass-backdrop flex items-center justify-center p-4 animate-in fade-in duration-200">
       <div
         className="fixed inset-0"
         onClick={() => {
@@ -202,9 +202,9 @@ export const AvatarCropModal: React.FC<AvatarCropModalProps> = ({
         }}
       />
 
-      <div className="relative z-10 w-full max-w-md bg-[#0d0e14] border border-white/10 rounded-2xl shadow-2xl overflow-hidden my-auto">
+      <div className="relative z-10 w-full max-w-md cm-glass-panel rounded-2xl overflow-hidden my-auto">
         {/* Header */}
-        <div className="px-6 py-4 border-b border-white/5 flex items-center justify-between">
+        <div className="px-6 py-4 border-b border-white/[0.07] flex items-center justify-between">
           <div>
             <h3 className="font-['Outfit'] text-lg font-bold text-white">
               Preview &amp; Frame Profile Photo
@@ -218,7 +218,7 @@ export const AvatarCropModal: React.FC<AvatarCropModalProps> = ({
             disabled={isUploading}
             onClick={onClose}
             aria-label="Close crop modal"
-            className="p-1.5 text-slate-400 hover:text-white rounded-lg disabled:opacity-40"
+            className="p-1.5 text-slate-400 hover:text-white rounded-lg cm-glass-control disabled:opacity-40"
           >
             <X className="w-4 h-4" />
           </button>

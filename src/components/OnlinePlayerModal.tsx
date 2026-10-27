@@ -310,23 +310,23 @@ export const OnlinePlayerModal: React.FC<OnlinePlayerModalProps> = ({
 
   return (
     <div
-      className="fixed inset-0 z-[75] flex items-center justify-center p-2 sm:p-4 md:p-6 bg-black/90 backdrop-blur-md animate-fadeIn overflow-y-auto"
+      className="fixed inset-0 z-[75] flex items-center justify-center p-2 sm:p-4 md:p-6 cm-glass-backdrop animate-fadeIn overflow-y-auto"
       onClick={handleClosePlayer}
       role="dialog"
       aria-modal="true"
       aria-label={`${media.title} Online Player`}
     >
       <div
-        className="relative w-full max-w-5xl rounded-2xl bg-[#0B0F17] border border-white/10 shadow-2xl overflow-hidden flex flex-col max-h-[94vh]"
+        className="relative w-full max-w-5xl rounded-2xl cm-glass-panel overflow-hidden flex flex-col max-h-[94vh]"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Top Cinema Bar */}
-        <div className="flex items-center justify-between gap-3 px-4 sm:px-6 py-3.5 border-b border-white/10 bg-[#070A0F] shrink-0">
+        <div className="flex items-center justify-between gap-3 px-4 sm:px-6 py-3.5 border-b border-white/10 cm-glass-subbar shrink-0">
           <div className="flex items-center gap-3 min-w-0">
             <button
               type="button"
               onClick={handleClosePlayer}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-slate-200 hover:text-white border border-white/10 text-xs font-semibold transition-colors shrink-0"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg cm-glass-control text-slate-200 hover:text-white text-xs font-semibold shrink-0"
               title="Return to details"
             >
               <ArrowLeft className="w-3.5 h-3.5 text-amber-400" />
@@ -374,7 +374,7 @@ export const OnlinePlayerModal: React.FC<OnlinePlayerModalProps> = ({
                 href={activeSource.officialWatchUrl}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-slate-300 hover:text-white border border-white/10 text-xs font-medium transition-colors"
+                className="hidden sm:inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg cm-glass-control text-slate-300 hover:text-white text-xs font-medium"
                 title="Open on official YouTube channel"
               >
                 <span>YouTube</span>
@@ -385,7 +385,7 @@ export const OnlinePlayerModal: React.FC<OnlinePlayerModalProps> = ({
               type="button"
               onClick={handleClosePlayer}
               aria-label="Close online player"
-              className="w-9 h-9 rounded-full bg-white/5 hover:bg-white/15 text-slate-300 hover:text-white flex items-center justify-center border border-white/10 transition-colors"
+              className="w-9 h-9 rounded-full cm-glass-control text-slate-300 hover:text-white flex items-center justify-center"
             >
               <X className="w-4 h-4" />
             </button>
@@ -681,7 +681,7 @@ export const OnlinePlayerModal: React.FC<OnlinePlayerModalProps> = ({
                       <button
                         type="button"
                         onClick={() => handleSelectSource(prevSource, true)}
-                        className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-slate-200 border border-white/10 text-xs font-medium transition-colors"
+                        className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg cm-glass-control text-slate-200 text-xs font-medium"
                       >
                         <ChevronLeft className="w-3.5 h-3.5" />
                         <span>
@@ -719,10 +719,10 @@ export const OnlinePlayerModal: React.FC<OnlinePlayerModalProps> = ({
                               totalKnownEpisodes
                             )
                           }
-                          className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border text-xs font-semibold transition-colors ${
+                          className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors ${
                             isCurrentEpisodeWatched
-                              ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30 hover:bg-emerald-500/25'
-                              : 'bg-white/5 text-slate-300 border-white/10 hover:bg-white/10 hover:text-white'
+                              ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 hover:bg-emerald-500/25'
+                              : 'cm-glass-control text-slate-300 hover:text-white'
                           }`}
                         >
                           <Check className="w-3.5 h-3.5" />
@@ -770,7 +770,7 @@ export const OnlinePlayerModal: React.FC<OnlinePlayerModalProps> = ({
                               className={`px-3 py-1 rounded-lg text-xs font-semibold transition-colors whitespace-nowrap ${
                                 isSelected
                                   ? 'bg-amber-400 text-slate-950'
-                                  : 'bg-white/5 text-slate-300 hover:bg-white/10 border border-white/10'
+                                  : 'cm-glass-control text-slate-300 hover:text-white'
                               }`}
                             >
                               Season {seasonNum} ({countInSeason})

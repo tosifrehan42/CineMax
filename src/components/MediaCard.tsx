@@ -209,9 +209,9 @@ const MediaCardComponent: React.FC<MediaCardProps> = ({
           {menuOpen && (
             <div
               onClick={(e) => e.stopPropagation()}
-              className="absolute right-0 mt-1.5 w-44 rounded-xl bg-[#0E121A] border border-white/15 shadow-2xl p-1.5 z-40"
+              className="absolute right-0 mt-1.5 w-44 rounded-xl cm-glass-popover p-1.5 z-40"
             >
-              <div className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-slate-400 border-b border-white/5 mb-1">
+              <div className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-slate-400 border-b border-white/10 mb-1">
                 Watchlist Status
               </div>
               {WATCH_STATUS_ORDER.map((st) => {

@@ -407,7 +407,7 @@ const DiscoverViewComponent: React.FC<DiscoverViewProps> = ({
           value={searchInput}
           onChange={(e) => setSearchInput(e.target.value)}
           placeholder="Search movies and series by title, director, cast, or keyword..."
-          className="w-full pl-12 pr-20 py-3.5 bg-[#121721] border border-white/10 rounded-xl text-white placeholder:text-slate-500 text-sm focus:outline-none focus:border-amber-400/60 shadow-inner"
+          className="cm-glass-input w-full pl-12 pr-20 py-3.5 rounded-xl text-white placeholder:text-slate-500 text-sm focus:outline-none"
         />
         {searchInput && (
           <button
@@ -416,7 +416,7 @@ const DiscoverViewComponent: React.FC<DiscoverViewProps> = ({
               setSearchInput('');
               setDebouncedQuery('');
             }}
-            className="absolute right-3.5 top-1/2 -translate-y-1/2 text-xs text-slate-300 hover:text-white px-2.5 py-1 rounded-lg bg-white/10"
+            className="cm-glass-control absolute right-3.5 top-1/2 -translate-y-1/2 text-xs text-slate-300 hover:text-white px-2.5 py-1 rounded-lg"
           >
             Clear
           </button>
@@ -441,7 +441,7 @@ const DiscoverViewComponent: React.FC<DiscoverViewProps> = ({
               className={`px-3.5 py-2 text-xs font-semibold rounded-xl transition-all whitespace-nowrap shrink-0 ${
                 isActive
                   ? 'bg-amber-500 text-slate-950 shadow-sm shadow-amber-500/20'
-                  : 'bg-[#121721] text-slate-400 hover:text-white border border-white/[0.07]'
+                  : 'cm-glass-control text-slate-400 hover:text-white'
               }`}
             >
               {tab.label}
@@ -451,7 +451,7 @@ const DiscoverViewComponent: React.FC<DiscoverViewProps> = ({
       </div>
 
       {/* Compact Inline Filter Bar: Format, Genre, Release Year, Language, Rating, Sort */}
-      <div className="p-4 rounded-2xl bg-[#121721]/90 border border-white/[0.08] space-y-3.5">
+      <div className="cm-glass-surface p-4 rounded-2xl space-y-3.5">
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3">
           {/* 1. Format Segmented Toggle */}
           <div className="flex flex-col gap-1">
@@ -459,7 +459,7 @@ const DiscoverViewComponent: React.FC<DiscoverViewProps> = ({
               <SlidersHorizontal className="w-3 h-3 text-amber-400" />
               <span>Format</span>
             </label>
-            <div className="grid grid-cols-3 p-0.5 bg-black/50 rounded-lg border border-white/10">
+            <div className="cm-glass-segmented grid grid-cols-3 p-0.5 rounded-lg">
               {(
                 [
                   { id: 'all', label: 'All' },
@@ -501,7 +501,7 @@ const DiscoverViewComponent: React.FC<DiscoverViewProps> = ({
               id="discover-genre"
               value={selectedGenre}
               onChange={(e) => setSelectedGenre(e.target.value)}
-              className="bg-black/50 border border-white/10 text-slate-100 rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-amber-400"
+              className="cm-glass-input text-slate-100 rounded-lg px-3 py-2 text-xs focus:outline-none"
             >
               {GENRES.map((g) => (
                 <option key={g} value={g} className="bg-[#0E131C]">
@@ -520,7 +520,7 @@ const DiscoverViewComponent: React.FC<DiscoverViewProps> = ({
               id="discover-year"
               value={selectedYear}
               onChange={(e) => setSelectedYear(e.target.value)}
-              className="bg-black/50 border border-white/10 text-slate-100 rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-amber-400"
+              className="cm-glass-input text-slate-100 rounded-lg px-3 py-2 text-xs focus:outline-none"
             >
               {RELEASE_YEAR_OPTIONS.map((yr) => (
                 <option key={yr.value} value={yr.value} className="bg-[#0E131C]">
@@ -539,7 +539,7 @@ const DiscoverViewComponent: React.FC<DiscoverViewProps> = ({
               id="discover-language"
               value={selectedLanguage}
               onChange={(e) => setSelectedLanguage(e.target.value)}
-              className="bg-black/50 border border-white/10 text-slate-100 rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-amber-400"
+              className="cm-glass-input text-slate-100 rounded-lg px-3 py-2 text-xs focus:outline-none"
             >
               {LANGUAGE_OPTIONS.map((lang) => (
                 <option key={lang.value} value={lang.value} className="bg-[#0E131C]">
@@ -558,7 +558,7 @@ const DiscoverViewComponent: React.FC<DiscoverViewProps> = ({
               id="discover-rating"
               value={minRating}
               onChange={(e) => setMinRating(Number(e.target.value))}
-              className="bg-black/50 border border-white/10 text-slate-100 rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-amber-400"
+              className="cm-glass-input text-slate-100 rounded-lg px-3 py-2 text-xs focus:outline-none"
             >
               {RATING_OPTIONS.map((rt) => (
                 <option key={rt.value} value={rt.value} className="bg-[#0E131C]">
@@ -577,7 +577,7 @@ const DiscoverViewComponent: React.FC<DiscoverViewProps> = ({
               id="discover-sort"
               value={sortBy}
               onChange={(e) => setSortBy(e.target.value as any)}
-              className="bg-black/50 border border-white/10 text-slate-100 rounded-lg px-3 py-2 text-xs focus:outline-none focus:border-amber-400"
+              className="cm-glass-input text-slate-100 rounded-lg px-3 py-2 text-xs focus:outline-none"
             >
               {debouncedQuery && (
                 <option value="relevance" className="bg-[#0E131C]">
@@ -616,7 +616,7 @@ const DiscoverViewComponent: React.FC<DiscoverViewProps> = ({
                 className={`px-2.5 py-1 text-xs font-medium rounded-lg transition-colors whitespace-nowrap shrink-0 ${
                   isSelected
                     ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40 font-semibold'
-                    : 'bg-black/30 text-slate-400 hover:text-white border border-white/[0.05]'
+                    : 'cm-glass-control text-slate-400 hover:text-white'
                 }`}
               >
                 {m.label}
@@ -649,7 +649,7 @@ const DiscoverViewComponent: React.FC<DiscoverViewProps> = ({
           <button
             type="button"
             onClick={resetFilters}
-            className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-white/5 hover:bg-white/10 text-xs font-semibold text-slate-300 hover:text-white border border-white/10 transition-colors"
+            className="cm-glass-control inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold text-slate-300 hover:text-white transition-colors"
           >
             <RotateCcw className="w-3 h-3 text-amber-400" />
             <span>Clear All</span>
@@ -674,7 +674,7 @@ const DiscoverViewComponent: React.FC<DiscoverViewProps> = ({
             type="button"
             onClick={() => loadCataloguePage(page, 'replace', undefined, true)}
             disabled={isLoading || isRefreshing}
-            className="ml-1 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[#121721] hover:bg-[#19202E] border border-white/10 text-slate-300 hover:text-white transition-colors disabled:opacity-40"
+            className="cm-glass-control ml-1 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-slate-300 hover:text-white transition-colors disabled:opacity-40"
             title="Refresh live catalogue results"
           >
             <RotateCcw className={`w-3 h-3 text-amber-400 ${isRefreshing ? 'animate-spin' : ''}`} />
@@ -688,7 +688,7 @@ const DiscoverViewComponent: React.FC<DiscoverViewProps> = ({
               type="button"
               onClick={() => handleJumpToPage(page - 1)}
               disabled={page <= 1 || isLoading}
-              className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-[#121721] border border-white/10 text-slate-300 hover:text-white disabled:opacity-40 disabled:pointer-events-none transition-colors"
+              className="cm-glass-control flex items-center gap-1 px-2.5 py-1 rounded-lg text-slate-300 hover:text-white disabled:opacity-40 disabled:pointer-events-none transition-colors"
             >
               <ChevronLeft className="w-3.5 h-3.5" />
               <span>Prev</span>
@@ -700,7 +700,7 @@ const DiscoverViewComponent: React.FC<DiscoverViewProps> = ({
               type="button"
               onClick={() => handleJumpToPage(page + 1)}
               disabled={page >= totalPages || isLoading}
-              className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-[#121721] border border-white/10 text-slate-300 hover:text-white disabled:opacity-40 disabled:pointer-events-none transition-colors"
+              className="cm-glass-control flex items-center gap-1 px-2.5 py-1 rounded-lg text-slate-300 hover:text-white disabled:opacity-40 disabled:pointer-events-none transition-colors"
             >
               <span>Next</span>
               <ChevronRight className="w-3.5 h-3.5" />
@@ -825,7 +825,7 @@ const DiscoverViewComponent: React.FC<DiscoverViewProps> = ({
                   </button>
                 )}
 
-                <div className="flex items-center gap-1.5 bg-[#121721] p-1 rounded-xl border border-white/10">
+                <div className="cm-glass-segmented flex items-center gap-1.5 p-1 rounded-xl">
                   <button
                     type="button"
                     onClick={() => handleJumpToPage(page - 1)}

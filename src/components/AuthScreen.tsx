@@ -180,7 +180,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
       </div>
 
       {/* Top Bar */}
-      <header className="relative z-10 w-full border-b border-white/[0.07] bg-[#0A0D12]/90 backdrop-blur-xl">
+      <header className="relative z-10 w-full border-b border-white/[0.08] cm-glass-nav">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-8">
           <div className="flex items-center gap-2.5 shrink-0">
             <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-amber-400 to-amber-600 flex items-center justify-center text-slate-950 shadow-md shadow-amber-500/20">
@@ -195,7 +195,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
             <button
               type="button"
               onClick={() => handleModeSwitch(mode === 'signin' ? 'signup' : 'signin')}
-              className="px-4 py-2 min-h-[40px] text-xs font-semibold text-slate-200 hover:text-white bg-white/[0.05] hover:bg-white/[0.1] border border-white/10 rounded-lg transition-colors whitespace-nowrap shrink-0"
+              className="px-4 py-2 min-h-[40px] text-xs font-semibold text-slate-200 hover:text-white cm-glass-control rounded-lg whitespace-nowrap shrink-0"
             >
               {mode === 'signin' ? 'Create Account' : 'Sign In'}
             </button>
@@ -225,7 +225,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
 
             {/* Key Capabilities List */}
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-1">
-              <div className="p-4 rounded-xl bg-white/[0.03] border border-white/[0.07] space-y-1.5">
+              <div className="p-4 rounded-xl cm-glass-surface space-y-1.5">
                 <div className="flex items-center gap-2 text-amber-400 text-xs font-semibold">
                   <Compass className="w-4 h-4 shrink-0" />
                   <span>Live Discovery</span>
@@ -235,7 +235,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                 </p>
               </div>
 
-              <div className="p-4 rounded-xl bg-white/[0.03] border border-white/[0.07] space-y-1.5">
+              <div className="p-4 rounded-xl cm-glass-surface space-y-1.5">
                 <div className="flex items-center gap-2 text-amber-400 text-xs font-semibold">
                   <Bookmark className="w-4 h-4 shrink-0" />
                   <span>Cloud Watchlist</span>
@@ -245,7 +245,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                 </p>
               </div>
 
-              <div className="p-4 rounded-xl bg-white/[0.03] border border-white/[0.07] space-y-1.5">
+              <div className="p-4 rounded-xl cm-glass-surface space-y-1.5">
                 <div className="flex items-center gap-2 text-amber-400 text-xs font-semibold">
                   <Tv className="w-4 h-4 shrink-0" />
                   <span>Episode Tracker</span>
@@ -289,9 +289,9 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
 
           {/* Right Column: Authentication Card */}
           <div className="lg:col-span-5 order-1 lg:order-2">
-            <div className="w-full max-w-md mx-auto bg-[#0d1017] border border-white/10 rounded-2xl shadow-2xl overflow-hidden">
+            <div className="w-full max-w-md mx-auto cm-glass-panel rounded-2xl overflow-hidden">
               {/* Card Header */}
-              <div className="px-6 pt-6 pb-4 border-b border-white/[0.06]">
+              <div className="px-6 pt-6 pb-4 border-b border-white/[0.07]">
                 <h2 className="font-['Outfit'] text-xl sm:text-2xl font-bold text-white tracking-tight">
                   {mode === 'signin'
                     ? 'Sign In to CineMax'
@@ -306,7 +306,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
 
               {/* Segmented Mode Switcher (44px+ touch targets) */}
               <div className="px-6 pt-5">
-                <div className="grid grid-cols-2 gap-1.5 p-1 bg-black/50 rounded-xl border border-white/[0.06]">
+                <div className="grid grid-cols-2 gap-1.5 p-1 cm-glass-segmented rounded-xl">
                   <button
                     type="button"
                     onClick={() => handleModeSwitch('signin')}
@@ -405,7 +405,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                         onChange={(e) => setDisplayName(e.target.value)}
                         placeholder="Alex Rivera"
                         maxLength={80}
-                        className="w-full min-h-[46px] pl-10 pr-3.5 py-2.5 text-sm bg-black/50 border border-white/10 rounded-xl text-white placeholder:text-slate-500 focus:outline-none focus:border-amber-400"
+                        className="w-full min-h-[46px] pl-10 pr-3.5 py-2.5 text-sm cm-glass-input rounded-xl text-white placeholder:text-slate-500 focus:outline-none"
                       />
                     </div>
                   </div>
@@ -428,7 +428,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                       value={email}
                       onChange={(e) => setEmail(e.target.value)}
                       placeholder="you@example.com"
-                      className="w-full min-h-[46px] pl-10 pr-3.5 py-2.5 text-sm bg-black/50 border border-white/10 rounded-xl text-white placeholder:text-slate-500 focus:outline-none focus:border-amber-400"
+                      className="w-full min-h-[46px] pl-10 pr-3.5 py-2.5 text-sm cm-glass-input rounded-xl text-white placeholder:text-slate-500 focus:outline-none"
                     />
                   </div>
                 </div>
@@ -451,7 +451,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
                       value={password}
                       onChange={(e) => setPassword(e.target.value)}
                       placeholder="At least 6 characters"
-                      className="w-full min-h-[46px] pl-10 pr-11 py-2.5 text-sm bg-black/50 border border-white/10 rounded-xl text-white placeholder:text-slate-500 focus:outline-none focus:border-amber-400"
+                      className="w-full min-h-[46px] pl-10 pr-11 py-2.5 text-sm cm-glass-input rounded-xl text-white placeholder:text-slate-500 focus:outline-none"
                     />
                     <button
                       type="button"

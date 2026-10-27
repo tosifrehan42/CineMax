@@ -197,16 +197,16 @@ export const TrailerModal: React.FC<TrailerModalProps> = ({ media, onClose }) =>
 
   return (
     <div
-      className="fixed inset-0 z-50 overflow-y-auto bg-black/90 backdrop-blur-xl flex items-center justify-center p-3 sm:p-6 md:p-8 animate-in fade-in duration-200"
+      className="fixed inset-0 z-50 overflow-y-auto cm-glass-backdrop flex items-center justify-center p-3 sm:p-6 md:p-8 animate-in fade-in duration-200"
       role="dialog"
       aria-modal="true"
       aria-label={`${media.title} Trailer`}
     >
       <div className="fixed inset-0" onClick={handleClose} />
 
-      <div className="relative z-10 w-full max-w-5xl bg-[#090b10] border border-white/10 rounded-2xl shadow-2xl overflow-hidden flex flex-col">
+      <div className="relative z-10 w-full max-w-5xl cm-glass-panel rounded-2xl overflow-hidden flex flex-col">
         {/* Top Header Bar */}
-        <div className="flex items-center justify-between px-4 sm:px-6 py-3.5 bg-slate-950/90 border-b border-white/10 gap-3">
+        <div className="flex items-center justify-between px-4 sm:px-6 py-3.5 cm-glass-subbar border-b border-white/10 gap-3">
           <div className="flex items-center gap-2.5 min-w-0">
             <span className="w-2 h-2 rounded-full bg-amber-400 shrink-0" />
             <span className="text-xs uppercase tracking-wider font-semibold text-amber-400 shrink-0">
@@ -232,7 +232,7 @@ export const TrailerModal: React.FC<TrailerModalProps> = ({ media, onClose }) =>
           <button
             onClick={handleClose}
             aria-label="Close trailer"
-            className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-white/10 transition-colors shrink-0"
+            className="p-1.5 rounded-lg text-slate-400 hover:text-white cm-glass-control shrink-0"
           >
             <X className="w-5 h-5" />
           </button>
@@ -445,11 +445,11 @@ export const TrailerModal: React.FC<TrailerModalProps> = ({ media, onClose }) =>
         </div>
 
         {/* Bottom Info & Multi-Trailer Switcher Bar */}
-        <div className="px-4 sm:px-6 py-3.5 bg-slate-950 border-t border-white/10 flex flex-col gap-3">
+        <div className="px-4 sm:px-6 py-3.5 cm-glass-subbar border-t border-white/10 flex flex-col gap-3">
           {/* Alternate Trailers / Teasers Switcher when multiple videos exist */}
           {lookupResult && lookupResult.videos.length > 1 && (
             <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-thin">
-              <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-500 shrink-0 mr-1">
+              <span className="text-[11px] font-semibold uppercase tracking-wider text-slate-400 shrink-0 mr-1">
                 Videos ({lookupResult.videos.length}):
               </span>
               {lookupResult.videos.slice(0, 6).map((video) => {
@@ -459,10 +459,10 @@ export const TrailerModal: React.FC<TrailerModalProps> = ({ media, onClose }) =>
                     key={video.id}
                     type="button"
                     onClick={() => handleSelectVideo(video)}
-                    className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium transition-all shrink-0 border ${
+                    className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium transition-all shrink-0 ${
                       isSelected
-                        ? 'bg-amber-500/15 border-amber-500/50 text-amber-300'
-                        : 'bg-white/5 border-white/10 text-slate-300 hover:bg-white/10 hover:text-white'
+                        ? 'bg-amber-500/15 border border-amber-500/50 text-amber-300'
+                        : 'cm-glass-control text-slate-300 hover:text-white'
                     }`}
                   >
                     <Play
@@ -471,7 +471,7 @@ export const TrailerModal: React.FC<TrailerModalProps> = ({ media, onClose }) =>
                       }`}
                     />
                     <span className="truncate max-w-[180px]">{video.name}</span>
-                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-black/40 text-slate-400">
+                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-black/45 text-slate-400">
                       {video.type}
                     </span>
                   </button>
