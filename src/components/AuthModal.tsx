@@ -23,6 +23,7 @@ import {
   Eye,
   EyeOff,
   ArrowLeft,
+  KeyRound,
 } from 'lucide-react';
 
 interface AuthModalProps {
@@ -373,24 +374,27 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                   )}
                 </button>
               </div>
-              <div className="flex items-center justify-between gap-2 pt-0.5">
-                <p className="text-[11px] text-slate-500">
-                  Managed securely by Supabase Auth.
-                </p>
-                {mode === 'signin' && (
+              {mode === 'signin' ? (
+                <div className="flex items-center justify-end pt-1">
                   <button
                     type="button"
+                    data-testid="modal-forgot-password-link"
                     onClick={() => {
                       setMode('forgot_password');
                       setErrorMsg(null);
                       setSuccessMsg(null);
                     }}
-                    className="ml-auto text-xs font-semibold text-amber-400 hover:text-amber-300 transition-colors focus:outline-none focus-visible:underline whitespace-nowrap py-0.5"
+                    className="inline-flex items-center gap-1.5 min-h-[36px] px-2 -mr-1 rounded-lg text-xs sm:text-[13px] font-semibold text-amber-400 hover:text-amber-300 hover:bg-amber-500/10 underline-offset-4 hover:underline transition-colors focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/60 whitespace-nowrap"
                   >
-                    Forgot password?
+                    <KeyRound className="w-3.5 h-3.5 shrink-0" />
+                    <span>Forgot Password?</span>
                   </button>
-                )}
-              </div>
+                </div>
+              ) : (
+                <p className="text-[11px] text-slate-500 pt-0.5">
+                  Minimum 6 characters · Managed securely by Supabase Auth.
+                </p>
+              )}
             </div>
           )}
 
@@ -420,6 +424,25 @@ export const AuthModal: React.FC<AuthModalProps> = ({
               </span>
             )}
           </button>
+
+          {mode === 'forgot_password' && (
+            <div className="pt-1 text-center">
+              <button
+                type="button"
+                onClick={() => {
+                  setMode('signin');
+                  setErrorMsg(null);
+                  setSuccessMsg(null);
+                }}
+                className="text-xs text-slate-400 hover:text-amber-300 transition-colors py-1"
+              >
+                Remembered your password?{' '}
+                <span className="font-semibold text-amber-400">
+                  Return to Sign In
+                </span>
+              </button>
+            </div>
+          )}
         </form>
 
         {/* Footer with SQL Schema & RLS Helper */}

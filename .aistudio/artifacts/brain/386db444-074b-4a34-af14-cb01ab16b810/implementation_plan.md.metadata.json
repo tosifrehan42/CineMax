@@ -1,6 +1,6 @@
 {
-  "summary":  "Implementation plan for the Import Completed Movies & TV Series feature in CineMax across Web and Android, supporting multi-format file upload (PNG/JPG/WEBP screenshots via server-side Gemini extraction, TXT, CSV, JSON, and raw text paste), intelligent TMDB candidate matching with interactive review and manual search correction, idempotent Supabase persistence preserving existing ratings/notes/favourites, and detailed import summary reporting with retry support.",
-  "updatedAt":  "2026-10-29T09:05:51.156094461Z",
+  "summary":  "Implementation plan to make the Forgot Password entry point prominently visible in a dedicated row directly below the password input on the Sign In screen and authentication modal, connected to the existing Supabase password recovery flow while keeping the signed-in Profile and Change Password flow untouched.",
+  "updatedAt":  "2026-10-29T09:56:00.308642698Z",
   "requestFeedback":  true,
   "userFacing":  true
 }

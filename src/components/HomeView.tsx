@@ -764,10 +764,10 @@ const HomeViewComponent: React.FC<HomeViewProps> = ({
       />
 
       {/* Subtle Catalogue Freshness Bar */}
-      <div className="flex flex-wrap items-center justify-between gap-2 px-1 -my-4 text-xs text-slate-400">
-        <div className="flex items-center gap-2">
-          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-          <span>
+      <div className="flex flex-wrap items-center justify-between gap-3 px-1 pb-3.5 mb-6 sm:mb-8 border-b border-white/[0.06] text-xs text-slate-400">
+        <div className="flex items-center gap-2 min-w-0">
+          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0" />
+          <span className="leading-relaxed">
             Live OTT Discovery Feed · {allMedia.length}+ Curated &amp; TMDB Indexed Titles
           </span>
         </div>
@@ -775,7 +775,7 @@ const HomeViewComponent: React.FC<HomeViewProps> = ({
           type="button"
           onClick={() => setRefreshSeed((s) => s + 1)}
           disabled={isRefreshing}
-          className="cm-glass-control inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-slate-300 hover:text-white font-medium transition-colors disabled:opacity-50"
+          className="cm-glass-control inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-slate-300 hover:text-white font-medium transition-colors disabled:opacity-50 shrink-0"
         >
           <RefreshCw className={`w-3.5 h-3.5 text-amber-400 ${isRefreshing ? 'animate-spin' : ''}`} />
           <span>{isRefreshing ? 'Refreshing Feeds…' : 'Refresh Catalogue'}</span>
