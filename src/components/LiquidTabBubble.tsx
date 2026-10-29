@@ -154,6 +154,24 @@ export function useLiquidTabBubble<T extends string = string>(
         );
       }
 
+      // If the tab strip is horizontally scrollable, keep the newly selected tab comfortably visible
+      if (containerEl.scrollWidth > containerEl.clientWidth + 4) {
+        const pad = 16;
+        const viewLeft = containerEl.scrollLeft;
+        const viewRight = viewLeft + containerEl.clientWidth;
+        const tabRight = nextLeft + nextWidth;
+        if (nextLeft - pad < viewLeft || tabRight + pad > viewRight) {
+          const targetScroll = Math.max(
+            0,
+            nextLeft - (containerEl.clientWidth - nextWidth) / 2
+          );
+          containerEl.scrollTo({
+            left: targetScroll,
+            behavior: prefersReducedMotion ? 'auto' : 'smooth',
+          });
+        }
+      }
+
       if (!ready) setReady(true);
     },
     [activeKey, prefersReducedMotion, ready, springX, springWidth, deform, opacity]

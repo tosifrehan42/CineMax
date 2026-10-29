@@ -73,6 +73,7 @@ interface ProfileViewProps {
   ) => Promise<{ error: string | null; bucketSetupNeeded?: boolean }>;
   onRemoveAvatar?: () => Promise<{ error: string | null }>;
   onDeleteHistoryEntry?: (mediaId: string) => void;
+  onOpenImportCompleted?: () => void;
   allMedia: MediaItem[];
   onSelectMedia: (media: MediaItem) => void;
   onNavigateTab: (tab: 'discover' | 'watchlist') => void;
@@ -110,6 +111,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
   onUploadAvatar,
   onRemoveAvatar,
   onDeleteHistoryEntry,
+  onOpenImportCompleted,
   allMedia,
   onSelectMedia,
   onNavigateTab,
@@ -887,7 +889,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
             {/* Right: Dated Viewing Journal (watch_history) */}
             <div className="md:col-span-6 space-y-6">
               <div className="p-6 rounded-2xl bg-slate-900/60 border border-white/5 space-y-4">
-                <div className="flex items-center justify-between">
+                <div className="flex flex-wrap items-center justify-between gap-2">
                   <div>
                     <h2 className="font-['Outfit'] text-base font-bold text-white flex items-center gap-2">
                       <BookOpen className="w-4 h-4 text-amber-400" />
@@ -897,24 +899,46 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
                       Chronological log of completed titles, watch dates & personal ratings
                     </p>
                   </div>
-                  <button
-                    onClick={() => onNavigateTab('watchlist')}
-                    className="text-xs text-amber-400 hover:text-amber-300 flex items-center gap-0.5 font-medium whitespace-nowrap"
-                  >
-                    <span>Manage Library</span>
-                    <ChevronRight className="w-3 h-3" />
-                  </button>
+                  <div className="flex items-center gap-2">
+                    {onOpenImportCompleted && (
+                      <button
+                        type="button"
+                        onClick={onOpenImportCompleted}
+                        className="cm-glass-control px-2.5 py-1.5 rounded-lg text-xs font-semibold text-amber-300 hover:text-amber-200 flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0"
+                      >
+                        <Upload className="w-3.5 h-3.5 text-amber-400" />
+                        <span>Import Completed List</span>
+                      </button>
+                    )}
+                    <button
+                      onClick={() => onNavigateTab('watchlist')}
+                      className="text-xs text-amber-400 hover:text-amber-300 flex items-center gap-0.5 font-medium whitespace-nowrap"
+                    >
+                      <span>Manage Library</span>
+                      <ChevronRight className="w-3 h-3" />
+                    </button>
+                  </div>
                 </div>
 
                 {combinedJournal.length === 0 ? (
-                  <div className="py-12 text-center text-slate-500 space-y-2">
+                  <div className="py-12 text-center text-slate-500 space-y-2.5">
                     <Calendar className="w-8 h-8 mx-auto text-slate-600 stroke-1" />
                     <p className="text-xs text-slate-300 font-medium">
                       Your Viewing Journal is empty
                     </p>
                     <p className="text-[11px] text-slate-500 max-w-xs mx-auto leading-relaxed">
-                      Open any movie or TV series and set its status to Completed to record the watch date, personal rating, and review notes.
+                      Open any movie or TV series and set its status to Completed, or import an existing completed list from a file or screenshot.
                     </p>
+                    {onOpenImportCompleted && (
+                      <button
+                        type="button"
+                        onClick={onOpenImportCompleted}
+                        className="mt-1 inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg bg-amber-500/15 hover:bg-amber-500/25 border border-amber-400/30 text-xs text-amber-300 font-semibold transition-colors"
+                      >
+                        <Upload className="w-3.5 h-3.5" />
+                        <span>Import Completed List</span>
+                      </button>
+                    )}
                   </div>
                 ) : (
                   <div className="space-y-3 pt-1 max-h-[520px] overflow-y-auto pr-1">

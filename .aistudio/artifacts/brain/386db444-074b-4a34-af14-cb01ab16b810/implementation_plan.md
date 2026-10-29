@@ -1,94 +1,134 @@
-# Animated Liquid Glass Water Bubble for Tab Navigation
+# CineMax — Import Completed Movies & TV Series into My Account
 
-This update introduces a reusable, spring-physics **Liquid Glass Water Bubble** active-tab indicator that smoothly glides, stretches horizontally in flight, and settles with a gentle squish across CineMax's navigation bars and segmented tab selectors while preserving the dark cinematic identity and amber/gold palette.
+Add a production-grade **Import Completed List** workflow to CineMax across both the web application and the Capacitor Android app, allowing signed-in users to import their watched movies and TV series from screenshots (PNG, JPG, WEBP), text files (TXT, CSV, JSON), or pasted lists, review and adjust TMDB matches before saving, and idempotently sync completed records to their cloud Watchlist and Viewing Journal.
+
+---
 
 ## User Review & Critical Decisions
 
 > [!IMPORTANT]
-> Your requirements specify all target surfaces, spring physics, and optical material properties in detail:
-> - **Single Shared Indicator Per Tab Group**: Each navigation bar or segmented control renders one shared floating water-bubble element behind the tab buttons (`z-0`), preventing duplicate bubbles during rapid tab switching.
-> - **Spring + Velocity Stretch & Squish Physics**: Powered by `motion/react` motion values and velocity-linked scale transforms (`scaleX` / `scaleY`), the bubble stretches subtly along its horizontal travel vector and settles smoothly on arrival.
-> - **Consistent Coverage Across Navigation & Segmented Controls**: Applied to Desktop primary navigation, Mobile floating bottom navigation, Mobile `All Titles / Movies / Series` segmented sub-bar, Auth (`Sign In / Sign Up`) segmented switchers, Discover format/category tabs, and Watchlist status/view/type segmented selectors.
+> The following product and UX decisions were confirmed during interactive clarification and govern the implementation:
+
+- **Confirmed Decision 1 — Entry Point Placement**: Place the **Import Completed List** action button in **both** the Watchlist & Checklist header and the Profile Viewing Journal header so users can launch an import from either collection view.
+- **Confirmed Decision 2 — Watched Date Default & Override**: When an imported item does not specify an explicit watched date in the source file, default its Viewing Journal timestamp to **today's date** while providing an optional **date override picker** in the review preview (and preserving any existing `watched_at` date when updating a title already in the user's Viewing Journal unless an explicit replacement date is supplied).
+- **Confirmed Decision 3 — Existing Watchlist Item Handling**: When an imported title already exists in the user's Watchlist under another status (such as *Watching* or *Want to Watch*), **upgrade its status to Completed** while strictly preserving the user's existing personal rating, review notes, favourite flag, and added date.
+- **Confirmed Decision 4 — Episode Progress Discipline**: Do not fabricate episode-level progress for imported TV series unless explicit season/episode numbers are present in the imported entry; when explicit season/episode information is provided, sync only those specified episodes.
 
 ---
 
 ## 1. Overview & Core Concept
 
-- **What It Does**: Replaces static active-tab backgrounds and underlines with a unified, physically animated Liquid Glass water bubble that travels from the previously selected tab to the newly selected tab.
-- **Target Audience / Persona**: CineMax users navigating across desktop and mobile web or the Capacitor Android app who expect fluid, tactile, Apple-inspired spatial feedback.
-- **Key Value**: Provides immediate visual continuity when switching tabs, accurately adapting to variable tab widths, responsive breakpoints, and rapid consecutive taps without layout shifts or frame drops.
+- **What It Does**: Provides a guided 3-step modal workflow (**Source Input → Match Review & Correction → Cloud Import & Summary**) that turns unstructured or structured lists of watched titles—including screenshots of numbered phone notes or watchlist apps, TXT lists, CSV spreadsheets, JSON exports, or pasted text—into canonical CineMax `completed` Watchlist entries and dated Viewing Journal records.
+- **Target Audience / Persona**: CineMax web and Android users migrating existing watched lists from notes apps, spreadsheets, or screenshots into their cloud-synced CineMax account without manual one-by-one entry.
+- **Key Value**: Eliminates tedious manual logging while guaranteeing zero duplicate records, accurate movie-vs-series disambiguation via live TMDB + local catalog resolution, and full preservation of existing ratings, notes, and favourites.
 
 ---
 
 ## 2. User Experience & Visual Design
 
 - **Key User Flows**:
-  1. **Initial Mount**: When any navigation bar or segmented control loads, the water bubble measures the active tab's exact DOM bounds and positions itself immediately under the selected tab without an initial fly-in animation.
-  2. **Tab Selection & Mid-Air Retargeting**: Selecting a new tab animates the bubble's horizontal offset and width using a tuned spring. While moving, horizontal velocity induces a subtle liquid stretch (`scaleX` expansion paired with slight `scaleY` compression) followed by a gentle settling squish as the bubble comes to rest. Rapidly tapping multiple tabs smoothly retargets the single bubble in mid-flight.
-  3. **Responsive Resize & Safe-Area Adaptation**: Resizing the browser window, rotating a mobile device, or changing responsive label visibility (`Size Tool` collapse or mobile breakpoint shifts) triggers a `ResizeObserver` update that snaps the bubble to the updated tab geometry without lag.
+  1. **Launch & Authentication Gate**:
+     - Clicking **Import Completed List** in either the Watchlist header or the Profile Viewing Journal header opens the **Import Completed Titles** modal (or prompts Sign In first if the user is currently in guest mode).
+  2. **Step 1 — Input Source Selection (Upload File or Paste Text)**:
+     - A Liquid Glass segmented switcher (`Upload File` | `Paste Text List`) lets the user choose their input method.
+     - **File Upload Zone**: Accepts `.png`, `.jpg`, `.jpeg`, `.webp` (up to 8 MB for screenshots of lists) and `.txt`, `.csv`, `.json` (up to 2 MB). Validates file format and size immediately with clear inline error feedback for malformed or empty files.
+     - **Text Paste Area**: Supports numbered lists (`1. Oppenheimer (2023)`), bulleted lines, CSV rows, or `Title - Movie/TV - Year` lines, with a one-click sample format preview.
+  3. **Step 2 — Interactive TMDB Match Review & Disambiguation**:
+     - Displays summary counters using tabular numerals (`tabular-nums`): **Total Extracted**, **Matched**, **Needs Review (Ambiguous)**, **Already Completed**, and **Unmatched**.
+     - Filter tabs (`All`, `Matched`, `Needs Review`, `Unmatched`) allow quick inspection of large lists.
+     - A global **Default Watched Date** date picker (defaulting to today) applies to newly imported entries that do not carry a per-item watched date, alongside per-row date/type controls.
+     - Each extracted row displays:
+       - Include/skip checkbox and original extracted text (`Title`, detected `Movie`/`Series` hint, release year, optional `S01E01` / season info, or parsed watched date).
+       - Resolved TMDB poster thumbnail (with resilient fallback), canonical title, release year, media type label, and match status indicator (`Matched`, `Already in Account`, `Ambiguous — Verify Match`, or `Unmatched`).
+       - **Alternate Candidates & Inline Search Override**: Users can switch between top candidate matches in one click or open an inline live search box on any row to search TMDB/CineMax for a different Movie or TV Series.
+  4. **Step 3 — Idempotent Cloud Sync & Import Report**:
+     - Shows real-time progress while writing confirmed entries to Supabase (`watchlist_items`, `watch_history`, and optional explicit `watched_episodes`).
+     - Displays a structured completion summary:
+       - **Newly Imported** count
+       - **Already Present / Upgraded to Completed** count
+       - **Skipped by User** count
+       - **Unmatched** count
+       - **Failed Writes** count (if any network or RLS error occurred), with a **Retry Failed Items** action that re-runs only the failed subset.
+     - Immediately updates in-memory `watchlist`, `watchHistory`, and `watchedEpisodes` state so the Watchlist and Viewing Journal reflect the imported titles without reloading the page.
+
 - **Visual Identity & Theme**:
-  - *Aesthetic Direction*: Dark cinematic obsidian surfaces (`#0A0D12`) paired with optical Liquid Glass refraction, specular top rims, and warm amber/gold caustics (`#F59E0B`).
-  - *Color Palette & Mood*:
-    - **Amber-Glass Bubble Variant**: Translucent amber-gold liquid body with a crisp white specular top rim and inner surface sheen for high-emphasis segmented controls (`All Titles / Movies / Series`, Auth mode tabs, Discover format toggle, Watchlist status tabs) where active text is dark (`#090A0F`) or high-contrast white.
-    - **Obsidian-Amber Glass Pill Variant**: Translucent refractive glass body with a warm amber inner glow, specular edge highlight, and luminous bottom caustic accent for Desktop primary navigation tabs and Mobile floating bottom navigation tabs where active text and icons remain bright white/amber.
-  - *Typography & Hierarchy*: All tab icons, labels, and numeric badges sit at `z-10` above the `z-0` water bubble so text remains crisp and readable at all times.
-- **Interactive Feedback & Motion**:
-  - Spring parameters tuned for responsive, non-sluggish motion (`stiffness: 400`, `damping: 30`, `mass: 0.68`).
-  - Users with `prefers-reduced-motion: reduce` enabled receive instant position/width updates without spring oscillation or elastic deformation.
+  - **Aesthetic Direction**: Established CineMax dark cinema aesthetic with Apple-inspired Liquid Glass modal surfaces (`cm-glass-nav`, `cm-glass-surface`, `cm-glass-control`) and spring-animated `LiquidTabBubble` segmented switchers.
+  - **Color Palette & Mood**: Deep obsidian background (`#0A0D12` / `#10141D`), translucent slate structural borders (`border-white/10`), warm amber primary accents (`#F59E0B`), semantic emerald (`#10B981`) for verified matches, amber (`#F59E0B`) for ambiguous candidates needing review, and rose (`#F43F5E`) for unmatched or failed rows.
+  - **Typography & Hierarchy**: `Outfit` for modal headers and section titles, `Plus Jakarta Sans` for dense scannable row metadata, and `tabular-nums` for all counters, years, and progress metrics.
+  - **Component Styling & Layout**: Single-elevation row layout separated by hairline dividers (`border-white/[0.07]`), responsive single-line controls (`whitespace-nowrap shrink-0`), and mobile-friendly touch targets ($\ge 40\text{px}$) that fit cleanly from `320px` Android screens to `1440px` desktop viewports.
 
 ---
 
 ## 3. Key Product Decisions & Trade-Offs
 
-- **Decision 1: Measured DOM Geometry + `motion/react` Spring Velocity Deformation**
-  - *Chosen Approach*: Build a reusable hook and indicator component that measures each tab button's `offsetLeft` and `offsetWidth` within its relative track container, drives `x` and `width` via `useSpring`, and derives `scaleX` / `scaleY` from the instantaneous horizontal velocity (`useVelocity`).
-  - *Why*: Unlike separate per-tab `layoutId` clones that can leave ghost duplicates during rapid state changes or scroll containers, a single persistent DOM node per tab group guarantees zero duplicate bubbles, zero layout shift, and hardware-accelerated `transform` animations on Android WebView.
-  - *Alternatives Considered*: Pure CSS transitions cannot dynamically stretch and squish based on travel velocity, and per-tab conditional `layoutId` elements can flicker when tabs conditionally mount/unmount.
-- **Decision 2: Instant Geometry Sync on Resize vs. Animated Spring on Tab Change**
-  - *Chosen Approach*: Distinguish between user-initiated tab changes (which animate via spring + liquid stretch) and environmental layout changes (`ResizeObserver`, `window.resize`, initial mount, or font loading, which call `.jump()` on the motion values).
-  - *Why*: Ensures the bubble never lags behind its tab when resizing the viewport between `320px`, `360px`, `390px`, `430px`, and Desktop widths.
+- **Decision 1 — Server-Side Multimodal Gemini Extraction for Screenshots + Deterministic Parser for Text/CSV/JSON**:
+  - *Chosen Approach*: Parse `.txt`, `.csv`, `.json`, and pasted text deterministically using a structured parser (supporting numbered lists, years in parentheses, `Movie`/`TV`/`Series` tags, `S01E02` patterns, and ISO dates), while routing uploaded `.png`/`.jpg`/`.webp` screenshots to a dedicated server-side endpoint (`POST /api/import/extract-image`) powered by `@google/genai` (`gemini-3.8-flash` with strict `Type.ARRAY` JSON schema and `process.env.GEMINI_API_KEY`).
+  - *Why*: Deterministic parsing is instantaneous and 100% predictable for text/CSV/JSON files, while server-side multimodal Gemini accurately reads multi-column or numbered mobile screenshots without ever exposing `GEMINI_API_KEY` to the client bundle.
+  - *Alternatives Considered*: Client-side OCR (rejected due to poor accuracy on stylized movie screenshots and heavy WASM bundle size) or sending text files to an LLM (rejected due to unnecessary latency when deterministic parsing is faster and exact).
+
+- **Decision 2 — Type-Aware Multi-Candidate TMDB & Catalog Scoring**:
+  - *Chosen Approach*: Resolve each extracted entry against both the CineMax curated/live catalog and `/api/media` search, scoring candidates by normalized title similarity, exact/near release year match, and explicit media type (`movie` vs `tv`) constraint. Classify matches into `matched` (high confidence), `ambiguous` (multiple plausible candidates or year/type discrepancy), or `unmatched` (no reliable candidate found).
+  - *Why*: Prevents a movie from silently matching a namesake TV series (or vice versa) and gives the user full control to pick an alternate candidate or search manually before anything is written to their account.
+
+- **Decision 3 — Non-Destructive Idempotent Merge in Supabase**:
+  - *Chosen Approach*: Before writing confirmed items, compare each canonical `mediaId` (`movie-<tmdbId>` / `tv-<tmdbId>` or seed ID) against the user's current `watchlist` and `watchHistory`. Merge existing fields (`personalRating`, `personalNotes`/`reviewNotes`, `isFavourite`, `addedAt`, and existing `watchedAt` unless an explicit import date override was provided) and upsert via the existing ` watchlist_user_media_unique (user_id, media_id)` and `watch_history_user_media_unique (user_id, media_id)` constraints.
+  - *Why*: Requires **zero destructive database migrations**, respects existing RLS policies (`auth.uid() = user_id`), and guarantees that importing the same file twice never duplicates rows or erases user reviews.
 
 ---
 
 ## 4. Technical Architecture & Data Strategy *(Technical Reference)*
 
 - **Architecture & Component Diagram**:
-```text
-┌─────────────────────────────────────────────────────────────────────────┐
-│                Reusable Liquid Glass Water Bubble System                │
-│  ┌───────────────────────────────────────────────────────────────────┐  │
-│  │ useLiquidTabBubble(activeKey, deps)                               │  │
-│  │  • Stores containerRef & tabRefs map                              │  │
-│  │  • Measures active tab offsetLeft & offsetWidth                   │  │
-│  │  • Initial mount & ResizeObserver -> motionValue.jump()           │  │
-│  │  • Active tab change -> spring animate(x, width) + velocity       │  │
-│  │    driven scaleX (1 -> 1.07 -> 0.985 -> 1) & scaleY deformation   │  │
-│  └─────────────────────────────────┬─────────────────────────────────┘  │
-│                                    ▼                                    │
-│  ┌───────────────────────────────────────────────────────────────────┐  │
-│  │ <LiquidTabBubble /> (Single persistent aria-hidden layer, z-0)    │  │
-│  │  • Optical backdrop blur + specular rim + inner caustic sheen     │  │
-│  │  • Variants: 'nav-pill' | 'amber-pill' | 'subtle-glass'           │  │
-│  └─────────────────────────────────┬─────────────────────────────────┘  │
-└────────────────────────────────────┼────────────────────────────────────┘
-                                     │
-        ┌────────────────────────────┼────────────────────────────┐
-        ▼                            ▼                            ▼
-┌───────────────────┐      ┌───────────────────┐      ┌───────────────────┐
-│   Navbar Shell    │      │  Auth Switchers   │      │ Catalogue & Lists │
-│ • Desktop Top Nav │      │ • AuthScreen Tabs │      │ • Discover Format │
-│ • Mobile Sub-Bar  │      │ • AuthModal Tabs  │      │   & Category Tabs │
-│ • Mobile Bottom   │      │                   │      │ • Watchlist View, │
-│   Floating Bar    │      │                   │      │   Status & Type   │
-└───────────────────┘      └───────────────────┘      └───────────────────┘
+
+```
+┌──────────────────────────────────────────────────────────────────────────────┐
+│                     CineMax Client (Web & Capacitor Android)                 │
+│                                                                              │
+│  ┌────────────────────────────┐         ┌─────────────────────────────────┐  │
+│  │     WatchlistView Header   │         │  ProfileView (Viewing Journal)  │  │
+│  │  [Import Completed List]   │         │     [Import Completed List]     │  │
+│  └─────────────┬──────────────┘         └────────────────┬────────────────┘  │
+│                └────────────────────┬────────────────────┘                   │
+│                                     ▼                                        │
+│            ┌─────────────────────────────────────────────────┐               │
+│            │          ImportCompletedModal (3-Step UI)       │               │
+│            │  1. File/Paste Input & Format Validation        │               │
+│            │  2. TMDB Match Preview, Disambiguation & Search │               │
+│            │  3. Progress Tracker, Summary & Retry Handler   │               │
+│            └───────┬────────────────────────┬────────────────┘               │
+│                    │                        │                                │
+│                    ▼                        ▼                                │
+│     ┌─────────────────────────────┐  ┌────────────────────────────────────┐  │
+│     │ Import Extraction & Matcher │  │ Idempotent Supabase Sync Engine    │  │
+│     │ - TXT / CSV / JSON Parser   │  │ - Preserves rating/notes/favourite │  │
+│     │ - Type/Year/Title Scorer    │  │ - Upserts watchlist_items          │  │
+│     │ - Canonical ID Normalization│  │ - Upserts watch_history            │  │
+│     └──────┬───────────────┬──────┘  │ - Optional explicit episodes sync  │  │
+│            │               │         └─────────────────┬──────────────────┘  │
+└────────────┼───────────────┼───────────────────────────┼─────────────────────┘
+             │               │                           │
+             ▼               ▼                           ▼
+┌──────────────────────┐ ┌─────────────────────┐ ┌─────────────────────────────┐
+│ POST /api/import/    │ │ GET /api/media      │ │ Supabase Postgres + RLS     │
+│   extract-image      │ │ (TMDB + Catalog     │ │ - public.watchlist_items    │
+│ (@google/genai       │ │  Search & Identity) │ │ - public.watch_history      │
+│  gemini-3.8-flash)   │ └─────────────────────┘ │ - public.watched_episodes   │
+└──────────────────────┘                         └─────────────────────────────┘
 ```
 
 - **Data Model & State**:
-  - `activeKey`: Identifier of the currently selected tab within a group (e.g., `'home-all'`, `'movies'`, `'discover'`, `'signin'`).
-  - `xSpring`, `widthSpring`: `motion/react` spring motion values tracking the active tab's horizontal offset and width.
-  - `scaleX`, `scaleY`: Velocity-coupled transforms that stretch the bubble horizontally during high-speed travel and settle with a subtle squish on arrival.
+  - `ExtractedImportItem`: `{ rawLine: string; title: string; mediaTypeHint?: 'movie' | 'tv'; yearHint?: number; seasonNumber?: number; episodeNumbers?: number[]; watchedAtHint?: string; personalRatingHint?: number; notesHint?: string }`
+  - `ResolvedImportRow`: Links each `ExtractedImportItem` to:
+    - `matchStatus`: `'matched' | 'ambiguous' | 'unmatched'`
+    - `selectedMedia`: `MediaItem | null` (using CineMax's canonical `mediaId` and `tmdbId`)
+    - `candidates`: `MediaItem[]` (top alternative matches from TMDB/catalog)
+    - `existingState`: `'none' | 'already_completed' | 'upgrade_to_completed'` (derived from the user's current `watchlist` and `watchHistory`)
+    - `selected`: `boolean` (auto-checked for `matched`, unchecked by default for `ambiguous` until reviewed or confirmed, unchecked for `unmatched`)
+    - `watchedDateOverride`: `string` (ISO `YYYY-MM-DD`, defaulting to explicit `watchedAtHint`, existing `watchedAt`, or global default date)
+  - `ImportExecutionSummary`: `{ importedNewCount: number; updatedExistingCount: number; skippedCount: number; unmatchedCount: number; failedItems: Array<{ rowId: string; title: string; error: string }> }`
+
 - **Interactive Component & State Mapping**:
-  - **Desktop Primary Navbar**: Clicking `Home`, `Movies`, `Series`, `Discover`, `Watchlist`, `Quality & File Size`, or `Admin` glides the translucent obsidian-amber water bubble across the desktop nav bar while keeping the active bottom caustic glow and badge counts crisp.
-  - **Mobile Sub-Bar (`All Titles / Movies / Series`)**: Tapping any category tab glides the amber-glass water bubble smoothly across the proportional flex track while coexisting with the adaptive `Size Tool` button.
-  - **Mobile Floating Bottom Navbar (`Home / Discover / Watchlist / Profile`)**: Tapping any bottom tab glides a full-height inset Liquid Glass water-bubble pill between the 4 columns.
-  - **Auth, Discover & Watchlist Segmented Controls**: Switching between `Sign In / Sign Up`, Discover `Format` / `Category` presets, or Watchlist `Status`, `Media Type`, and `View Mode` tabs animates the shared water bubble across the segmented track.
+  - **Source Input Validation**: Rejects unsupported file extensions, empty files, images $> 8\text{ MB}$, or text/CSV/JSON files $> 2\text{ MB}$ with clear, non-technical guidance. Malformed JSON or CSV syntax reports the exact parsing issue without crashing.
+  - **Server-Side Image Extraction (`POST /api/import/extract-image`)**: Accepts `{ mimeType, dataBase64 }`, validates MIME type (`image/png`, `image/jpeg`, `image/webp`) and payload size, calls `ai.models.generateContent` with `model: 'gemini-3.8-flash'` and a structured `Type.OBJECT` / `Type.ARRAY` `responseSchema`, and returns extracted items. If `GEMINI_API_KEY` is missing or the image contains no recognizable titles, returns a clear structured error message—never fabricated titles.
+  - **Match Disambiguation & Manual Override**: Each row in the preview supports changing the media type filter (`All` / `Movie` / `TV`), picking from alternative candidates, or running a live title search query to select the exact TMDB title.
+  - **Idempotent Execution & Partial Failure Recovery**: Processes confirmed rows sequentially or in bounded batches against `watchlist_items` and `watch_history` (plus `watched_episodes` only when explicit episode numbers exist). An item is counted as imported/updated **only** when both its `watchlist_items` and `watch_history` upserts succeed. Any row that fails a database write is captured in `failedItems` and can be retried in-place without re-uploading the file.

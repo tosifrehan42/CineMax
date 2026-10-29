@@ -220,7 +220,7 @@ export const AuthScreen: React.FC<AuthScreenProps> = ({
       </div>
 
       {/* Top Bar (Inset Rounded Liquid Glass Panel) */}
-      <header className="sticky top-0 z-30 w-full pt-2 sm:pt-2.5 px-3 sm:px-6 lg:px-8">
+      <header className="sticky top-0 z-30 w-full pt-[max(env(safe-area-inset-top,0px),0.5rem)] sm:pt-2.5 px-3 sm:px-6 lg:px-8">
         <div className="max-w-[1440px] mx-auto cm-glass-nav rounded-[20px] md:rounded-[22px] px-4 sm:px-6 h-14 md:h-16 flex items-center justify-between gap-4">
           <div className="flex items-center gap-2.5 shrink-0">
             <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-amber-400 to-amber-600 flex items-center justify-center text-slate-950 shadow-md shadow-amber-500/20">

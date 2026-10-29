@@ -104,6 +104,11 @@ const ChangePasswordModal = React.lazy(() =>
     default: m.ChangePasswordModal,
   }))
 );
+const ImportCompletedModal = React.lazy(() =>
+  import('./components/ImportCompletedModal').then((m) => ({
+    default: m.ImportCompletedModal,
+  }))
+);
 
 function isUrlAdminRoute(): boolean {
   if (typeof window === 'undefined') return false;
@@ -412,6 +417,8 @@ export default function App() {
   const [cloudError, setCloudError] = useState<string | null>(null);
   const [schemaMissing, setSchemaMissing] = useState(false);
   const [migrationNeeded, setMigrationNeeded] = useState(false);
+  const [isImportCompletedModalOpen, setIsImportCompletedModalOpen] =
+    useState(false);
 
   const inFlightChecklistOps = useRef<Set<string>>(new Set());
 
@@ -1613,6 +1620,7 @@ export default function App() {
               onOpenAuthModal={handleOpenAuthModal}
               pendingLocalCount={pendingLocalItems.length}
               onImportLocalWatchlist={handleImportLocalWatchlist}
+              onOpenImportCompleted={() => setIsImportCompletedModalOpen(true)}
             />
           )}
 
@@ -1648,6 +1656,7 @@ export default function App() {
               onUploadAvatar={handleUploadAvatar}
               onRemoveAvatar={handleRemoveAvatar}
               onDeleteHistoryEntry={handleDeleteHistoryEntry}
+              onOpenImportCompleted={() => setIsImportCompletedModalOpen(true)}
               allMedia={knownMedia}
               onSelectMedia={handleSelectMedia}
               onNavigateTab={navigateToTab}
@@ -1766,6 +1775,80 @@ export default function App() {
             isOpen={isChangePasswordModalOpen}
             onClose={() => setIsChangePasswordModalOpen(false)}
             userEmail={authUser?.email}
+          />
+        )}
+
+        {isImportCompletedModalOpen && (
+          <ImportCompletedModal
+            isOpen={isImportCompletedModalOpen}
+            onClose={() => setIsImportCompletedModalOpen(false)}
+            isAuthenticated={isAuthenticated}
+            userId={authUser?.id}
+            allMedia={knownMedia}
+            watchlist={activeWatchlist}
+            watchHistory={effectiveWatchHistory}
+            onOpenAuthModal={handleOpenAuthModal}
+            onImportSuccess={({
+              savedWatchlistEntries,
+              savedHistoryEntries,
+              savedEpisodeEntries,
+              newlyDiscoveredMedia,
+              migrationNeeded: migNeeded,
+            }) => {
+              if (newlyDiscoveredMedia.length > 0) {
+                handleRegisterMedia(newlyDiscoveredMedia);
+              }
+              if (migNeeded) {
+                setMigrationNeeded(true);
+              }
+              if (savedWatchlistEntries.length > 0) {
+                setCloudWatchlist((prev) => {
+                  const byId = new Map<string, WatchlistEntry>();
+                  for (const item of prev) {
+                    byId.set(item.mediaId, item);
+                  }
+                  for (const saved of savedWatchlistEntries) {
+                    byId.set(saved.mediaId, saved);
+                  }
+                  return Array.from(byId.values());
+                });
+              }
+              if (savedHistoryEntries.length > 0) {
+                setWatchHistory((prev) => {
+                  const byId = new Map<string, WatchHistoryEntry>();
+                  for (const h of prev) {
+                    byId.set(h.mediaId, h);
+                  }
+                  for (const saved of savedHistoryEntries) {
+                    byId.set(saved.mediaId, saved);
+                  }
+                  return Array.from(byId.values()).sort(
+                    (a, b) =>
+                      new Date(b.watchedAt).getTime() -
+                      new Date(a.watchedAt).getTime()
+                  );
+                });
+              }
+              if (savedEpisodeEntries.length > 0) {
+                setCloudWatchedEpisodes((prev) => {
+                  const byKey = new Map<string, WatchedEpisodeEntry>();
+                  for (const ep of prev) {
+                    byKey.set(
+                      `${ep.mediaId}:${ep.seasonNumber}:${ep.episodeNumber}`,
+                      ep
+                    );
+                  }
+                  for (const saved of savedEpisodeEntries) {
+                    byKey.set(
+                      `${saved.mediaId}:${saved.seasonNumber}:${saved.episodeNumber}`,
+                      saved
+                    );
+                  }
+                  return Array.from(byKey.values());
+                });
+              }
+            }}
+            onNavigateTab={(tab) => navigateToTab(tab)}
           />
         )}
       </Suspense>

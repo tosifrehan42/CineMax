@@ -1,6 +1,6 @@
 {
-  "summary":  "Implementation plan for the reusable spring-animated Liquid Glass Water Bubble active-tab indicator across Desktop primary navigation, Mobile bottom navigation, Mobile All Titles/Movies/Series sub-bar, and existing segmented tab controls in Auth, Discover, and Watchlist views.",
-  "updatedAt":  "2026-10-27T19:27:56.811783247Z",
+  "summary":  "Implementation plan for the Import Completed Movies & TV Series feature in CineMax across Web and Android, supporting multi-format file upload (PNG/JPG/WEBP screenshots via server-side Gemini extraction, TXT, CSV, JSON, and raw text paste), intelligent TMDB candidate matching with interactive review and manual search correction, idempotent Supabase persistence preserving existing ratings/notes/favourites, and detailed import summary reporting with retry support.",
+  "updatedAt":  "2026-10-29T09:05:51.156094461Z",
   "requestFeedback":  true,
   "userFacing":  true
 }

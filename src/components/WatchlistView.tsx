@@ -53,6 +53,7 @@ interface WatchlistViewProps {
   onOpenAuthModal?: (mode?: 'signin' | 'signup') => void;
   pendingLocalCount?: number;
   onImportLocalWatchlist?: () => void;
+  onOpenImportCompleted?: () => void;
 }
 
 type SortOption = 'date_added' | 'title' | 'rating' | 'personal_rating';
@@ -76,6 +77,7 @@ export const WatchlistView: React.FC<WatchlistViewProps> = ({
   onOpenAuthModal,
   pendingLocalCount = 0,
   onImportLocalWatchlist,
+  onOpenImportCompleted,
 }) => {
   const [filterStatus, setFilterStatus] = useState<string>('all');
   const [mediaTypeFilter, setMediaTypeFilter] = useState<'all' | 'movie' | 'tv'>('all');
@@ -255,7 +257,17 @@ export const WatchlistView: React.FC<WatchlistViewProps> = ({
           </p>
         </div>
 
-        <div className="flex items-center gap-3 self-start sm:self-auto">
+        <div className="flex flex-wrap items-center gap-3 self-start sm:self-auto">
+          {onOpenImportCompleted && (
+            <button
+              type="button"
+              onClick={onOpenImportCompleted}
+              className="cm-glass-control px-3.5 py-2 rounded-xl text-xs font-semibold text-amber-300 hover:text-amber-200 flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0"
+            >
+              <UploadCloud className="w-3.5 h-3.5 text-amber-400" />
+              <span>Import Completed List</span>
+            </button>
+          )}
           {totalCount > 0 && (
             <div
               ref={viewModeBubble.containerRef}
