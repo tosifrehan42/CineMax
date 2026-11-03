@@ -357,7 +357,7 @@ const SEARCH_STOP_WORDS = new Set([
   'with',
 ]);
 
-function normalizeForSearch(text: string): string {
+export function normalizeForSearch(text: string): string {
   return (text || '')
     .toLowerCase()
     .normalize('NFD')
@@ -1984,5 +1984,604 @@ export async function fetchMediaTrailers(
   }
   return fallbackResult;
 }
+
+// ============================================================================
+// Gemini AI-Assisted Title Resolution & Smart Search
+// ============================================================================
+
+export interface AiTitleResolutionInput {
+  rowId?: string;
+  title: string;
+  mediaTypeHint?: 'movie' | 'tv' | null;
+  yearHint?: number | null;
+}
+
+export interface AiResolvedTitle {
+  rowId: string;
+  originalQuery: string;
+  originalTitle: string;
+  normalizedTitle: string;
+  alternateQueries: string[];
+  mediaTypeHint: 'movie' | 'tv' | null;
+  yearHint: number | null;
+  confidence: number;
+  aiAssisted: boolean;
+  isAmbiguous?: boolean;
+}
+
+export interface AiTitleResolutionResponse {
+  items: AiResolvedTitle[];
+  single?: AiResolvedTitle;
+  provider: 'gemini' | 'fallback';
+  aiAvailable: boolean;
+  warning?: string;
+}
+
+export interface SmartSearchResponse extends CatalogueResponse {
+  aiResolution?: AiResolvedTitle | null;
+  aiAssisted?: boolean;
+  aiWarning?: string | null;
+}
+
+const clientAiResolutionCache = new Map<
+  string,
+  { timestamp: number; data: AiResolvedTitle }
+>();
+const CLIENT_AI_RESOLUTION_TTL_MS = 1000 * 60 * 15; // 15 minutes
+
+function buildClientAiCacheKey(input: AiTitleResolutionInput): string {
+  const norm = String(input.title || '')
+    .toLowerCase()
+    .replace(/\s+/g, ' ')
+    .trim();
+  const typePart = input.mediaTypeHint || 'any';
+  const yearPart = input.yearHint ? String(input.yearHint) : 'any';
+  return `${norm}|${typePart}|${yearPart}`;
+}
+
+export function clearClientAiResolutionCache(): void {
+  clientAiResolutionCache.clear();
+}
+
+const CLIENT_FALLBACK_RULES: Array<{
+  pattern: RegExp;
+  normalizedTitle: string;
+  alternateQueries: string[];
+  mediaTypeHint: 'movie' | 'tv' | null;
+  yearHint: number | null;
+  confidence: number;
+  isAmbiguous?: boolean;
+}> = [
+  {
+    pattern: /^john\s*wick\s*(?:chapter\s*)?(?:3|iii)(?:\s*parabellum)?$/i,
+    normalizedTitle: 'John Wick: Chapter 3 – Parabellum',
+    alternateQueries: [
+      'John Wick: Chapter 3 – Parabellum',
+      'John Wick Chapter 3',
+      'John Wick 3',
+    ],
+    mediaTypeHint: 'movie',
+    yearHint: 2019,
+    confidence: 0.96,
+  },
+  {
+    pattern: /^john\s*wick\s*(?:chapter\s*)?(?:2|ii)$/i,
+    normalizedTitle: 'John Wick: Chapter 2',
+    alternateQueries: ['John Wick: Chapter 2', 'John Wick Chapter 2', 'John Wick 2'],
+    mediaTypeHint: 'movie',
+    yearHint: 2017,
+    confidence: 0.96,
+  },
+  {
+    pattern: /^john\s*wick\s*(?:chapter\s*)?(?:4|iv)$/i,
+    normalizedTitle: 'John Wick: Chapter 4',
+    alternateQueries: ['John Wick: Chapter 4', 'John Wick Chapter 4', 'John Wick 4'],
+    mediaTypeHint: 'movie',
+    yearHint: 2023,
+    confidence: 0.96,
+  },
+  {
+    pattern: /^(?:the\s+)?dark\s*knight$/i,
+    normalizedTitle: 'The Dark Knight',
+    alternateQueries: ['The Dark Knight', 'Dark Knight'],
+    mediaTypeHint: 'movie',
+    yearHint: 2008,
+    confidence: 0.96,
+  },
+  {
+    pattern: /^(?:the\s+)?dark\s*knight\s*rises$/i,
+    normalizedTitle: 'The Dark Knight Rises',
+    alternateQueries: ['The Dark Knight Rises', 'Dark Knight Rises'],
+    mediaTypeHint: 'movie',
+    yearHint: 2012,
+    confidence: 0.96,
+  },
+  {
+    pattern: /^spider[\s-]*man[\s:]*no\s*way\s*home$/i,
+    normalizedTitle: 'Spider-Man: No Way Home',
+    alternateQueries: ['Spider-Man: No Way Home', 'Spider Man No Way Home'],
+    mediaTypeHint: 'movie',
+    yearHint: 2021,
+    confidence: 0.97,
+  },
+  {
+    pattern: /^(?:the\s+)?avengers[\s:]*end\s*game$/i,
+    normalizedTitle: 'Avengers: Endgame',
+    alternateQueries: ['Avengers: Endgame', 'Avengers Endgame'],
+    mediaTypeHint: 'movie',
+    yearHint: 2019,
+    confidence: 0.97,
+  },
+  {
+    pattern: /^interstellar$/i,
+    normalizedTitle: 'Interstellar',
+    alternateQueries: ['Interstellar'],
+    mediaTypeHint: 'movie',
+    yearHint: 2014,
+    confidence: 0.98,
+  },
+  {
+    pattern: /^breaking\s*bad$/i,
+    normalizedTitle: 'Breaking Bad',
+    alternateQueries: ['Breaking Bad'],
+    mediaTypeHint: 'tv',
+    yearHint: 2008,
+    confidence: 0.98,
+  },
+  {
+    pattern: /^(?:the\s+)?office$/i,
+    normalizedTitle: 'The Office',
+    alternateQueries: ['The Office', 'The Office US', 'The Office UK'],
+    mediaTypeHint: 'tv',
+    yearHint: null,
+    confidence: 0.65,
+    isAmbiguous: true,
+  },
+];
+
+function buildClientFallbackResolution(
+  item: AiTitleResolutionInput,
+  index: number
+): AiResolvedTitle {
+  const rowId = item.rowId || `row-${index}`;
+  const cleanOriginal = String(item.title || '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  const cleanTarget = cleanOriginal
+    .replace(/[-–—:/.,!?&()+"]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  for (const rule of CLIENT_FALLBACK_RULES) {
+    if (rule.pattern.test(cleanOriginal) || rule.pattern.test(cleanTarget)) {
+      const isAmbiguous = Boolean(rule.isAmbiguous && !item.yearHint);
+      return {
+        rowId,
+        originalQuery: cleanOriginal,
+        originalTitle: cleanOriginal,
+        normalizedTitle: rule.normalizedTitle,
+        alternateQueries: rule.alternateQueries,
+        mediaTypeHint: item.mediaTypeHint || rule.mediaTypeHint,
+        yearHint: isAmbiguous ? null : item.yearHint ?? rule.yearHint,
+        confidence: isAmbiguous ? 0.65 : rule.confidence,
+        aiAssisted: false,
+        isAmbiguous,
+      };
+    }
+  }
+
+  const heuristicNormalized = cleanOriginal
+    .replace(/\bspider\s+man\b/gi, 'Spider-Man')
+    .replace(/\bx\s+men\b/gi, 'X-Men')
+    .trim();
+
+  return {
+    rowId,
+    originalQuery: cleanOriginal,
+    originalTitle: cleanOriginal,
+    normalizedTitle: heuristicNormalized || cleanOriginal,
+    alternateQueries:
+      heuristicNormalized.toLowerCase() !== cleanOriginal.toLowerCase()
+        ? [heuristicNormalized, cleanOriginal]
+        : [cleanOriginal],
+    mediaTypeHint: item.mediaTypeHint ?? null,
+    yearHint: item.yearHint ?? null,
+    confidence: 0.6,
+    aiAssisted: false,
+    isAmbiguous: false,
+  };
+}
+
+/**
+ * Resolves single or batch movie/TV titles via the backend POST /api/ai/resolve-titles endpoint.
+ * Preserves short-TTL client caching and AbortSignal cancellation.
+ */
+export async function resolveTitlesWithAi(
+  inputs: AiTitleResolutionInput[],
+  signal?: AbortSignal
+): Promise<AiTitleResolutionResponse> {
+  if (!Array.isArray(inputs) || inputs.length === 0) {
+    return { items: [], provider: 'fallback', aiAvailable: false };
+  }
+
+  const resolvedList = new Array<AiResolvedTitle | null>(inputs.length).fill(null);
+  const uncachedPayload: Array<{ index: number; item: AiTitleResolutionInput }> = [];
+
+  for (let i = 0; i < inputs.length; i++) {
+    const item = inputs[i];
+    const cleanTitle = String(item.title || '').trim();
+    if (!cleanTitle) continue;
+    const key = buildClientAiCacheKey(item);
+    const cached = clientAiResolutionCache.get(key);
+    if (cached && Date.now() - cached.timestamp < CLIENT_AI_RESOLUTION_TTL_MS) {
+      resolvedList[i] = {
+        ...cached.data,
+        rowId: item.rowId || cached.data.rowId || `row-${i}`,
+        originalQuery: cleanTitle,
+        originalTitle: cleanTitle,
+      };
+    } else {
+      uncachedPayload.push({
+        index: i,
+        item: {
+          rowId: item.rowId || `row-${i}`,
+          title: cleanTitle,
+          mediaTypeHint: item.mediaTypeHint ?? null,
+          yearHint: item.yearHint ?? null,
+        },
+      });
+    }
+  }
+
+  if (uncachedPayload.length === 0) {
+    const finalItems = resolvedList.filter(Boolean) as AiResolvedTitle[];
+    return {
+      items: finalItems,
+      single: finalItems[0],
+      provider: finalItems.some((it) => it.aiAssisted) ? 'gemini' : 'fallback',
+      aiAvailable: true,
+    };
+  }
+
+  try {
+    const apiRes = await fetchApiJson<AiTitleResolutionResponse>(
+      '/api/ai/resolve-titles',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          items: uncachedPayload.map((u) => u.item),
+        }),
+        signal,
+      }
+    );
+
+    if (apiRes && Array.isArray(apiRes.items)) {
+      const byRowId = new Map<string, AiResolvedTitle>();
+      for (const r of apiRes.items) {
+        if (r && r.rowId) {
+          byRowId.set(r.rowId, r);
+        }
+      }
+
+      for (let j = 0; j < uncachedPayload.length; j++) {
+        const { index, item } = uncachedPayload[j];
+        const rowId = item.rowId || `row-${index}`;
+        const matched = byRowId.get(rowId) || apiRes.items[j];
+        if (matched) {
+          resolvedList[index] = matched;
+          clientAiResolutionCache.set(buildClientAiCacheKey(item), {
+            timestamp: Date.now(),
+            data: matched,
+          });
+        }
+      }
+
+      const finalItems = resolvedList.filter(Boolean) as AiResolvedTitle[];
+      return {
+        items: finalItems,
+        single: finalItems[0],
+        provider: apiRes.provider || 'gemini',
+        aiAvailable: Boolean(apiRes.aiAvailable),
+        warning: apiRes.warning,
+      };
+    }
+  } catch (err: any) {
+    if (err?.name === 'AbortError' || signal?.aborted) {
+      throw err;
+    }
+  }
+
+  // Populate client-side fallback resolution for any remaining uncached items
+  for (let j = 0; j < uncachedPayload.length; j++) {
+    const { index, item } = uncachedPayload[j];
+    if (!resolvedList[index]) {
+      resolvedList[index] = buildClientFallbackResolution(item, index);
+    }
+  }
+
+  const fallbackItems = resolvedList.filter(Boolean) as AiResolvedTitle[];
+  return {
+    items: fallbackItems,
+    single: fallbackItems[0],
+    provider: 'fallback',
+    aiAvailable: false,
+    warning: 'AI title resolution is currently unavailable; using standard TMDB search.',
+  };
+}
+
+/**
+ * Determines whether direct TMDB search results are missing, weak, or lack an exact
+ * canonical match for the user's query (e.g. "john wick 3" vs "John Wick: Chapter 3 – Parabellum",
+ * "dark knight" vs "The Dark Knight", "spider man no way home" vs "Spider-Man: No Way Home").
+ */
+export function needsAiSearchAssistance(
+  query: string,
+  directItems: MediaItem[]
+): boolean {
+  const cleanQuery = String(query || '').replace(/\s+/g, ' ').trim();
+  if (cleanQuery.length < 3) return false;
+
+  if (!Array.isArray(directItems) || directItems.length === 0) {
+    return true;
+  }
+
+  const lowerQuery = cleanQuery.toLowerCase();
+
+  // Check if any top direct result is a canonical TMDB record with an exact case-insensitive title match
+  // (preserving punctuation like colons/hyphens and leading articles like "The")
+  const topSlice = directItems.slice(0, 3);
+  const matchingCanonicalTop = topSlice.filter(
+    (item) =>
+      Boolean(extractCanonicalTmdbIdentity(item.id, item.type)) &&
+      item.title.replace(/\s+/g, ' ').trim().toLowerCase() === lowerQuery
+  );
+
+  if (matchingCanonicalTop.length === 1) {
+    return false;
+  }
+
+  return true;
+}
+
+/**
+ * Ranks merged TMDB search candidates so exact canonical matches to Gemini's normalizedTitle
+ * appear above partial/franchise matches while preserving the user's Movie/TV filter.
+ */
+export function rankMergedSmartSearchResults(
+  items: MediaItem[],
+  originalQuery: string,
+  resolved: AiResolvedTitle,
+  typeFilter: 'all' | 'movie' | 'tv'
+): MediaItem[] {
+  let pool = dedupeMediaItems(items);
+  if (typeFilter !== 'all') {
+    pool = pool.filter((item) => item.type === typeFilter);
+  }
+
+  const normCanonical = normalizeForSearch(resolved.normalizedTitle);
+  const canonicalWords = normCanonical ? normCanonical.split(' ').filter(Boolean) : [];
+  const normOrig = normalizeForSearch(originalQuery);
+  const origWords = normOrig ? normOrig.split(' ').filter(Boolean) : [];
+  const altNorms = (resolved.alternateQueries || [])
+    .map((q) => normalizeForSearch(q))
+    .filter(Boolean);
+
+  const scored = pool.map((item, idx) => {
+    const normTitle = normalizeForSearch(item.title);
+    const titleWords = normTitle ? normTitle.split(' ') : [];
+
+    const canonicalTier = getTitleMatchTier(
+      normTitle,
+      titleWords,
+      normCanonical,
+      canonicalWords
+    );
+    const origTier = getTitleMatchTier(normTitle, titleWords, normOrig, origWords);
+
+    let bestAltTier = 0;
+    for (const alt of altNorms) {
+      const altWords = alt.split(' ').filter(Boolean);
+      const t = getTitleMatchTier(normTitle, titleWords, alt, altWords);
+      if (t > bestAltTier) bestAltTier = t;
+    }
+
+    let score = Math.max(canonicalTier * 25, origTier * 20, bestAltTier * 18);
+
+    // Exact canonical title match bonus
+    if (normCanonical && normTitle === normCanonical) {
+      score += 120;
+    } else if (normOrig && normTitle === normOrig) {
+      score += 85;
+    } else if (altNorms.includes(normTitle)) {
+      score += 65;
+    }
+
+    // Year hint alignment bonus (only when not marked ambiguous)
+    if (!resolved.isAmbiguous && resolved.yearHint && item.year > 0) {
+      const diff = Math.abs(item.year - resolved.yearHint);
+      if (diff === 0) score += 35;
+      else if (diff === 1) score += 15;
+    }
+
+    // Media type hint bonus when user filter is 'all'
+    if (
+      typeFilter === 'all' &&
+      resolved.mediaTypeHint &&
+      item.type === resolved.mediaTypeHint
+    ) {
+      score += 15;
+    }
+
+    // Prefer verified canonical TMDB records
+    if (extractCanonicalTmdbIdentity(item.id, item.type)) {
+      score += 5;
+    }
+
+    return { item, idx, score };
+  });
+
+  scored.sort((a, b) => {
+    if (Math.abs(b.score - a.score) > 0.01) return b.score - a.score;
+    return a.idx - b.idx;
+  });
+
+  return scored.map((s) => s.item);
+}
+
+/**
+ * Executes direct TMDB/catalogue search first, and invokes Gemini title normalization
+ * only when direct results are missing, weak, or lack a confident canonical title match.
+ */
+export async function executeSmartSearch(
+  params: {
+    query: string;
+    typeFilter: 'all' | 'movie' | 'tv';
+    refresh?: boolean;
+  },
+  signal?: AbortSignal,
+  callbacks?: {
+    onDirectResults?: (directResponse: CatalogueResponse) => void;
+    onAiResolvingChange?: (isResolving: boolean) => void;
+  }
+): Promise<SmartSearchResponse> {
+  const cleanQuery = String(params.query || '').replace(/\s+/g, ' ').trim();
+
+  // 1. Always run standard TMDB/catalogue search first
+  const directRes = await fetchCatalogue(
+    {
+      category: 'discover',
+      query: cleanQuery,
+      type: params.typeFilter,
+      page: 1,
+      refresh: params.refresh,
+    },
+    signal
+  );
+
+  if (signal?.aborted) {
+    return directRes;
+  }
+
+  callbacks?.onDirectResults?.(directRes);
+
+  // 2. Check if direct results already contain an exact confident match
+  if (!cleanQuery || !needsAiSearchAssistance(cleanQuery, directRes.items)) {
+    return {
+      ...directRes,
+      aiResolution: null,
+      aiAssisted: false,
+      aiWarning: null,
+    };
+  }
+
+  // 3. Trigger AI title resolution for informal/shorthand/weak queries
+  callbacks?.onAiResolvingChange?.(true);
+  try {
+    const aiRes = await resolveTitlesWithAi(
+      [
+        {
+          rowId: 'search-0',
+          title: cleanQuery,
+          mediaTypeHint: params.typeFilter === 'all' ? null : params.typeFilter,
+        },
+      ],
+      signal
+    );
+
+    if (signal?.aborted) {
+      return directRes;
+    }
+
+    const resolved = aiRes.single || aiRes.items[0];
+    if (!resolved || !resolved.normalizedTitle || resolved.confidence < 0.35) {
+      return {
+        ...directRes,
+        aiResolution: resolved || null,
+        aiAssisted: false,
+        aiWarning: aiRes.warning || null,
+      };
+    }
+
+    // 4. Build distinct follow-up TMDB queries (normalizedTitle + up to 2 alternateQueries)
+    const candidateQueries: string[] = [];
+    const seenLower = new Set<string>([cleanQuery.toLowerCase()]);
+
+    const pushQuery = (q?: string) => {
+      const trimmed = String(q || '').replace(/\s+/g, ' ').trim();
+      if (!trimmed) return;
+      const lower = trimmed.toLowerCase();
+      if (seenLower.has(lower)) return;
+      seenLower.add(lower);
+      candidateQueries.push(trimmed);
+    };
+
+    pushQuery(resolved.normalizedTitle);
+    for (const alt of resolved.alternateQueries || []) {
+      if (candidateQueries.length >= 3) break;
+      pushQuery(alt);
+    }
+
+    // Also include a stripped-subtitle query if normalizedTitle has a colon or en-dash
+    if (candidateQueries.length < 3 && /[:–—-]/.test(resolved.normalizedTitle)) {
+      const prefix = resolved.normalizedTitle.split(/[:–—]/)[0]?.trim();
+      if (prefix && prefix.length >= 3) {
+        pushQuery(prefix);
+      }
+    }
+
+    let additionalItems: MediaItem[] = [];
+    if (candidateQueries.length > 0) {
+      const extraResponses = await Promise.all(
+        candidateQueries.slice(0, 3).map((q) =>
+          fetchCatalogue(
+            {
+              category: 'discover',
+              query: q,
+              type: params.typeFilter,
+              page: 1,
+              refresh: params.refresh,
+            },
+            signal
+          ).catch(() => null)
+        )
+      );
+
+      for (const r of extraResponses) {
+        if (r && Array.isArray(r.items)) {
+          additionalItems.push(...r.items);
+        }
+      }
+    }
+
+    if (signal?.aborted) {
+      return directRes;
+    }
+
+    const mergedPool = dedupeMediaItems([...additionalItems, ...directRes.items]);
+    const rankedItems = rankMergedSmartSearchResults(
+      mergedPool,
+      cleanQuery,
+      resolved,
+      params.typeFilter
+    );
+
+    const hasCanonicalDifference =
+      resolved.normalizedTitle.toLowerCase() !== cleanQuery.toLowerCase() ||
+      Boolean(resolved.isAmbiguous);
+
+    return {
+      ...directRes,
+      items: rankedItems,
+      totalResults: Math.max(directRes.totalResults, rankedItems.length),
+      aiResolution: resolved,
+      aiAssisted: rankedItems.length > 0 && (resolved.aiAssisted || hasCanonicalDifference),
+      aiWarning: aiRes.warning || null,
+    };
+  } finally {
+    callbacks?.onAiResolvingChange?.(false);
+  }
+}
+
 
 

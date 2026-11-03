@@ -1,9 +1,24 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { MediaItem } from '../types';
 import { MediaPoster } from './MediaPoster';
-import { fetchCatalogue } from '../services/mediaApi';
+import {
+  AiResolvedTitle,
+  executeSmartSearch,
+  fetchCatalogue,
+  normalizeForSearch,
+} from '../services/mediaApi';
 import { dedupeMediaItems } from '../utils/mediaIntegrity';
-import { Search, X, Star, Film, ArrowRight, Loader2, Plus, AlertCircle } from 'lucide-react';
+import {
+  Search,
+  X,
+  Star,
+  Film,
+  ArrowRight,
+  Loader2,
+  Plus,
+  AlertCircle,
+  Sparkles,
+} from 'lucide-react';
 
 interface SearchOverlayProps {
   isOpen: boolean;
@@ -28,6 +43,9 @@ export const SearchOverlay: React.FC<SearchOverlayProps> = ({
   const [totalPages, setTotalPages] = useState(1);
   const [totalResults, setTotalResults] = useState(items.length);
   const [isLoading, setIsLoading] = useState(false);
+  const [isAiResolving, setIsAiResolving] = useState(false);
+  const [aiResolution, setAiResolution] = useState<AiResolvedTitle | null>(null);
+  const [aiAssisted, setAiAssisted] = useState(false);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [searchWarning, setSearchWarning] = useState<string | null>(null);
@@ -43,6 +61,9 @@ export const SearchOverlay: React.FC<SearchOverlayProps> = ({
       setDebouncedQuery('');
       setError(null);
       setSearchWarning(null);
+      setIsAiResolving(false);
+      setAiResolution(null);
+      setAiAssisted(false);
     }
   }, [isOpen]);
 
@@ -58,18 +79,42 @@ export const SearchOverlay: React.FC<SearchOverlayProps> = ({
     async (signal?: AbortSignal, forceRefresh = false) => {
       const currentReqId = ++requestIdRef.current;
       setIsLoading(true);
+      setIsAiResolving(false);
       setError(null);
+      if (!debouncedQuery) {
+        setAiResolution(null);
+        setAiAssisted(false);
+      }
+
       try {
-        const res = await fetchCatalogue(
+        const res = await executeSmartSearch(
           {
-            category: 'discover',
             query: debouncedQuery,
-            type: typeFilter,
-            page: 1,
+            typeFilter,
             refresh: forceRefresh,
           },
-          signal
+          signal,
+          {
+            onDirectResults: (directRes) => {
+              if (signal?.aborted || currentReqId !== requestIdRef.current) return;
+              const directUnique = dedupeMediaItems(directRes.items);
+              if (onRegisterMedia && directUnique.length > 0) {
+                onRegisterMedia(directUnique);
+              }
+              setResults(directUnique);
+              setPage(directRes.page);
+              setTotalPages(directRes.totalPages);
+              setTotalResults(directRes.totalResults);
+              setSearchWarning(debouncedQuery ? directRes.searchWarning || null : null);
+              setIsLoading(false);
+            },
+            onAiResolvingChange: (resolving) => {
+              if (signal?.aborted || currentReqId !== requestIdRef.current) return;
+              setIsAiResolving(resolving);
+            },
+          }
         );
+
         if (signal?.aborted || currentReqId !== requestIdRef.current) return;
 
         const uniqueItems = dedupeMediaItems(res.items);
@@ -80,6 +125,8 @@ export const SearchOverlay: React.FC<SearchOverlayProps> = ({
         setPage(res.page);
         setTotalPages(res.totalPages);
         setTotalResults(res.totalResults);
+        setAiResolution(res.aiResolution || null);
+        setAiAssisted(Boolean(res.aiAssisted));
         setSearchWarning(debouncedQuery ? res.searchWarning || null : null);
       } catch (err: any) {
         if (err?.name === 'AbortError' || signal?.aborted || currentReqId !== requestIdRef.current) {
@@ -89,6 +136,7 @@ export const SearchOverlay: React.FC<SearchOverlayProps> = ({
       } finally {
         if (!signal?.aborted && currentReqId === requestIdRef.current) {
           setIsLoading(false);
+          setIsAiResolving(false);
         }
       }
     },
@@ -110,9 +158,13 @@ export const SearchOverlay: React.FC<SearchOverlayProps> = ({
     setError(null);
     try {
       const nextPage = page + 1;
+      const effectiveQuery =
+        aiAssisted && aiResolution?.normalizedTitle
+          ? aiResolution.normalizedTitle
+          : debouncedQuery;
       const res = await fetchCatalogue({
         category: 'discover',
-        query: debouncedQuery,
+        query: effectiveQuery,
         type: typeFilter,
         page: nextPage,
       });
@@ -168,6 +220,9 @@ export const SearchOverlay: React.FC<SearchOverlayProps> = ({
 
   const isPendingDebounce = query.trim() !== debouncedQuery;
   const showBusy = isLoading || isPendingDebounce;
+  const normAiCanonical = aiResolution?.normalizedTitle
+    ? normalizeForSearch(aiResolution.normalizedTitle)
+    : '';
 
   return (
     <div className="fixed inset-0 z-50 overflow-y-auto cm-glass-backdrop flex items-start justify-center pt-16 sm:pt-24 px-4 animate-in fade-in duration-150">
@@ -189,11 +244,19 @@ export const SearchOverlay: React.FC<SearchOverlayProps> = ({
             placeholder="Search movies and TV series across the catalogue..."
             className="w-full bg-transparent text-white placeholder:text-slate-400 text-sm focus:outline-none"
           />
+          {isAiResolving && (
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-amber-500/15 border border-amber-400/30 text-[11px] font-medium text-amber-300 whitespace-nowrap shrink-0">
+              <Loader2 className="w-3 h-3 animate-spin text-amber-400 shrink-0" />
+              <span>AI-assisted search</span>
+            </span>
+          )}
           {query && (
             <button
               onClick={() => {
                 setQuery('');
                 setDebouncedQuery('');
+                setAiResolution(null);
+                setAiAssisted(false);
               }}
               className="p-1 text-slate-400 hover:text-white rounded"
             >
@@ -245,6 +308,41 @@ export const SearchOverlay: React.FC<SearchOverlayProps> = ({
           </span>
         </div>
 
+        {/* Subtle AI-Assisted Canonical Title Banner */}
+        {!isAiResolving &&
+          debouncedQuery &&
+          aiAssisted &&
+          aiResolution &&
+          results.length > 0 && (
+            <div className="px-5 py-2 bg-amber-500/[0.08] border-b border-amber-500/20 flex flex-wrap items-center justify-between gap-2 text-xs">
+              <div className="flex items-center gap-2 min-w-0">
+                <Sparkles className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                <span className="text-slate-300 truncate">
+                  {aiResolution.isAmbiguous ? (
+                    <>
+                      Multiple editions found for{' '}
+                      <strong className="text-white font-semibold">
+                        {aiResolution.normalizedTitle}
+                      </strong>{' '}
+                      — showing top TMDB candidates
+                    </>
+                  ) : (
+                    <>
+                      AI-assisted match for{' '}
+                      <span className="text-slate-400">&quot;{debouncedQuery}&quot;</span>:{' '}
+                      <strong className="text-amber-300 font-semibold">
+                        {aiResolution.normalizedTitle}
+                      </strong>
+                    </>
+                  )}
+                </span>
+              </div>
+              <span className="text-[10px] font-mono text-amber-300/90 px-2 py-0.5 rounded bg-amber-500/15 border border-amber-400/25 shrink-0">
+                AI-assisted match
+              </span>
+            </div>
+          )}
+
         {/* API Error Banner */}
         {error && (
           <div className="mx-3 mt-3 p-3 rounded-xl bg-red-500/10 border border-red-500/30 flex items-center justify-between gap-3">
@@ -279,7 +377,7 @@ export const SearchOverlay: React.FC<SearchOverlayProps> = ({
 
         {/* Results List */}
         <div className="overflow-y-auto divide-y divide-white/5 p-2">
-          {results.length === 0 && !showBusy ? (
+          {results.length === 0 && !showBusy && !isAiResolving ? (
             <div className="py-12 text-center text-slate-500">
               <Film className="w-10 h-10 mx-auto stroke-1 opacity-40 mb-2" />
               <p className="text-sm font-medium text-slate-400">No matching titles found</p>
@@ -287,53 +385,73 @@ export const SearchOverlay: React.FC<SearchOverlayProps> = ({
             </div>
           ) : (
             <>
-              {results.map((item, idx) => (
-                <div
-                  key={item.id}
-                  onMouseEnter={() => setActiveIndex(idx)}
-                  onClick={() => {
-                    onClose();
-                    onSelectMedia(item);
-                  }}
-                  className={`group flex items-center justify-between p-3 rounded-xl cursor-pointer transition-colors ${
-                    activeIndex === idx ? 'bg-white/10' : 'hover:bg-white/5'
-                  }`}
-                >
-                  <div className="flex items-center gap-3.5 min-w-0">
-                    <div className="w-12 h-16 rounded overflow-hidden shrink-0 border border-white/10">
-                      <MediaPoster media={item} aspect="poster" />
-                    </div>
-                    <div className="min-w-0">
-                      <h4
-                        className={`text-sm font-semibold transition-colors truncate ${
-                          activeIndex === idx ? 'text-amber-400' : 'text-white group-hover:text-amber-400'
-                        }`}
-                      >
-                        {item.title}
-                      </h4>
-                      <div className="flex items-center gap-1.5 text-xs text-slate-400 mt-0.5">
-                        <span>{item.year > 0 ? item.year : 'TBA'}</span>
-                        <span aria-hidden="true" className="text-slate-600">·</span>
-                        <span>{item.type === 'movie' ? 'Movie' : 'TV Series'}</span>
-                        <span aria-hidden="true" className="text-slate-600">·</span>
-                        <span className="truncate">{item.genres.slice(0, 2).join(', ')}</span>
+              {results.map((item, idx) => {
+                const isCanonicalAiMatch =
+                  Boolean(debouncedQuery) &&
+                  aiAssisted &&
+                  Boolean(normAiCanonical) &&
+                  !aiResolution?.isAmbiguous &&
+                  normalizeForSearch(item.title) === normAiCanonical &&
+                  idx === 0;
+
+                return (
+                  <div
+                    key={item.id}
+                    onMouseEnter={() => setActiveIndex(idx)}
+                    onClick={() => {
+                      onClose();
+                      onSelectMedia(item);
+                    }}
+                    className={`group flex items-center justify-between p-3 rounded-xl cursor-pointer transition-colors ${
+                      activeIndex === idx ? 'bg-white/10' : 'hover:bg-white/5'
+                    }`}
+                  >
+                    <div className="flex items-center gap-3.5 min-w-0">
+                      <div className="w-12 h-16 rounded overflow-hidden shrink-0 border border-white/10">
+                        <MediaPoster media={item} aspect="poster" />
+                      </div>
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-2 min-w-0">
+                          <h4
+                            className={`text-sm font-semibold transition-colors truncate ${
+                              activeIndex === idx
+                                ? 'text-amber-400'
+                                : 'text-white group-hover:text-amber-400'
+                            }`}
+                          >
+                            {item.title}
+                          </h4>
+                          {isCanonicalAiMatch && (
+                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-500/15 border border-amber-400/30 text-[10px] font-medium text-amber-300 shrink-0">
+                              <Sparkles className="w-2.5 h-2.5 text-amber-400" />
+                              <span>AI-assisted match</span>
+                            </span>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-1.5 text-xs text-slate-400 mt-0.5">
+                          <span>{item.year > 0 ? item.year : 'TBA'}</span>
+                          <span aria-hidden="true" className="text-slate-600">·</span>
+                          <span>{item.type === 'movie' ? 'Movie' : 'TV Series'}</span>
+                          <span aria-hidden="true" className="text-slate-600">·</span>
+                          <span className="truncate">{item.genres.slice(0, 2).join(', ')}</span>
+                        </div>
                       </div>
                     </div>
-                  </div>
 
-                  <div className="flex items-center gap-3 shrink-0 ml-4">
-                    <div className="flex items-center gap-1 text-amber-400 font-mono text-xs">
-                      <Star className="w-3.5 h-3.5 fill-amber-400" />
-                      <span>{item.rating > 0 ? item.rating.toFixed(1) : 'NR'}</span>
+                    <div className="flex items-center gap-3 shrink-0 ml-4">
+                      <div className="flex items-center gap-1 text-amber-400 font-mono text-xs">
+                        <Star className="w-3.5 h-3.5 fill-amber-400" />
+                        <span>{item.rating > 0 ? item.rating.toFixed(1) : 'NR'}</span>
+                      </div>
+                      <ArrowRight
+                        className={`w-4 h-4 transition-colors ${
+                          activeIndex === idx ? 'text-white' : 'text-slate-600 group-hover:text-white'
+                        }`}
+                      />
                     </div>
-                    <ArrowRight
-                      className={`w-4 h-4 transition-colors ${
-                        activeIndex === idx ? 'text-white' : 'text-slate-600 group-hover:text-white'
-                      }`}
-                    />
                   </div>
-                </div>
-              ))}
+                );
+              })}
 
               {page < totalPages && (
                 <div className="p-3 text-center">

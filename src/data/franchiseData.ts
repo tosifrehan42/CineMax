@@ -698,6 +698,73 @@ const JOHN_WICK_1: MediaItem = {
   },
 };
 
+const JOHN_WICK_2: MediaItem = {
+  id: 'tmdb-movie-324552',
+  title: 'John Wick: Chapter 2',
+  type: 'movie',
+  year: 2017,
+  runtime: '2h 02m',
+  language: 'en',
+  genres: ['Action', 'Thriller', 'Crime'],
+  rating: 7.5,
+  voteCount: '520k',
+  synopsis:
+    'Bound by a blood oath to help a former associate seize control of a shadowy international assassins’ guild, John Wick travels to Rome where he squares off against some of the world’s deadliest killers.',
+  tagline: 'Never stab the devil in the back.',
+  director: 'Chad Stahelski',
+  cast: [
+    { name: 'Keanu Reeves', role: 'John Wick' },
+    { name: 'Ian McShane', role: 'Winston' },
+    { name: 'Laurence Fishburne', role: 'The Bowery King' },
+  ],
+  moods: ['adrenaline-rush', 'atmospheric-noir'],
+  contentRating: 'R',
+  streamOn: ['Peacock', 'Prime Video'],
+  themeColor: '#6366f1',
+  posterUrl: 'https://image.tmdb.org/t/p/w500/hXWBc0ioZP3cN4zCu6SN3YHXZVO.jpg',
+  backdropUrl: 'https://image.tmdb.org/t/p/w1280/r17jFHAemzcWPPtoO0UxjIX0xas.jpg',
+  posterVisual: {
+    bgFrom: '#0a0d24',
+    bgTo: '#171c47',
+    accent: '#818cf8',
+    iconType: 'city',
+  },
+};
+
+const JOHN_WICK_3: MediaItem = {
+  id: 'tmdb-movie-458156',
+  title: 'John Wick: Chapter 3 – Parabellum',
+  type: 'movie',
+  year: 2019,
+  runtime: '2h 11m',
+  language: 'en',
+  genres: ['Action', 'Thriller', 'Crime'],
+  rating: 7.4,
+  voteCount: '490k',
+  synopsis:
+    'Super-assassin John Wick returns with a $14 million price tag on his head and an army of bounty-hunting killers on his trail after killing a member of the shadowy international assassin’s guild, the High Table.',
+  tagline: 'If you want peace, prepare for war.',
+  director: 'Chad Stahelski',
+  cast: [
+    { name: 'Keanu Reeves', role: 'John Wick' },
+    { name: 'Halle Berry', role: 'Sofia Al-Azwar' },
+    { name: 'Ian McShane', role: 'Winston' },
+    { name: 'Laurence Fishburne', role: 'The Bowery King' },
+  ],
+  moods: ['adrenaline-rush', 'atmospheric-noir'],
+  contentRating: 'R',
+  streamOn: ['Peacock', 'Prime Video'],
+  themeColor: '#f59e0b',
+  posterUrl: 'https://image.tmdb.org/t/p/w500/ziEuG1essDuWuC5lpWUaw1uXY2O.jpg',
+  backdropUrl: 'https://image.tmdb.org/t/p/w1280/vVpEOvdxVBP2aV166j5Xlvb5Cdc.jpg',
+  posterVisual: {
+    bgFrom: '#1c120a',
+    bgTo: '#3f210d',
+    accent: '#e08a3c',
+    iconType: 'city',
+  },
+};
+
 const JOHN_WICK_4: MediaItem = {
   id: 'tmdb-movie-603692',
   title: 'John Wick: Chapter 4',
@@ -727,6 +794,179 @@ const JOHN_WICK_4: MediaItem = {
     bgFrom: '#20070c',
     bgTo: '#450a16',
     accent: '#f43f5e',
+    iconType: 'city',
+  },
+};
+
+const SPIDER_MAN_NO_WAY_HOME: MediaItem = {
+  id: 'tmdb-movie-634649',
+  title: 'Spider-Man: No Way Home',
+  type: 'movie',
+  year: 2021,
+  runtime: '2h 28m',
+  language: 'en',
+  genres: ['Action', 'Adventure', 'Sci-Fi'],
+  rating: 8.2,
+  voteCount: '910k',
+  synopsis:
+    'Peter Parker is unmasked and no longer able to separate his normal life from the high-stakes of being a Super Hero. When he asks for help from Doctor Strange the stakes become even more dangerous, forcing him to discover what it truly means to be Spider-Man.',
+  tagline: 'The Multiverse unleashed.',
+  director: 'Jon Watts',
+  cast: [
+    { name: 'Tom Holland', role: 'Peter Parker / Spider-Man' },
+    { name: 'Zendaya', role: 'MJ' },
+    { name: 'Benedict Cumberbatch', role: 'Doctor Strange' },
+    { name: 'Willem Dafoe', role: 'Norman Osborn / Green Goblin' },
+  ],
+  moods: ['adrenaline-rush', 'epic-worldbuilding'],
+  contentRating: 'PG-13',
+  streamOn: ['Disney+', 'Starz'],
+  themeColor: '#e11d48',
+  posterUrl: 'https://image.tmdb.org/t/p/w500/1g0dhYtq4irTY1GPXvft6k4YLjm.jpg',
+  backdropUrl: 'https://image.tmdb.org/t/p/w1280/iQFcwSGbZXMkeyKrxbPnwnRo5fl.jpg',
+  posterVisual: {
+    bgFrom: '#20070c',
+    bgTo: '#450a16',
+    accent: '#f43f5e',
+    iconType: 'city',
+  },
+};
+
+const AVENGERS_ENDGAME: MediaItem = {
+  id: 'tmdb-movie-299534',
+  title: 'Avengers: Endgame',
+  type: 'movie',
+  year: 2019,
+  runtime: '3h 01m',
+  language: 'en',
+  genres: ['Adventure', 'Sci-Fi', 'Action'],
+  rating: 8.4,
+  voteCount: '1.3M',
+  synopsis:
+    'After the devastating events of Avengers: Infinity War, the universe is in ruins due to the efforts of the Mad Titan, Thanos. With the help of remaining allies, the Avengers must assemble once more in order to undo Thanos’ actions and restore order to the universe.',
+  tagline: 'Avenge the fallen.',
+  director: 'Anthony Russo & Joe Russo',
+  cast: [
+    { name: 'Robert Downey Jr.', role: 'Tony Stark / Iron Man' },
+    { name: 'Chris Evans', role: 'Steve Rogers / Captain America' },
+    { name: 'Scarlett Johansson', role: 'Natasha Romanoff / Black Widow' },
+    { name: 'Chris Hemsworth', role: 'Thor' },
+  ],
+  moods: ['epic-worldbuilding', 'adrenaline-rush'],
+  contentRating: 'PG-13',
+  streamOn: ['Disney+'],
+  themeColor: '#6366f1',
+  posterUrl: 'https://image.tmdb.org/t/p/w500/or06FN3Dka5tukK1e9sl16pB3iy.jpg',
+  backdropUrl: 'https://image.tmdb.org/t/p/w1280/7RyHsO4yDXtBv1zUU3mTpHeQ0d5.jpg',
+  posterVisual: {
+    bgFrom: '#0a0d24',
+    bgTo: '#171c47',
+    accent: '#818cf8',
+    iconType: 'space',
+  },
+};
+
+const BREAKING_BAD: MediaItem = {
+  id: 'tmdb-tv-1396',
+  title: 'Breaking Bad',
+  type: 'tv',
+  year: 2008,
+  seasons: 5,
+  totalEpisodes: 62,
+  language: 'en',
+  genres: ['Crime', 'Drama', 'Thriller'],
+  rating: 9.5,
+  voteCount: '2.2M',
+  synopsis:
+    'Walter White, a New Mexico chemistry teacher, is diagnosed with Stage III cancer and given a prognosis of only two years left to live. He becomes filled with a sense of fearlessness and an unrelenting desire to secure his family’s financial future at any cost as he enters the dangerous world of drugs and crime.',
+  tagline: 'Change the equation.',
+  director: 'Vince Gilligan',
+  cast: [
+    { name: 'Bryan Cranston', role: 'Walter White' },
+    { name: 'Aaron Paul', role: 'Jesse Pinkman' },
+    { name: 'Anna Gunn', role: 'Skyler White' },
+    { name: 'Bob Odenkirk', role: 'Saul Goodman' },
+  ],
+  moods: ['dark-gripping', 'atmospheric-noir'],
+  contentRating: 'TV-MA',
+  streamOn: ['Netflix'],
+  themeColor: '#10b981',
+  posterUrl: 'https://image.tmdb.org/t/p/w500/ztkUQFLlC19CCMYHW9o1zWhJRNq.jpg',
+  backdropUrl: 'https://image.tmdb.org/t/p/w1280/tsRy63Mu5cu8etL1X7ZLyf7UP1M.jpg',
+  posterVisual: {
+    bgFrom: '#061f18',
+    bgTo: '#0b3d30',
+    accent: '#34d399',
+    iconType: 'desert',
+  },
+};
+
+const THE_OFFICE_US: MediaItem = {
+  id: 'tmdb-tv-2316',
+  title: 'The Office',
+  type: 'tv',
+  year: 2005,
+  seasons: 9,
+  totalEpisodes: 201,
+  language: 'en',
+  genres: ['Comedy'],
+  rating: 8.9,
+  voteCount: '720k',
+  synopsis:
+    'The everyday lives of office employees in the Scranton, Pennsylvania branch of the fictional Dunder Mifflin Paper Company.',
+  tagline: 'A comedy for anyone whose boss is an idiot.',
+  director: 'Greg Daniels',
+  cast: [
+    { name: 'Steve Carell', role: 'Michael Scott' },
+    { name: 'Rainn Wilson', role: 'Dwight Schrute' },
+    { name: 'John Krasinski', role: 'Jim Halpert' },
+    { name: 'Jenna Fischer', role: 'Pam Beesly' },
+  ],
+  moods: ['intimate-reflective'],
+  contentRating: 'TV-14',
+  streamOn: ['Peacock', 'Prime Video'],
+  themeColor: '#0ea5e9',
+  posterUrl: 'https://image.tmdb.org/t/p/w500/qWnJzyZhyy74gjpSjIXWmuk0ifX.jpg',
+  backdropUrl: 'https://image.tmdb.org/t/p/w1280/vNpuAxGTl9HsUbHqam3E9CzqCvX.jpg',
+  posterVisual: {
+    bgFrom: '#041829',
+    bgTo: '#0b2b40',
+    accent: '#38bdf8',
+    iconType: 'city',
+  },
+};
+
+const THE_OFFICE_UK: MediaItem = {
+  id: 'tmdb-tv-2996',
+  title: 'The Office',
+  type: 'tv',
+  year: 2001,
+  seasons: 2,
+  totalEpisodes: 14,
+  language: 'en',
+  genres: ['Comedy'],
+  rating: 8.5,
+  voteCount: '130k',
+  synopsis:
+    'Mockumentary sitcom following the day-to-day lives of office employees in the Slough branch of Wernham Hogg paper merchants, led by self-styled entertainer David Brent.',
+  tagline: 'Work. Don’t you just love it?',
+  director: 'Ricky Gervais & Stephen Merchant',
+  cast: [
+    { name: 'Ricky Gervais', role: 'David Brent' },
+    { name: 'Martin Freeman', role: 'Tim Canterbury' },
+    { name: 'Mackenzie Crook', role: 'Gareth Keenan' },
+    { name: 'Lucy Davis', role: 'Dawn Tinsley' },
+  ],
+  moods: ['intimate-reflective'],
+  contentRating: 'TV-MA',
+  streamOn: ['BBC iPlayer', 'BritBox'],
+  themeColor: '#6366f1',
+  posterUrl: 'https://image.tmdb.org/t/p/w500/7JffDMv6mB2O5u7X8A8o0S6yE8C.jpg',
+  backdropUrl: 'https://image.tmdb.org/t/p/w1280/9yBVqNruk6Ykrwc32qrK2TIE5xw.jpg',
+  posterVisual: {
+    bgFrom: '#0a0d24',
+    bgTo: '#171c47',
+    accent: '#818cf8',
     iconType: 'city',
   },
 };
@@ -818,7 +1058,7 @@ export const FRANCHISE_COLLECTIONS: FranchiseCollection[] = [
       'Continuous Timeline: John Wick (2014) leads directly into Chapters 2, 3, and the globetrotting finale in John Wick: Chapter 4 (2023).',
     accentColor: '#818cf8',
     backdropUrl: 'https://image.tmdb.org/t/p/w1280/7I6VUdPj6tQECNHdviJkUHD2u89.jpg',
-    items: [JOHN_WICK_1, JOHN_WICK_4],
+    items: [JOHN_WICK_1, JOHN_WICK_2, JOHN_WICK_3, JOHN_WICK_4],
   },
 ];
 
@@ -1131,7 +1371,14 @@ const RAW_EXTRA_ANCHOR_ITEMS: MediaItem[] = [
   INCEPTION_ITEM,
   BLADE_RUNNER_1982,
   JOHN_WICK_1,
+  JOHN_WICK_2,
+  JOHN_WICK_3,
   JOHN_WICK_4,
+  SPIDER_MAN_NO_WAY_HOME,
+  AVENGERS_ENDGAME,
+  BREAKING_BAD,
+  THE_OFFICE_US,
+  THE_OFFICE_UK,
 ];
 
 export const EXTRA_ANCHOR_ITEMS: MediaItem[] = dedupeMediaItems(RAW_EXTRA_ANCHOR_ITEMS);

@@ -1,6 +1,6 @@
 {
-  "summary": "Implementation plan for CineMax Service Worker, offline caching of app shell, watchlist posters, viewed detail metadata, and catalogue feeds, local-first offline mutation queue with automatic Supabase sync on reconnect, and full PWA installability with an offline/sync status indicator.",
-  "updatedAt": "2026-11-03T16:11:26.336233747Z",
+  "summary": "Implementation plan for Gemini AI-Powered Smart Search & Import Matching in CineMax, including src/server/titleResolutionService.ts, POST /api/ai/resolve-titles in server.ts, AI-assisted SearchOverlay fallback, and batch title normalization in completedImportService.ts and ImportCompletedModal.tsx.",
+  "updatedAt": "2026-11-03T17:45:53.006792997Z",
   "requestFeedback": true,
   "userFacing": true
 }

@@ -1,84 +1,96 @@
-# CineMax Service Worker, Offline Access & PWA Implementation Plan
+# CineMax: Gemini AI-Powered Smart Search & Import Matching Plan
 
-## 1. Overview & Goals
-Enable seamless offline access to the **CineMax** application shell, user watchlist, previously viewed titles/episodes, and catalogue discovery feeds via a multi-tier Service Worker and local-first storage architecture, accompanied by full Progressive Web App (PWA) installability and an unobtrusive offline/sync status indicator.
+## 1. Overview & Architecture
+Enhance CineMax's search and completed-list import matching with server-side Google Gemini title normalization (`gemini-3.8-flash` via `@google/genai`) while preserving TMDB as the single source of truth for all media metadata, IDs, posters, ratings, and release years.
 
----
-
-## 2. Service Worker & Caching Architecture (`vite-plugin-pwa` + Custom Runtime Cache)
-
-### A. App Shell Precaching & Navigation Fallback
-- Integrate `vite-plugin-pwa` in `vite.config.ts` with `registerType: 'autoUpdate'` and `devOptions.enabled: true` (respecting `base` paths `/` in dev/Capacitor and `/CineMax/` in GitHub Pages builds).
-- Remove the legacy inline `serviceWorker.getRegistrations()...unregister()` block in `index.html` so registered service workers remain active across reloads.
-- Precache core application shell assets (`index.html`, compiled JS/CSS bundles, SVG/PNG icons, and font stylesheets) while excluding large promotional video files (`*.mp4`) from precaching.
-- Configure SPA navigation fallback (`navigateFallback: 'index.html'`) so refreshing any route while offline loads the CineMax app shell immediately.
-
-### B. Multi-Tier Runtime Caching Strategies
-1. **Poster & Backdrop Media Assets (`CacheFirst` + Background Warm-Up)**
-   - Cache poster and backdrop images from `image.tmdb.org`, `is1-ssl.mzstatic.com` (Apple iTunes posters), and `static.tvmaze.com` in `cinemax-media-posters-cache` (up to 400 entries, 30-day retention, supporting opaque `[0, 200]` responses).
-   - **Proactive Watchlist & History Poster Warming**: Whenever the user's watchlist or watch history loads or updates, proactively warm the Service Worker image cache (`caches.open('cinemax-media-posters-cache')`) for all watchlist and recently viewed poster/backdrop URLs so they render even if the user goes offline before scrolling to them.
-2. **Viewed Title Details & Season Episode Metadata (`NetworkFirst` + Persistent Local Snapshot)**
-   - Cache `/api/title/*`, `/api/tv/*/season/*`, `/api/trailer/*`, `api.themoviedb.org/3/*`, and `api.tvmaze.com/shows/*` in `cinemax-title-details-cache` with a fast network timeout (`3s`) falling back to cached responses.
-   - Persist viewed title detail payloads (`item` + `similar`) and viewed TV season episode lists in a dedicated bounded IndexedDB/localStorage store (`src/services/offlineCacheService.ts`) so `fetchTitleDetails` and `fetchTvSeasonEpisodes` in `src/services/mediaApi.ts` resolve instantaneously when offline—even on static or hybrid hosts.
-3. **Catalogue & Discovery Feeds (`StaleWhileRevalidate` / `NetworkFirst`)**
-   - Cache `/api/catalogue*`, Apple iTunes RSS feeds, and TVMaze show feeds in `cinemax-catalogue-cache`, plus persist the most recent catalogue responses per category in `offlineCacheService.ts` so Home and Discover tabs remain browsable offline.
-4. **Google Fonts (`CacheFirst`)**
-   - Cache `fonts.googleapis.com` and `fonts.gstatic.com` for 1 year (`cinemax-fonts-cache`) so typography (`Outfit` and `Plus Jakarta Sans`) never degrades offline.
+- **Security & Fallback First**: All Gemini calls execute exclusively on the server (`process.env.GEMINI_API_KEY` with `User-Agent: 'aistudio-build'`). If `GEMINI_API_KEY` is missing, rate-limited, or unreachable, Search and Import gracefully fall back to direct TMDB and local catalogue matching without breaking any workflow.
+- **Zero Fabrication Guarantee**: Gemini only suggests normalized canonical title strings, alternate search queries, optional media type hints, and release year hints. Every displayed candidate is fetched and verified from TMDB or the CineMax catalogue and deduplicated via `dedupeMediaItems()` / `getCanonicalMediaKey()`.
 
 ---
 
-## 3. Local-First Watchlist & Episode Progress Queue with Auto-Sync
+## 2. Server-Side Title Resolution Service (`src/server/titleResolutionService.ts` & `server.ts`)
 
-### A. Cloud Snapshot Persistence for Signed-In Users
-- Mirror signed-in user state (`cloudWatchlist`, `cloudWatchedEpisodes`, `watchHistory`, and `userProfile`) into user-scoped local cache keys (`cinemax_cloud_cache_<userId>`) whenever loaded or mutated.
-- If a signed-in user opens CineMax while offline or mutations occur without connectivity, hydrate immediately from the user-scoped local snapshot so their full watchlist and episode progress are available offline.
+### A. `src/server/titleResolutionService.ts` *(New)*
+- Reuses `gemini-3.8-flash` with `@google/genai` (`Type.OBJECT` / `Type.ARRAY` structured `responseSchema`, `responseMimeType: 'application/json'`) matching `src/server/importImageExtractor.ts`.
+- Supports both single-query normalization (Search) and batch title normalization (Import List):
+  - **Input Schema**:
+    ```ts
+    export interface TitleResolutionInputItem {
+      rowId?: string;
+      title: string;
+      mediaTypeHint?: 'movie' | 'tv' | null;
+      yearHint?: number | null;
+    }
+    ```
+  - **Output Schema**:
+    ```ts
+    export interface ResolvedTitleSuggestion {
+      rowId: string;
+      originalTitle: string;
+      normalizedTitle: string;
+      alternateQueries: string[];
+      mediaTypeHint: 'movie' | 'tv' | null;
+      yearHint: number | null;
+      confidence: number;
+      aiAssisted: boolean;
+    }
+    ```
+- **Safeguards & Performance Controls**:
+  - Validates inputs: maximum `50` titles per request, maximum `200` characters per title.
+  - Short-lived in-memory LRU/TTL cache (`15 minutes`, up to `500` normalized title entries) keyed by normalized `(title + mediaTypeHint + yearHint)` so repeated searches or re-imports resolve instantaneously without redundant model calls.
+  - `8,000ms` request timeout using `Promise.race` / `AbortController` so slow model calls never hang Search or Import.
+  - Safe fallback generator when `GEMINI_API_KEY` is unconfigured or errors occur (returns `aiAssisted: false` with deterministic shorthand expansion for common patterns like numbered sequels and punctuation).
 
-### B. Offline Mutation Queue & Automatic Supabase Replay
-- Create an offline sync queue in `src/services/offlineSyncQueue.ts` backed by `localStorage` (`cinemax_offline_mutation_queue`):
-  - Queues mutations when `!navigator.onLine` or when a Supabase network call fails due to connectivity:
-    - `UPSERT_WATCHLIST` (status, favourite toggle, personal rating, notes, mediaSnapshot)
-    - `DELETE_WATCHLIST`
-    - `TOGGLE_EPISODE` (single episode watched/unwatched)
-    - `SET_SEASON_EPISODES` (mark full season watched/unwatched)
-    - `UPSERT_HISTORY` / `DELETE_HISTORY`
-  - Optimistically updates the UI state and local cache immediately.
-  - Automatically flushes and deduplicates queued operations in FIFO order when connectivity is restored (`window` `online` event) or upon app launch when online and authenticated, updating sync status in real time.
-
----
-
-## 4. PWA Installability, Manifest & Offline Status UI
-
-### A. Web App Manifest & Compliant Icons
-- Generate high-contrast CineMax brand icons in `public/`:
-  - `public/icon.svg` (scalable vector brand emblem)
-  - `public/pwa-192x192.png` (`192×192`, `purpose: "any"`)
-  - `public/pwa-512x512.png` (`512×512`, `purpose: "any"`)
-  - `public/pwa-maskable-512x512.png` (`512×512`, `purpose: "maskable"` with safe-zone padding on `#090a0f` obsidian background)
-  - `public/apple-touch-icon.png` (`180×180` PNG for iOS Safari home screen)
-- Configure the Web App Manifest (`name: "CineMax - Premium Cinema & TV Discovery"`, `short_name: "CineMax"`, `display: "standalone"`, `theme_color: "#090a0f"`, `background_color: "#090a0f"`).
-
-### B. Subtle Offline / Sync Status Banner & In-App Install Prompt
-- Create `src/hooks/usePWAStatus.ts` to track:
-  - Online/offline connectivity (`isOnline`)
-  - Pending offline sync mutations count & active syncing state (`pendingSyncCount`, `isSyncing`, `lastSyncedAt`)
-  -Cached offline readiness (number of watchlist & viewed titles cached for offline access)
-  - PWA installability (`isInstallable`, `isInstalled`, `isIOS`, `install()`)
-- Create `src/components/OfflineStatusBanner.tsx`:
-  - Renders a compact, non-intrusive "Liquid Glass" status bar below the top navbar or bottom-left corner when:
-    - **Offline**: *"Offline Mode · Watchlist & viewed titles available from local cache"* (with count of cached titles and pending changes if any).
-    - **Syncing / Reconnected**: *"Back online · Syncing X offline changes to cloud..."* → briefly confirms *"All changes synced"* before auto-dismissing.
-- Add a clean **Install App** action (`src/components/PWAInstallButton.tsx`) integrated into the Profile / Settings view and subtle header action when installable (auto-hides when already installed in `standalone` mode or running inside Capacitor Android, and includes an iOS Safari "Add to Home Screen" guide modal).
+### B. `POST /api/ai/resolve-titles` in `server.ts`
+- Mounts `POST /api/ai/resolve-titles` with JSON body validation (`express.json({ limit: '256kb' })`).
+- Accepts `{ items: TitleResolutionInputItem[] }` or `{ query: string, mediaTypeHint?: 'movie' | 'tv' }` and returns `{ aiConfigured: boolean, items: ResolvedTitleSuggestion[], warning?: string }`.
 
 ---
 
-## 5. Planned File Changes
-- **`vite.config.ts`**: Add `VitePWA` plugin configuration with Workbox runtime caching rules for app shell, Google Fonts, TMDB/iTunes/TVMaze poster assets, and API routes.
-- **`tsconfig.json`**: Add `"vite-plugin-pwa/client"` to `compilerOptions.types`.
-- **`index.html`**: Remove the legacy service worker unregistration loop; add PWA meta tags (`theme-color`, `apple-mobile-web-app-capable`, `apple-touch-icon`, `icon.svg`).
-- **`public/icon.svg`**, **`public/pwa-192x192.png`**, **`public/pwa-512x512.png`**, **`public/pwa-maskable-512x512.png`**, **`public/apple-touch-icon.png`**: Brand icon assets for PWA installation.
-- **`src/services/offlineCacheService.ts`** *(new)*: Persistent offline storage and Cache Storage warm-up for watchlist posters, viewed title details (`item` + `similar`), viewed TV season episodes, and recent catalogue feeds.
-- **`src/services/offlineSyncQueue.ts`** *(new)*: Local-first mutation queue and automatic Supabase replay engine on reconnect.
-- **`src/services/mediaApi.ts`**: Wire `fetchCatalogue`, `fetchTitleDetails`, `fetchTvSeasonEpisodes`, and `fetchMediaTrailers` to read/write through `offlineCacheService` so previously viewed titles and seasons work seamlessly offline.
-- **`src/hooks/usePWAStatus.ts`** *(new)*: Hook managing service worker registration, online/offline state, sync queue events, and `beforeinstallprompt` / iOS install flow.
-- **`src/components/OfflineStatusBanner.tsx`** *(new)*: Subtle Liquid Glass offline/sync indicator and PWA install prompt modal.
-- **`src/App.tsx`** & **`src/components/Navbar.tsx`**: Connect cloud state snapshot caching, offline mutation queueing/replay, poster cache warming for watchlist/history items, and mount `OfflineStatusBanner` / install trigger.
+## 3. Feature A: Intelligent Search (`src/services/mediaApi.ts` & `src/components/SearchOverlay.tsx`)
+
+### A. Smart Search Trigger & Multi-Query TMDB Resolution (`src/services/mediaApi.ts`)
+- Add `resolveTitlesWithAi()` client helper (with client-side short-TTL cache and `AbortSignal` support) calling `POST /api/ai/resolve-titles`.
+- Add `evaluateDirectSearchConfidence(query, items)`:
+  - Checks whether the initial direct `fetchCatalogue()` results already contain a strong canonical title match (e.g., exact or high-tier normalized title match among the top results).
+  - **Rule**: Direct TMDB search always runs first after the 250ms debounce. Gemini is invoked **only** when query length is `>= 3` characters and direct results are empty, weak, or lack a confident title match (e.g., `"john wick 3"` where TMDB's raw search ranks partial matches or misses `"John Wick: Chapter 3 – Parabellum"`).
+- When triggered:
+  1. Calls `resolveTitlesWithAi([{ title: query, mediaTypeHint }])`.
+  2. Queries `fetchCatalogue()` in parallel (up to 3 unique queries: `normalizedTitle` + top 2 distinct `alternateQueries`), respecting the active `typeFilter` (`all` | `movie` | `tv`) and `AbortSignal`.
+  3. Merges and deduplicates all returned TMDB items with the initial results via `dedupeMediaItems()`.
+  4. Re-ranks candidates so exact matches against `normalizedTitle` (e.g., `"John Wick: Chapter 3 – Parabellum"`, `"The Dark Knight"`, `"Spider-Man: No Way Home"`, `"Avengers: Endgame"`) rank at the top while keeping ambiguous franchises (e.g., `"The Office"`) grouped cleanly as real TMDB candidates.
+
+### B. Subtle UI Enhancements (`src/components/SearchOverlay.tsx`)
+- Preserves existing 250ms debounce, `requestIdRef` race protection, keyboard navigation, and Liquid Glass styling.
+- Shows a subtle status pill (`"AI-assisted search · Resolving canonical title..."` while resolving, and `"AI-assisted match: [Normalized Title]"` when Gemini expanded the query into a canonical title different from the raw input).
+
+---
+
+## 4. Feature B: Intelligent Import List Matching (`src/services/completedImportService.ts` & `src/components/ImportCompletedModal.tsx`)
+
+### A. Batch Title Normalization Before TMDB Matching (`src/services/completedImportService.ts`)
+- Extend `ExtractedImportItem` and `ResolvedImportRow` with optional AI normalization metadata (`normalizedTitle?: string`, `alternateQueries?: string[]`, `aiConfidence?: number`, `aiAssisted?: boolean`) while strictly preserving `id`/`rowId`, `rawLine`, original `title`, `yearHint`, `mediaTypeHint`, `watchedAtHint`, `personalRatingHint`, `notesHint`, `seasonNumber`, and `episodeNumbers`.
+- In `resolveExtractedImportItems()`:
+  1. Before querying TMDB, send extracted items in batches of up to `25` titles per request to `POST /api/ai/resolve-titles`.
+  2. For each item, query `fetchCatalogue()` using the original title and (when distinct) the AI `normalizedTitle` + up to 2 fallback `alternateQueries` (with bounded concurrency `4`).
+  3. Merge and deduplicate all candidate `MediaItem` records via `dedupeMediaItems()`.
+- Enhance `scoreMediaCandidate(item, candidate, aiSuggestion?)`:
+  - Evaluates candidate title similarity against `item.title`, `aiSuggestion.normalizedTitle`, and `aiSuggestion.alternateQueries`.
+  - Enforces strict type safety: if `item.mediaTypeHint` was explicitly provided by the user/file (`movie` or `tv`), candidates of the opposite type receive `-100` and are never auto-matched. When `item.mediaTypeHint` is not explicitly provided, `aiSuggestion.mediaTypeHint` provides only a soft tie-breaker bonus (`+8`) so ambiguous titles like `"The Office"` still surface rival candidates for review.
+  - Populates clear, informative `matchReason` messages:
+    - When AI normalized a shorthand title to a verified TMDB match: `"AI recognized 'John Wick 3' as 'John Wick: Chapter 3 – Parabellum'; TMDB verified the match."`
+    - When ambiguous or conflicting year/type candidates exist: keeps `matchStatus = 'ambiguous'` with a clear explanation so the user confirms in the review step.
+
+### B. Review UI Refinements (`src/components/ImportCompletedModal.tsx`)
+- In Step 2 (Review), display an unobtrusive `AI-assisted match` badge and show the original extracted title alongside the resolved canonical TMDB title when they differ.
+- Pre-populate the manual "Change Match" search drawer with quick-filter chips for any AI `alternateQueries` so ambiguous or unmatched rows are effortless to refine.
+
+---
+
+## 5. Planned File Modifications
+1. **`src/server/titleResolutionService.ts`** *(new)*: Server-side Gemini structured JSON title resolution service with input validation, timeout, TTL cache, and fallback logic.
+2. **`server.ts`**: Add `POST /api/ai/resolve-titles` endpoint wired to `resolveTitlesWithGemini`.
+3. **`src/services/mediaApi.ts`**: Add `resolveTitlesWithAi`, confidence evaluation for direct search results, and multi-query TMDB search merging/ranking.
+4. **`src/components/SearchOverlay.tsx`**: Integrate two-stage search (direct TMDB first, AI-assisted resolution when needed) and subtle AI-assisted status indicator.
+5. **`src/services/completedImportService.ts`**: Add batch AI title normalization step in `resolveExtractedImportItems`, multi-query TMDB candidate gathering, and enhanced `scoreMediaCandidate` + `matchReason` generation.
+6. **`src/components/ImportCompletedModal.tsx`**: Display subtle `AI-assisted match` indicator and canonical vs. original title context in the review list.

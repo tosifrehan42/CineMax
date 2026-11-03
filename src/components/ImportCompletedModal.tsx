@@ -1008,6 +1008,14 @@ export const ImportCompletedModal: React.FC<ImportCompletedModalProps> = ({
                                     </>
                                   )}
                                 </span>
+                                {row.aiAssisted &&
+                                  row.extracted.title.trim().toLowerCase() !==
+                                    media.title.trim().toLowerCase() && (
+                                    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-500/15 border border-amber-400/30 text-[10px] font-medium text-amber-300">
+                                      <Sparkles className="w-2.5 h-2.5 text-amber-400 shrink-0" />
+                                      <span>AI-assisted match</span>
+                                    </span>
+                                  )}
                               </div>
                             ) : (
                               <div className="flex flex-wrap items-center gap-1.5 min-w-0">
@@ -1023,6 +1031,17 @@ export const ImportCompletedModal: React.FC<ImportCompletedModalProps> = ({
                             {/* Original Extracted Source Line */}
                             <div className="text-[11px] text-slate-400 break-words">
                               Source: <span className="text-slate-300">{row.extracted.rawLine}</span>
+                              {media &&
+                              row.extracted.title.trim().toLowerCase() !==
+                                media.title.trim().toLowerCase() ? (
+                                <span className="text-slate-400">
+                                  {' '}
+                                  · Canonical:{' '}
+                                  <span className="text-amber-200/90 font-medium">
+                                    {media.title}
+                                  </span>
+                                </span>
+                              ) : null}
                               {row.extracted.seasonNumber ? (
                                 <span className="text-amber-300 font-mono">
                                   {' '}
@@ -1038,9 +1057,11 @@ export const ImportCompletedModal: React.FC<ImportCompletedModalProps> = ({
                             {/* Match Status & Existing Account Status Line */}
                             <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[11px] min-w-0">
                               {row.matchStatus === 'matched' && (
-                                <span className="text-emerald-400 flex items-center gap-1 font-medium">
-                                  <CheckCircle2 className="w-3 h-3 shrink-0" />
-                                  <span>Matched</span>
+                                <span className="text-emerald-400 flex items-start sm:items-center gap-1 font-medium break-words">
+                                  <CheckCircle2 className="w-3 h-3 shrink-0 mt-0.5 sm:mt-0" />
+                                  <span className="break-words">
+                                    {row.matchReason || 'Matched'}
+                                  </span>
                                 </span>
                               )}
                               {row.matchStatus === 'ambiguous' && (

@@ -32,6 +32,7 @@ import type {
 } from './src/types/index.ts';
 import { processAdminRequest } from './src/server/adminHandler.ts';
 import { extractCompletedTitlesFromImage } from './src/server/importImageExtractor.ts';
+import { resolveTitlesWithGemini } from './src/server/titleResolutionService.ts';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -2737,6 +2738,16 @@ async function startServer() {
         mimeType,
         dataBase64,
       });
+      return res.status(result.status).json(result.body);
+    }
+  );
+
+  // 6b. Server-Side Gemini AI Title Resolution Route for Smart Search & Batch Import Matching
+  app.post(
+    '/api/ai/resolve-titles',
+    express.json({ limit: '1mb' }),
+    async (req, res) => {
+      const result = await resolveTitlesWithGemini(req.body || {});
       return res.status(result.status).json(result.body);
     }
   );

@@ -172,10 +172,28 @@ export function dedupeMediaItems(items: MediaItem[]): MediaItem[] {
 
     const canonicalKey = getCanonicalMediaKey(rawItem);
     const titleKey = `${rawItem.type}:${normalizeMediaTitle(rawItem.title)}`;
-    const existingCanonical =
+    let existingCanonical =
       byCanonicalKey.has(canonicalKey)
         ? canonicalKey
         : idToCanonical.get(rawItem.id) || titleKeyToCanonical.get(titleKey);
+
+    if (
+      existingCanonical &&
+      existingCanonical !== canonicalKey &&
+      byCanonicalKey.has(existingCanonical)
+    ) {
+      const prev = byCanonicalKey.get(existingCanonical)!;
+      const prevTmdb = extractCanonicalTmdbIdentity(prev.id, prev.type);
+      const currTmdb = extractCanonicalTmdbIdentity(rawItem.id, rawItem.type);
+      if (
+        prevTmdb &&
+        currTmdb &&
+        (prevTmdb.tmdbId !== currTmdb.tmdbId ||
+          prevTmdb.mediaType !== currTmdb.mediaType)
+      ) {
+        existingCanonical = undefined;
+      }
+    }
 
     if (existingCanonical && byCanonicalKey.has(existingCanonical)) {
       const prev = byCanonicalKey.get(existingCanonical)!;
