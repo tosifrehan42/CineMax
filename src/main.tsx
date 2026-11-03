@@ -2,6 +2,7 @@ import React, { Component, ErrorInfo, ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
 import App from './App.tsx';
 import './index.css';
+import { initServiceWorkerRegistration } from './hooks/usePWAStatus';
 
 interface ErrorBoundaryProps {
   children: ReactNode;
@@ -138,6 +139,8 @@ export class StartupErrorBoundary extends Component<ErrorBoundaryProps, ErrorBou
     return this.props.children;
   }
 }
+
+initServiceWorkerRegistration();
 
 const rootElement = document.getElementById('root');
 if (rootElement) {

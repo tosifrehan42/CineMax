@@ -1,6 +1,7 @@
 import React from 'react';
 import { HomeHubMode, TabView, UserProfile } from '../types';
 import { LiquidTabBubble, useLiquidTabBubble } from './LiquidTabBubble';
+import { PWAInstallButton } from './OfflineStatusBanner';
 import {
   Film,
   Tv,
@@ -274,6 +275,9 @@ const NavbarComponent: React.FC<NavbarProps> = ({
                 <Dice5 className="w-3.5 h-3.5 stroke-[2.5] shrink-0" />
                 <span className="hidden sm:inline">Surprise Me</span>
               </button>
+
+              {/* In-App PWA Install Action (Auto-hides when installed or in native app) */}
+              <PWAInstallButton compact />
 
               {/* Mobile Verified Admin Access Icon (Only shown to verified admin) */}
               {isAuthenticated && isAdmin && (

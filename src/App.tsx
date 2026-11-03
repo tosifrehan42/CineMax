@@ -44,6 +44,18 @@ import {
 import { Navbar } from './components/Navbar';
 import { HomeView } from './components/HomeView';
 import { AuthScreen, AuthScreenMode } from './components/AuthScreen';
+import { OfflineStatusBanner } from './components/OfflineStatusBanner';
+import {
+  getAllOfflineViewedMediaItems,
+  getCloudUserOfflineSnapshot,
+  saveCloudUserOfflineSnapshot,
+  warmWatchlistAndHistoryMediaAssets,
+} from './services/offlineCacheService';
+import {
+  enqueueOfflineMutation,
+  flushOfflineSyncQueue,
+  isNetworkOfflineError,
+} from './services/offlineSyncQueue';
 import {
   AdminAccessState,
   checkAdminAccess,
@@ -333,7 +345,11 @@ export default function App() {
 
   // Dynamic registry of all loaded media items across pages so Watchlist, Profile & Roulette have full access
   const [knownMedia, setKnownMedia] = useState<MediaItem[]>(() =>
-    dedupeMediaItems([...MEDIA_ITEMS, ...EXTRA_ANCHOR_ITEMS])
+    dedupeMediaItems([
+      ...MEDIA_ITEMS,
+      ...EXTRA_ANCHOR_ITEMS,
+      ...getAllOfflineViewedMediaItems(),
+    ])
   );
 
   const handleRegisterMedia = useCallback((newItems: MediaItem[]) => {
@@ -431,13 +447,42 @@ export default function App() {
       : localWatchedEpisodes
     : localWatchedEpisodes;
 
-  // Load user's profile, watchlist, watch history, and watched episodes from Supabase
+  // Load user's profile, watchlist, watch history, and watched episodes from Supabase (with offline snapshot hydration & queue flush)
   const loadCloudUserData = useCallback(
     async (user: User) => {
       setIsCloudLoading(true);
       setCloudError(null);
       setSchemaMissing(false);
+
+      // 1. Hydrate immediately from local user-scoped snapshot so offline launch has full watchlist & progress
+      const cachedSnapshot = getCloudUserOfflineSnapshot(user.id);
+      if (cachedSnapshot) {
+        if (cachedSnapshot.profile) setUserProfile(cachedSnapshot.profile);
+        setCloudWatchlist(cachedSnapshot.watchlist || []);
+        setWatchHistory(cachedSnapshot.watchHistory || []);
+        setCloudWatchedEpisodes(cachedSnapshot.watchedEpisodes || []);
+
+        const cachedMediaSnapshots: MediaItem[] = [];
+        (cachedSnapshot.watchlist || []).forEach((w) => {
+          if (w.mediaSnapshot) cachedMediaSnapshots.push(w.mediaSnapshot);
+        });
+        (cachedSnapshot.watchHistory || []).forEach((h) => {
+          if (h.mediaSnapshot) cachedMediaSnapshots.push(h.mediaSnapshot);
+        });
+        if (cachedMediaSnapshots.length > 0) {
+          handleRegisterMedia(cachedMediaSnapshots);
+        }
+      }
+
+      if (typeof navigator !== 'undefined' && !navigator.onLine) {
+        setIsCloudLoading(false);
+        return;
+      }
+
       try {
+        // 2. Flush any queued offline mutations before pulling fresh cloud state
+        await flushOfflineSyncQueue(user.id);
+
         const [profileRes, watchlistRes, historyRes, episodesRes] = await Promise.all([
           fetchUserProfile(user),
           fetchUserWatchlist(user.id),
@@ -454,7 +499,9 @@ export default function App() {
           setMigrationNeeded(true);
         } else {
           setEpisodesTableReady(true);
-          setCloudWatchedEpisodes(episodesRes.episodes);
+          if (!episodesRes.error) {
+            setCloudWatchedEpisodes(episodesRes.episodes);
+          }
         }
 
         const firstError =
@@ -463,7 +510,8 @@ export default function App() {
           historyRes.error ||
           episodesRes.error ||
           null;
-        if (firstError) {
+
+        if (firstError && !isNetworkOfflineError(firstError)) {
           setCloudError(firstError);
         }
 
@@ -471,8 +519,12 @@ export default function App() {
           setUserProfile(profileRes.profile);
         }
 
-        setCloudWatchlist(watchlistRes.items);
-        setWatchHistory(historyRes.history);
+        if (!watchlistRes.error) {
+          setCloudWatchlist(watchlistRes.items);
+        }
+        if (!historyRes.error) {
+          setWatchHistory(historyRes.history);
+        }
 
         // Register any media snapshots stored in cloud records
         const snapshots: MediaItem[] = [];
@@ -486,13 +538,47 @@ export default function App() {
           handleRegisterMedia(snapshots);
         }
       } catch (err: any) {
-        setCloudError(err?.message || 'Failed to load user data from Supabase.');
+        if (!isNetworkOfflineError(err?.message)) {
+          setCloudError(err?.message || 'Failed to load user data from Supabase.');
+        }
       } finally {
         setIsCloudLoading(false);
       }
     },
     [handleRegisterMedia]
   );
+
+  // Persist signed-in user's cloud state locally for instant offline access
+  useEffect(() => {
+    if (!isAuthenticated || !authUser?.id) return;
+    saveCloudUserOfflineSnapshot(authUser.id, {
+      profile: userProfile,
+      watchlist: cloudWatchlist,
+      watchHistory,
+      watchedEpisodes: cloudWatchedEpisodes,
+    });
+  }, [
+    isAuthenticated,
+    authUser?.id,
+    userProfile,
+    cloudWatchlist,
+    watchHistory,
+    cloudWatchedEpisodes,
+  ]);
+
+  // Automatically flush queued offline mutations when connectivity returns
+  useEffect(() => {
+    if (!isAuthenticated || !authUser?.id || typeof window === 'undefined') return;
+    const handleReconnect = () => {
+      void flushOfflineSyncQueue(authUser.id).then(({ syncedCount }) => {
+        if (syncedCount > 0) {
+          void loadCloudUserData(authUser);
+        }
+      });
+    };
+    window.addEventListener('online', handleReconnect);
+    return () => window.removeEventListener('online', handleReconnect);
+  }, [isAuthenticated, authUser, loadCloudUserData]);
 
   // Initialize Supabase client & auth listener
   useEffect(() => {
@@ -820,10 +906,28 @@ export default function App() {
       if (exists) {
         const previous = [...cloudWatchlist];
         setCloudWatchlist((prev) => prev.filter((item) => item.mediaId !== mediaId));
+        if (typeof navigator !== 'undefined' && !navigator.onLine) {
+          enqueueOfflineMutation({
+            dedupeKey: `${authUser.id}:watchlist:${mediaId}`,
+            userId: authUser.id,
+            type: 'DELETE_WATCHLIST',
+            mediaId,
+          });
+          return;
+        }
         const { error } = await deleteWatchlistItem(authUser.id, mediaId);
         if (error) {
-          setCloudError(error);
-          setCloudWatchlist(previous);
+          if (isNetworkOfflineError(error)) {
+            enqueueOfflineMutation({
+              dedupeKey: `${authUser.id}:watchlist:${mediaId}`,
+              userId: authUser.id,
+              type: 'DELETE_WATCHLIST',
+              mediaId,
+            });
+          } else {
+            setCloudError(error);
+            setCloudWatchlist(previous);
+          }
         }
       } else {
         const optimisticEntry: WatchlistEntry = {
@@ -835,14 +939,32 @@ export default function App() {
           mediaSnapshot: snapshot,
         };
         setCloudWatchlist((prev) => [optimisticEntry, ...prev]);
+        if (typeof navigator !== 'undefined' && !navigator.onLine) {
+          enqueueOfflineMutation({
+            dedupeKey: `${authUser.id}:watchlist:${mediaId}`,
+            userId: authUser.id,
+            type: 'UPSERT_WATCHLIST',
+            entry: optimisticEntry,
+          });
+          return;
+        }
         const { item, error, migrationNeeded: mig } = await upsertWatchlistItem(
           authUser.id,
           optimisticEntry
         );
         if (mig) setMigrationNeeded(true);
         if (error) {
-          setCloudError(error);
-          setCloudWatchlist((prev) => prev.filter((i) => i.mediaId !== mediaId));
+          if (isNetworkOfflineError(error)) {
+            enqueueOfflineMutation({
+              dedupeKey: `${authUser.id}:watchlist:${mediaId}`,
+              userId: authUser.id,
+              type: 'UPSERT_WATCHLIST',
+              entry: optimisticEntry,
+            });
+          } else {
+            setCloudError(error);
+            setCloudWatchlist((prev) => prev.filter((i) => i.mediaId !== mediaId));
+          }
         } else if (item) {
           setCloudWatchlist((prev) =>
             prev.map((i) => (i.mediaId === mediaId ? item : i))
@@ -909,13 +1031,32 @@ export default function App() {
       return [updatedEntry, ...prev];
     });
 
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      enqueueOfflineMutation({
+        dedupeKey: `${authUser.id}:watchlist:${mediaId}`,
+        userId: authUser.id,
+        type: 'UPSERT_WATCHLIST',
+        entry: updatedEntry,
+      });
+      return;
+    }
+
     const { item, error, migrationNeeded: mig } = await upsertWatchlistItem(
       authUser.id,
       updatedEntry
     );
     if (mig) setMigrationNeeded(true);
     if (error) {
-      setCloudError(error);
+      if (isNetworkOfflineError(error)) {
+        enqueueOfflineMutation({
+          dedupeKey: `${authUser.id}:watchlist:${mediaId}`,
+          userId: authUser.id,
+          type: 'UPSERT_WATCHLIST',
+          entry: updatedEntry,
+        });
+      } else {
+        setCloudError(error);
+      }
     } else if (item) {
       setCloudWatchlist((prev) =>
         prev.map((i) => (i.mediaId === mediaId ? item : i))
@@ -976,6 +1117,7 @@ export default function App() {
       status,
       isFavourite: existing?.isFavourite ?? false,
       addedAt: existing?.addedAt || new Date().toISOString().split('T')[0],
+      updatedAt: watchedAt || new Date().toISOString().split('T')[0],
       personalRating: rating !== undefined ? rating : existing?.personalRating || 0,
       personalNotes: notes !== undefined ? notes : existing?.personalNotes || '',
       mediaSnapshot: snapshot || existing?.mediaSnapshot,
@@ -988,37 +1130,109 @@ export default function App() {
       return [nextEntry, ...prev];
     });
 
-    const { item, error, migrationNeeded: mig } = await upsertWatchlistItem(
-      authUser.id,
-      nextEntry
-    );
-    if (mig) setMigrationNeeded(true);
-    if (error) {
-      setCloudError(error);
-      // Roll back optimistic status change if database constraint rejected it
-      setCloudWatchlist(previousList);
-      return;
-    } else if (item) {
-      setCloudWatchlist((prev) =>
-        prev.map((i) => (i.mediaId === mediaId ? item : i))
+    const isOfflineNow = typeof navigator !== 'undefined' && !navigator.onLine;
+    if (isOfflineNow) {
+      enqueueOfflineMutation({
+        dedupeKey: `${authUser.id}:watchlist:${mediaId}`,
+        userId: authUser.id,
+        type: 'UPSERT_WATCHLIST',
+        entry: nextEntry,
+      });
+    } else {
+      const { item, error, migrationNeeded: mig } = await upsertWatchlistItem(
+        authUser.id,
+        nextEntry
       );
+      if (mig) setMigrationNeeded(true);
+      if (error) {
+        if (isNetworkOfflineError(error)) {
+          enqueueOfflineMutation({
+            dedupeKey: `${authUser.id}:watchlist:${mediaId}`,
+            userId: authUser.id,
+            type: 'UPSERT_WATCHLIST',
+            entry: nextEntry,
+          });
+        } else {
+          setCloudError(error);
+          // Roll back optimistic status change if database constraint rejected it
+          setCloudWatchlist(previousList);
+          return;
+        }
+      } else if (item) {
+        setCloudWatchlist((prev) =>
+          prev.map((i) => (i.mediaId === mediaId ? item : i))
+        );
+      }
     }
 
     // If marked as completed, also record/update watched history with date & personal rating
     if (status === 'completed') {
       const existingHistory = watchHistory.find((h) => h.mediaId === mediaId);
+      const targetWatchedAt =
+        watchedAt || existingHistory?.watchedAt || new Date().toISOString();
+      const targetMedia = snapshot || existing?.mediaSnapshot;
+      const optimisticHistoryEntry: WatchHistoryEntry = {
+        id: existingHistory?.id || `offline-hist-${mediaId}`,
+        mediaId,
+        tmdbId: 0,
+        mediaType: targetMedia?.type || 'movie',
+        watchedAt: targetWatchedAt,
+        personalRating: nextEntry.personalRating,
+        reviewNotes: nextEntry.personalNotes,
+        runtimeMinutes: parseRuntimeMinutes(targetMedia),
+        mediaSnapshot: targetMedia,
+      };
+
+      setWatchHistory((prev) => {
+        const filtered = prev.filter((h) => h.mediaId !== mediaId);
+        return [optimisticHistoryEntry, ...filtered].sort(
+          (a, b) => new Date(b.watchedAt).getTime() - new Date(a.watchedAt).getTime()
+        );
+      });
+
+      if (typeof navigator !== 'undefined' && !navigator.onLine) {
+        enqueueOfflineMutation({
+          dedupeKey: `${authUser.id}:history:${mediaId}`,
+          userId: authUser.id,
+          type: 'UPSERT_HISTORY',
+          payload: {
+            mediaId,
+            media: targetMedia,
+            watchedAt: targetWatchedAt,
+            personalRating: nextEntry.personalRating,
+            reviewNotes: nextEntry.personalNotes,
+          },
+        });
+        return;
+      }
+
       const { entry: historyEntry, error: historyError } = await upsertWatchHistoryItem(
         authUser.id,
         {
           mediaId,
-          media: snapshot || existing?.mediaSnapshot,
-          watchedAt: watchedAt || existingHistory?.watchedAt || new Date().toISOString(),
+          media: targetMedia,
+          watchedAt: targetWatchedAt,
           personalRating: nextEntry.personalRating,
           reviewNotes: nextEntry.personalNotes,
         }
       );
       if (historyError) {
-        setCloudError(historyError);
+        if (isNetworkOfflineError(historyError)) {
+          enqueueOfflineMutation({
+            dedupeKey: `${authUser.id}:history:${mediaId}`,
+            userId: authUser.id,
+            type: 'UPSERT_HISTORY',
+            payload: {
+              mediaId,
+              media: targetMedia,
+              watchedAt: targetWatchedAt,
+              personalRating: nextEntry.personalRating,
+              reviewNotes: nextEntry.personalNotes,
+            },
+          });
+        } else {
+          setCloudError(historyError);
+        }
       } else if (historyEntry) {
         setWatchHistory((prev) => {
           const filtered = prev.filter((h) => h.mediaId !== mediaId);
@@ -1038,10 +1252,30 @@ export default function App() {
 
     const previous = [...cloudWatchlist];
     setCloudWatchlist((prev) => prev.filter((item) => item.mediaId !== mediaId));
+
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      enqueueOfflineMutation({
+        dedupeKey: `${authUser.id}:watchlist:${mediaId}`,
+        userId: authUser.id,
+        type: 'DELETE_WATCHLIST',
+        mediaId,
+      });
+      return;
+    }
+
     const { error } = await deleteWatchlistItem(authUser.id, mediaId);
     if (error) {
-      setCloudError(error);
-      setCloudWatchlist(previous);
+      if (isNetworkOfflineError(error)) {
+        enqueueOfflineMutation({
+          dedupeKey: `${authUser.id}:watchlist:${mediaId}`,
+          userId: authUser.id,
+          type: 'DELETE_WATCHLIST',
+          mediaId,
+        });
+      } else {
+        setCloudError(error);
+        setCloudWatchlist(previous);
+      }
     }
   };
 
@@ -1128,20 +1362,45 @@ export default function App() {
       if (isAuthenticated && authUser) {
         const previousCloud = [...cloudWatchedEpisodes];
         setCloudWatchedEpisodes((prev) => updateList(prev));
-        const { error, migrationNeeded: mig } = await toggleWatchedEpisodeInDb(
-          authUser.id,
-          media.id,
-          seasonNumber,
-          episodeNumber,
-          watched
-        );
-        if (mig) {
-          setEpisodesTableReady(false);
-          setMigrationNeeded(true);
-        } else if (error) {
-          setCloudError(error);
-          setCloudWatchedEpisodes(previousCloud);
-          return;
+
+        if (typeof navigator !== 'undefined' && !navigator.onLine) {
+          enqueueOfflineMutation({
+            dedupeKey: `${authUser.id}:ep:${media.id}:${seasonNumber}:${episodeNumber}`,
+            userId: authUser.id,
+            type: 'TOGGLE_EPISODE',
+            mediaId: media.id,
+            seasonNumber,
+            episodeNumber,
+            watched,
+          });
+        } else {
+          const { error, migrationNeeded: mig } = await toggleWatchedEpisodeInDb(
+            authUser.id,
+            media.id,
+            seasonNumber,
+            episodeNumber,
+            watched
+          );
+          if (mig) {
+            setEpisodesTableReady(false);
+            setMigrationNeeded(true);
+          } else if (error) {
+            if (isNetworkOfflineError(error)) {
+              enqueueOfflineMutation({
+                dedupeKey: `${authUser.id}:ep:${media.id}:${seasonNumber}:${episodeNumber}`,
+                userId: authUser.id,
+                type: 'TOGGLE_EPISODE',
+                mediaId: media.id,
+                seasonNumber,
+                episodeNumber,
+                watched,
+              });
+            } else {
+              setCloudError(error);
+              setCloudWatchedEpisodes(previousCloud);
+              return;
+            }
+          }
         }
       }
 
@@ -1195,20 +1454,45 @@ export default function App() {
       if (isAuthenticated && authUser) {
         const previousCloud = [...cloudWatchedEpisodes];
         setCloudWatchedEpisodes((prev) => updateList(prev));
-        const { error, migrationNeeded: mig } = await setSeasonEpisodesWatchedInDb(
-          authUser.id,
-          media.id,
-          seasonNumber,
-          episodeNumbers,
-          watched
-        );
-        if (mig) {
-          setEpisodesTableReady(false);
-          setMigrationNeeded(true);
-        } else if (error) {
-          setCloudError(error);
-          setCloudWatchedEpisodes(previousCloud);
-          return;
+
+        if (typeof navigator !== 'undefined' && !navigator.onLine) {
+          enqueueOfflineMutation({
+            dedupeKey: `${authUser.id}:season:${media.id}:${seasonNumber}`,
+            userId: authUser.id,
+            type: 'SET_SEASON_EPISODES',
+            mediaId: media.id,
+            seasonNumber,
+            episodeNumbers,
+            watched,
+          });
+        } else {
+          const { error, migrationNeeded: mig } = await setSeasonEpisodesWatchedInDb(
+            authUser.id,
+            media.id,
+            seasonNumber,
+            episodeNumbers,
+            watched
+          );
+          if (mig) {
+            setEpisodesTableReady(false);
+            setMigrationNeeded(true);
+          } else if (error) {
+            if (isNetworkOfflineError(error)) {
+              enqueueOfflineMutation({
+                dedupeKey: `${authUser.id}:season:${media.id}:${seasonNumber}`,
+                userId: authUser.id,
+                type: 'SET_SEASON_EPISODES',
+                mediaId: media.id,
+                seasonNumber,
+                episodeNumbers,
+                watched,
+              });
+            } else {
+              setCloudError(error);
+              setCloudWatchedEpisodes(previousCloud);
+              return;
+            }
+          }
         }
       }
 
@@ -1230,10 +1514,30 @@ export default function App() {
 
     const prevHistory = [...watchHistory];
     setWatchHistory((prev) => prev.filter((h) => h.mediaId !== mediaId));
+
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      enqueueOfflineMutation({
+        dedupeKey: `${authUser.id}:history:${mediaId}`,
+        userId: authUser.id,
+        type: 'DELETE_HISTORY',
+        mediaId,
+      });
+      return;
+    }
+
     const { error } = await deleteWatchHistoryItem(authUser.id, mediaId);
     if (error) {
-      setCloudError(error);
-      setWatchHistory(prevHistory);
+      if (isNetworkOfflineError(error)) {
+        enqueueOfflineMutation({
+          dedupeKey: `${authUser.id}:history:${mediaId}`,
+          userId: authUser.id,
+          type: 'DELETE_HISTORY',
+          mediaId,
+        });
+      } else {
+        setCloudError(error);
+        setWatchHistory(prevHistory);
+      }
     }
   };
 
@@ -1434,6 +1738,15 @@ export default function App() {
     [isAuthenticated, watchHistory, localWatchlist, knownMedia]
   );
 
+  // Proactively warm watchlist & watch history poster assets in Service Worker CacheStorage
+  useEffect(() => {
+    warmWatchlistAndHistoryMediaAssets(
+      activeWatchlist,
+      effectiveWatchHistory,
+      knownMedia
+    );
+  }, [activeWatchlist, effectiveWatchHistory, knownMedia]);
+
   const viewFallback = (
     <div className="py-24 flex flex-col items-center justify-center gap-3 text-slate-400">
       <Loader2 className="w-6 h-6 text-amber-400 animate-spin" />
@@ -1553,6 +1866,17 @@ export default function App() {
         userEmail={authUser?.email}
         onOpenAuthModal={handleOpenAuthModal}
         onSignOut={handleSignOut}
+      />
+
+      {/* Subtle Offline Mode & Cloud Sync Status Banner */}
+      <OfflineStatusBanner
+        userId={authUser?.id}
+        watchlistCount={activeWatchlist.length}
+        onManualSync={() => {
+          if (authUser) {
+            void flushOfflineSyncQueue(authUser.id);
+          }
+        }}
       />
 
       {/* Main View Area (1440px Fluid OTT Container) */}

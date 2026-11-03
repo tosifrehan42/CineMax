@@ -2741,6 +2741,16 @@ async function startServer() {
     }
   );
 
+  // 7. Direct Download Endpoint for the 30s Instagram Promotional Reel MP4
+  app.get('/download-reel', (_req, res) => {
+    const reelPath = path.join(
+      __dirname,
+      'public',
+      'CineMax-Instagram-Promo-Reel-30s.mp4'
+    );
+    res.download(reelPath, 'CineMax-Instagram-Promo-Reel-30s.mp4');
+  });
+
   // Mount Vite dev server middleware or static production build
   if (process.env.NODE_ENV !== 'production') {
     const vite = await createViteServer({

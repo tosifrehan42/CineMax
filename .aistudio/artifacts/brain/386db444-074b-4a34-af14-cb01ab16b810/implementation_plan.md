@@ -1,84 +1,84 @@
-# Prominent Forgot Password Entry Point on Sign In
+# CineMax Service Worker, Offline Access & PWA Implementation Plan
 
-Make the existing password recovery workflow immediately discoverable on both desktop and mobile by placing a dedicated, high-visibility **"Forgot Password?"** action row directly beneath the password field whenever the user is in Sign In mode, connected directly to the existing Supabase password-reset flow.
-
-## User Review & Critical Decisions
-
-> [!IMPORTANT]
-> The following design and scope decisions have been confirmed and govern this targeted update:
-
-- **Confirmed Decision 1 — Dedicated Row Directly Below Password Input**: The **"Forgot Password?"** trigger will be rendered in its own dedicated, uncluttered row immediately below the password input field on both the full-screen Sign In view and the Sign In modal, rather than sharing a cramped helper line.
-- **Confirmed Decision 2 — Signed-Out Sign In Scope Only**: The **"Forgot Password?"** link will appear exclusively on the Sign In form. The signed-in Profile page (`Edit Profile`, `Change Password`, `Sign Out`) and the signed-in `Change Password` modal remain completely unchanged.
+## 1. Overview & Goals
+Enable seamless offline access to the **CineMax** application shell, user watchlist, previously viewed titles/episodes, and catalogue discovery feeds via a multi-tier Service Worker and local-first storage architecture, accompanied by full Progressive Web App (PWA) installability and an unobtrusive offline/sync status indicator.
 
 ---
 
-## 1. Overview & Core Concept
+## 2. Service Worker & Caching Architecture (`vite-plugin-pwa` + Custom Runtime Cache)
 
-- **What It Does**: Elevates the **"Forgot Password?"** trigger into a dedicated, unmistakable interactive link row directly beneath the password field whenever the user is in Sign In mode (both in the initial full-screen authentication gate and the overlay authentication modal).
-- **Target Audience / Persona**: CineMax web and Android users who are signing into their account on desktop or mobile and need to recover a forgotten password without hunting through menus.
-- **Key Value**: Eliminates visual crowding under the password input, provides a generous mobile-friendly touch target, and connects seamlessly to the existing Supabase recovery email and password-reset flow with a single tap.
+### A. App Shell Precaching & Navigation Fallback
+- Integrate `vite-plugin-pwa` in `vite.config.ts` with `registerType: 'autoUpdate'` and `devOptions.enabled: true` (respecting `base` paths `/` in dev/Capacitor and `/CineMax/` in GitHub Pages builds).
+- Remove the legacy inline `serviceWorker.getRegistrations()...unregister()` block in `index.html` so registered service workers remain active across reloads.
+- Precache core application shell assets (`index.html`, compiled JS/CSS bundles, SVG/PNG icons, and font stylesheets) while excluding large promotional video files (`*.mp4`) from precaching.
+- Configure SPA navigation fallback (`navigateFallback: 'index.html'`) so refreshing any route while offline loads the CineMax app shell immediately.
 
----
-
-## 2. User Experience & Visual Design
-
-- **Key User Flows**:
-  1. **Sign In Form (Default State)**: Below the password input, a dedicated right-aligned row displays a high-contrast amber **"Forgot Password?"** link button (`data-testid="forgot-password-link"`).
-  2. **Entering Password Recovery Mode**: Clicking **"Forgot Password?"** switches the authentication card into the existing recovery view (**"Reset Your Password"**), preserving any email address the user already typed into the Email field and clearing prior form errors.
-  3. **Requesting the Reset Link**: Submitting the recovery form validates the email address and invokes the existing Supabase password reset email handler, displaying a confirmation banner when sent.
-  4. **Returning to Sign In**: At any point before or after requesting a recovery email, the user can click **"Back to Sign In"** (top of card) or **"Remembered your password? Return to Sign In"** (below the submit button) to return to normal Sign In mode with their email preserved.
-- **Visual Identity & Theme**:
-  - *Aesthetic Direction*: Dark obsidian cinema palette (`#0A0D12`) with Apple-inspired Liquid Glass panels and warm amber-gold accents (`#F59E0B` / `text-amber-400`).
-  - *Typography & Hierarchy*: `Plus Jakarta Sans` UI body with `font-semibold text-xs sm:text-[13px]` styling, subtle key icon affordance, and high-contrast hover/focus underline feedback (`hover:text-amber-300 underline-offset-4 hover:underline`).
-  - *Touch Ergonomics*: Minimum 38px–44px interactive tap height on mobile viewports (`320px–430px`) with `whitespace-nowrap` so the link never clips or wraps awkwardly.
-
----
-
-## 3. Key Product Decisions & Trade-Offs
-
-- **Decision 1: Dedicated Action Row Under Password Field in Sign In Mode**
-  - *Chosen Approach*: Give **"Forgot Password?"** its own dedicated row directly beneath the password input when `mode === 'signin'`, while keeping password length helper text for `mode === 'signup'`.
-  - *Why*: Previously, the link shared a tight horizontal line with muted security caption text and used a tiny tap target, making it easy to overlook on mobile screens. A dedicated row makes the entry point immediately scannable.
-- **Decision 2: Reuse Existing Recovery State & Supabase Handler**
-  - *Chosen Approach*: Connect the link directly to the existing `forgot_password` mode state and `requestPasswordResetEmail` handler without altering Supabase Auth configuration, deep-link routing, or the signed-in `Change Password` workflow.
-  - *Why*: Preserves 100% compatibility with existing web and Android Capacitor password recovery deep links and avoids introducing duplicate reset logic.
+### B. Multi-Tier Runtime Caching Strategies
+1. **Poster & Backdrop Media Assets (`CacheFirst` + Background Warm-Up)**
+   - Cache poster and backdrop images from `image.tmdb.org`, `is1-ssl.mzstatic.com` (Apple iTunes posters), and `static.tvmaze.com` in `cinemax-media-posters-cache` (up to 400 entries, 30-day retention, supporting opaque `[0, 200]` responses).
+   - **Proactive Watchlist & History Poster Warming**: Whenever the user's watchlist or watch history loads or updates, proactively warm the Service Worker image cache (`caches.open('cinemax-media-posters-cache')`) for all watchlist and recently viewed poster/backdrop URLs so they render even if the user goes offline before scrolling to them.
+2. **Viewed Title Details & Season Episode Metadata (`NetworkFirst` + Persistent Local Snapshot)**
+   - Cache `/api/title/*`, `/api/tv/*/season/*`, `/api/trailer/*`, `api.themoviedb.org/3/*`, and `api.tvmaze.com/shows/*` in `cinemax-title-details-cache` with a fast network timeout (`3s`) falling back to cached responses.
+   - Persist viewed title detail payloads (`item` + `similar`) and viewed TV season episode lists in a dedicated bounded IndexedDB/localStorage store (`src/services/offlineCacheService.ts`) so `fetchTitleDetails` and `fetchTvSeasonEpisodes` in `src/services/mediaApi.ts` resolve instantaneously when offline—even on static or hybrid hosts.
+3. **Catalogue & Discovery Feeds (`StaleWhileRevalidate` / `NetworkFirst`)**
+   - Cache `/api/catalogue*`, Apple iTunes RSS feeds, and TVMaze show feeds in `cinemax-catalogue-cache`, plus persist the most recent catalogue responses per category in `offlineCacheService.ts` so Home and Discover tabs remain browsable offline.
+4. **Google Fonts (`CacheFirst`)**
+   - Cache `fonts.googleapis.com` and `fonts.gstatic.com` for 1 year (`cinemax-fonts-cache`) so typography (`Outfit` and `Plus Jakarta Sans`) never degrades offline.
 
 ---
 
-## 4. Technical Architecture & Data Strategy *(Technical Reference)*
+## 3. Local-First Watchlist & Episode Progress Queue with Auto-Sync
 
-- **Architecture & Component Diagram**:
+### A. Cloud Snapshot Persistence for Signed-In Users
+- Mirror signed-in user state (`cloudWatchlist`, `cloudWatchedEpisodes`, `watchHistory`, and `userProfile`) into user-scoped local cache keys (`cinemax_cloud_cache_<userId>`) whenever loaded or mutated.
+- If a signed-in user opens CineMax while offline or mutations occur without connectivity, hydrate immediately from the user-scoped local snapshot so their full watchlist and episode progress are available offline.
 
-```
-┌─────────────────────────────────────────────────────────────────────────┐
-│                        CineMax Authentication UI                        │
-├────────────────────────────────────┬────────────────────────────────────┤
-│     Full-Screen Sign In Gate       │       Overlay Sign In Modal        │
-│  ┌──────────────────────────────┐  │  ┌──────────────────────────────┐  │
-│  │ Mode: Sign In                │  │  │ Mode: Sign In                │  │
-│  │  • Email Input               │  │  │  • Email Input               │  │
-│  │  • Password Input + Eye Icon │  │  │  • Password Input + Eye Icon │  │
-│  │  • [Forgot Password?] Row ───┼──┼──┼─► Switches to Recovery Mode  │  │
-│  └──────────────┬───────────────┘  │  └──────────────┬───────────────┘  │
-└─────────────────┼──────────────────┴─────────────────┼──────────────────┘
-                  │                                    │
-                  ▼                                    ▼
-┌─────────────────────────────────────────────────────────────────────────┐
-│                     Existing Password Recovery Mode                     │
-│  • Header: "Reset Your Password" + "Back to Sign In" button             │
-│  • Pre-filled Email Address Input                                       │
-│  • Primary CTA: "Send Password Reset Link"                              │
-│  • Footer Link: "Remembered your password? Return to Sign In"           │
-└────────────────────────────────────┬────────────────────────────────────┘
-                                     │
-                                     ▼
-┌─────────────────────────────────────────────────────────────────────────┐
-│             Existing Supabase Auth Recovery Email Service               │
-│  • Sends single-use recovery link → Opens ResetPasswordScreen           │
-└─────────────────────────────────────────────────────────────────────────┘
-```
+### B. Offline Mutation Queue & Automatic Supabase Replay
+- Create an offline sync queue in `src/services/offlineSyncQueue.ts` backed by `localStorage` (`cinemax_offline_mutation_queue`):
+  - Queues mutations when `!navigator.onLine` or when a Supabase network call fails due to connectivity:
+    - `UPSERT_WATCHLIST` (status, favourite toggle, personal rating, notes, mediaSnapshot)
+    - `DELETE_WATCHLIST`
+    - `TOGGLE_EPISODE` (single episode watched/unwatched)
+    - `SET_SEASON_EPISODES` (mark full season watched/unwatched)
+    - `UPSERT_HISTORY` / `DELETE_HISTORY`
+  - Optimistically updates the UI state and local cache immediately.
+  - Automatically flushes and deduplicates queued operations in FIFO order when connectivity is restored (`window` `online` event) or upon app launch when online and authenticated, updating sync status in real time.
 
-- **Interactive Component & State Mapping**:
-  - **Sign In Mode (`mode === 'signin'`)**: Renders Email input, Password input with show/hide toggle, the dedicated **"Forgot Password?"** action row directly below the password input, and the primary **Sign In** submit button.
-  - **Forgot Password Mode (`mode === 'forgot_password'`)**: Hides the password input, displays the **"Back to Sign In"** control at the top and **"Remembered your password? Return to Sign In"** at the bottom, and submits the email to the existing password-reset handler.
-  - **Signed-In Profile Page (Unchanged)**: Retains `Edit Profile`, `Change Password` (opening the current-password verification modal), and `Sign Out` without modification.
+---
+
+## 4. PWA Installability, Manifest & Offline Status UI
+
+### A. Web App Manifest & Compliant Icons
+- Generate high-contrast CineMax brand icons in `public/`:
+  - `public/icon.svg` (scalable vector brand emblem)
+  - `public/pwa-192x192.png` (`192×192`, `purpose: "any"`)
+  - `public/pwa-512x512.png` (`512×512`, `purpose: "any"`)
+  - `public/pwa-maskable-512x512.png` (`512×512`, `purpose: "maskable"` with safe-zone padding on `#090a0f` obsidian background)
+  - `public/apple-touch-icon.png` (`180×180` PNG for iOS Safari home screen)
+- Configure the Web App Manifest (`name: "CineMax - Premium Cinema & TV Discovery"`, `short_name: "CineMax"`, `display: "standalone"`, `theme_color: "#090a0f"`, `background_color: "#090a0f"`).
+
+### B. Subtle Offline / Sync Status Banner & In-App Install Prompt
+- Create `src/hooks/usePWAStatus.ts` to track:
+  - Online/offline connectivity (`isOnline`)
+  - Pending offline sync mutations count & active syncing state (`pendingSyncCount`, `isSyncing`, `lastSyncedAt`)
+  -Cached offline readiness (number of watchlist & viewed titles cached for offline access)
+  - PWA installability (`isInstallable`, `isInstalled`, `isIOS`, `install()`)
+- Create `src/components/OfflineStatusBanner.tsx`:
+  - Renders a compact, non-intrusive "Liquid Glass" status bar below the top navbar or bottom-left corner when:
+    - **Offline**: *"Offline Mode · Watchlist & viewed titles available from local cache"* (with count of cached titles and pending changes if any).
+    - **Syncing / Reconnected**: *"Back online · Syncing X offline changes to cloud..."* → briefly confirms *"All changes synced"* before auto-dismissing.
+- Add a clean **Install App** action (`src/components/PWAInstallButton.tsx`) integrated into the Profile / Settings view and subtle header action when installable (auto-hides when already installed in `standalone` mode or running inside Capacitor Android, and includes an iOS Safari "Add to Home Screen" guide modal).
+
+---
+
+## 5. Planned File Changes
+- **`vite.config.ts`**: Add `VitePWA` plugin configuration with Workbox runtime caching rules for app shell, Google Fonts, TMDB/iTunes/TVMaze poster assets, and API routes.
+- **`tsconfig.json`**: Add `"vite-plugin-pwa/client"` to `compilerOptions.types`.
+- **`index.html`**: Remove the legacy service worker unregistration loop; add PWA meta tags (`theme-color`, `apple-mobile-web-app-capable`, `apple-touch-icon`, `icon.svg`).
+- **`public/icon.svg`**, **`public/pwa-192x192.png`**, **`public/pwa-512x512.png`**, **`public/pwa-maskable-512x512.png`**, **`public/apple-touch-icon.png`**: Brand icon assets for PWA installation.
+- **`src/services/offlineCacheService.ts`** *(new)*: Persistent offline storage and Cache Storage warm-up for watchlist posters, viewed title details (`item` + `similar`), viewed TV season episodes, and recent catalogue feeds.
+- **`src/services/offlineSyncQueue.ts`** *(new)*: Local-first mutation queue and automatic Supabase replay engine on reconnect.
+- **`src/services/mediaApi.ts`**: Wire `fetchCatalogue`, `fetchTitleDetails`, `fetchTvSeasonEpisodes`, and `fetchMediaTrailers` to read/write through `offlineCacheService` so previously viewed titles and seasons work seamlessly offline.
+- **`src/hooks/usePWAStatus.ts`** *(new)*: Hook managing service worker registration, online/offline state, sync queue events, and `beforeinstallprompt` / iOS install flow.
+- **`src/components/OfflineStatusBanner.tsx`** *(new)*: Subtle Liquid Glass offline/sync indicator and PWA install prompt modal.
+- **`src/App.tsx`** & **`src/components/Navbar.tsx`**: Connect cloud state snapshot caching, offline mutation queueing/replay, poster cache warming for watchlist/history items, and mount `OfflineStatusBanner` / install trigger.

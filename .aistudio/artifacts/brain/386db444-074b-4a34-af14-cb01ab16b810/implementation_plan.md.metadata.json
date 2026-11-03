@@ -1,6 +1,6 @@
 {
-  "summary":  "Implementation plan to make the Forgot Password entry point prominently visible in a dedicated row directly below the password input on the Sign In screen and authentication modal, connected to the existing Supabase password recovery flow while keeping the signed-in Profile and Change Password flow untouched.",
-  "updatedAt":  "2026-10-29T09:56:00.308642698Z",
-  "requestFeedback":  true,
-  "userFacing":  true
+  "summary": "Implementation plan for CineMax Service Worker, offline caching of app shell, watchlist posters, viewed detail metadata, and catalogue feeds, local-first offline mutation queue with automatic Supabase sync on reconnect, and full PWA installability with an offline/sync status indicator.",
+  "updatedAt": "2026-11-03T16:11:26.336233747Z",
+  "requestFeedback": true,
+  "userFacing": true
 }

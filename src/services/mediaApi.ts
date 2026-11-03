@@ -23,6 +23,14 @@ import {
   TrailerLookupResult,
   TrailerVideo,
 } from '../types';
+import {
+  getOfflineCatalogueFeed,
+  getOfflineSeasonEpisodes,
+  getOfflineTitleDetails,
+  saveOfflineCatalogueFeed,
+  saveOfflineSeasonEpisodes,
+  saveOfflineTitleDetails,
+} from './offlineCacheService';
 
 export type CatalogueCategory =
   | 'trending'
@@ -1251,6 +1259,15 @@ export async function fetchCatalogue(
   }
 
   const executeRequest = async (): Promise<CatalogueResponse> => {
+    const isOffline = typeof navigator !== 'undefined' && !navigator.onLine;
+    if (isOffline && !forceRefresh) {
+      const offlineFeed = getOfflineCatalogueFeed(cacheKey);
+      if (offlineFeed && Array.isArray(offlineFeed.items) && offlineFeed.items.length > 0) {
+        clientCatalogueCache.set(cacheKey, { timestamp: Date.now(), data: offlineFeed });
+        return offlineFeed;
+      }
+    }
+
     // 1. Try remote API first (Node / Express or configured VITE_API_BASE_URL)
     const apiResult = await fetchApiJson<CatalogueResponse>(
       `/api/catalogue?${searchParams.toString()}`,
@@ -1273,12 +1290,21 @@ export async function fetchCatalogue(
             }
           : apiResult;
       clientCatalogueCache.set(cacheKey, { timestamp: Date.now(), data: normalizedApiResult });
+      saveOfflineCatalogueFeed(cacheKey, normalizedApiResult);
       return normalizedApiResult;
+    }
+
+    // If offline or network failed and we have a previously saved feed for this exact query, prefer it
+    const savedFeed = getOfflineCatalogueFeed(cacheKey);
+    if (isOffline && savedFeed && savedFeed.items.length > 0) {
+      clientCatalogueCache.set(cacheKey, { timestamp: Date.now(), data: savedFeed });
+      return savedFeed;
     }
 
     // 2. Client-side live TMDB search & expanded catalogue fallback for static hosts (GitHub Pages)
     const clientResult = await resolveClientCatalogue(params, signal);
     clientCatalogueCache.set(cacheKey, { timestamp: Date.now(), data: clientResult });
+    saveOfflineCatalogueFeed(cacheKey, clientResult);
     return clientResult;
   };
 
@@ -1302,6 +1328,15 @@ export async function fetchTitleDetails(
     return cached.data;
   }
 
+  const isOffline = typeof navigator !== 'undefined' && !navigator.onLine;
+  if (isOffline) {
+    const offlineSaved = getOfflineTitleDetails(media.type, media.id);
+    if (offlineSaved && offlineSaved.item) {
+      clientTitleDetailsCache.set(cacheKey, { timestamp: Date.now(), data: offlineSaved });
+      return offlineSaved;
+    }
+  }
+
   // 1. Try server proxy or configured VITE_API_BASE_URL first
   const apiResult = await fetchApiJson<{ item: MediaItem; similar: MediaItem[] }>(
     `/api/title/${media.type}/${encodeURIComponent(media.id)}`
@@ -1309,7 +1344,15 @@ export async function fetchTitleDetails(
 
   if (apiResult && apiResult.item) {
     clientTitleDetailsCache.set(cacheKey, { timestamp: Date.now(), data: apiResult });
+    saveOfflineTitleDetails(media.type, media.id, apiResult);
     return apiResult;
+  }
+
+  // If network request returned null, check persistent offline cache before synthesizing fallback
+  const previouslyViewed = getOfflineTitleDetails(media.type, media.id);
+  if (previouslyViewed && previouslyViewed.item) {
+    clientTitleDetailsCache.set(cacheKey, { timestamp: Date.now(), data: previouslyViewed });
+    return previouslyViewed;
   }
 
   const catalog = await getClientLiveExpandedCatalog();
@@ -1473,6 +1516,7 @@ export async function fetchTitleDetails(
 
   const fallbackResult = { item: enriched, similar };
   clientTitleDetailsCache.set(cacheKey, { timestamp: Date.now(), data: fallbackResult });
+  saveOfflineTitleDetails(media.type, media.id, fallbackResult);
   return fallbackResult;
 }
 
@@ -1481,6 +1525,14 @@ export async function fetchTvSeasonEpisodes(
   seasonNumber: number,
   signal?: AbortSignal
 ): Promise<{ seasonNumber: number; name: string; episodes: EpisodeInfo[] }> {
+  const isOffline = typeof navigator !== 'undefined' && !navigator.onLine;
+  if (isOffline) {
+    const offlineSeason = getOfflineSeasonEpisodes(mediaId, seasonNumber);
+    if (offlineSeason && Array.isArray(offlineSeason.episodes) && offlineSeason.episodes.length > 0) {
+      return offlineSeason;
+    }
+  }
+
   // 1. Try remote API first (Express server or VITE_API_BASE_URL)
   const apiResult = await fetchApiJson<{
     seasonNumber: number;
@@ -1490,36 +1542,44 @@ export async function fetchTvSeasonEpisodes(
   }>(`/api/tv/${encodeURIComponent(mediaId)}/season/${seasonNumber}`, { signal });
 
   if (apiResult && Array.isArray(apiResult.episodes) && !apiResult.error) {
-    return {
+    const resolvedSeason = {
       seasonNumber: apiResult.seasonNumber || seasonNumber,
       name: apiResult.name || `Season ${seasonNumber}`,
       episodes: apiResult.episodes,
     };
+    saveOfflineSeasonEpisodes(mediaId, seasonNumber, resolvedSeason);
+    return resolvedSeason;
   }
 
   // 2. Direct TMDB season lookup for static deployments (GitHub Pages) when VITE_TMDB_API_KEY is configured
   const canonical = extractCanonicalTmdbIdentity(mediaId, 'tv');
   if (CLIENT_TMDB_API_KEY && canonical && canonical.mediaType === 'tv') {
-    const seasonData = await fetchClientTmdbJson<any>(
-      `/tv/${canonical.tmdbId}/season/${seasonNumber}`,
-      {},
-      signal
-    );
-    if (seasonData && Array.isArray(seasonData.episodes)) {
-      const episodes: EpisodeInfo[] = seasonData.episodes.map((ep: any, idx: number) => ({
-        episodeNumber: Number(ep.episode_number) || idx + 1,
-        seasonNumber,
-        name: ep.name || `Episode ${idx + 1}`,
-        airDate: ep.air_date || undefined,
-        runtime: typeof ep.runtime === 'number' && ep.runtime > 0 ? ep.runtime : undefined,
-        overview: ep.overview || undefined,
-        stillUrl: ep.still_path ? `${TMDB_IMAGE_W500}${ep.still_path}` : undefined,
-      }));
-      return {
-        seasonNumber,
-        name: seasonData.name || `Season ${seasonNumber}`,
-        episodes,
-      };
+    try {
+      const seasonData = await fetchClientTmdbJson<any>(
+        `/tv/${canonical.tmdbId}/season/${seasonNumber}`,
+        {},
+        signal
+      );
+      if (seasonData && Array.isArray(seasonData.episodes)) {
+        const episodes: EpisodeInfo[] = seasonData.episodes.map((ep: any, idx: number) => ({
+          episodeNumber: Number(ep.episode_number) || idx + 1,
+          seasonNumber,
+          name: ep.name || `Episode ${idx + 1}`,
+          airDate: ep.air_date || undefined,
+          runtime: typeof ep.runtime === 'number' && ep.runtime > 0 ? ep.runtime : undefined,
+          overview: ep.overview || undefined,
+          stillUrl: ep.still_path ? `${TMDB_IMAGE_W500}${ep.still_path}` : undefined,
+        }));
+        const resolvedSeason = {
+          seasonNumber,
+          name: seasonData.name || `Season ${seasonNumber}`,
+          episodes,
+        };
+        saveOfflineSeasonEpisodes(mediaId, seasonNumber, resolvedSeason);
+        return resolvedSeason;
+      }
+    } catch (err: any) {
+      if (err?.name === 'AbortError') throw err;
     }
   }
 
@@ -1541,17 +1601,24 @@ export async function fetchTvSeasonEpisodes(
             overview: stripHtml(ep.summary || '') || undefined,
             stillUrl: ep.image?.medium || ep.image?.original || undefined,
           }));
-          return {
+          const resolvedSeason = {
             seasonNumber,
             name: `Season ${seasonNumber}`,
             episodes,
           };
+          saveOfflineSeasonEpisodes(mediaId, seasonNumber, resolvedSeason);
+          return resolvedSeason;
         }
       }
     } catch (err: any) {
       if (err?.name === 'AbortError') throw err;
-      throw new Error(`Failed to load Season ${seasonNumber} episodes from TVMaze.`);
     }
+  }
+
+  // 4. Fallback to previously viewed offline season cache if network failed
+  const cachedSeason = getOfflineSeasonEpisodes(mediaId, seasonNumber);
+  if (cachedSeason && Array.isArray(cachedSeason.episodes) && cachedSeason.episodes.length > 0) {
+    return cachedSeason;
   }
 
   // Never fabricate default 8-episode lists or synthetic release dates/runtimes
