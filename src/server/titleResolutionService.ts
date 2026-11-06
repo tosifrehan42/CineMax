@@ -38,7 +38,7 @@ export interface TitleResolutionResponseBody {
 
 export const MAX_TITLES_PER_REQUEST = 50;
 export const MAX_TITLE_LENGTH = 200;
-const GEMINI_TIMEOUT_MS = 8500;
+const GEMINI_TIMEOUT_MS = 25000;
 const RESOLUTION_CACHE_TTL_MS = 1000 * 60 * 15; // 15 minutes
 const MAX_CACHE_ENTRIES = 1000;
 
@@ -739,6 +739,46 @@ ${JSON.stringify(uncachedPayload)}`;
       },
     };
   } catch (err: any) {
+    const errorName =
+      typeof err?.name === 'string' && err.name.trim() ? err.name.trim() : 'Error';
+    const rawMessage =
+      typeof err?.message === 'string'
+        ? err.message
+        : String(err ?? 'Unknown Gemini API error');
+    const safeMessage = (
+      geminiApiKey ? rawMessage.split(geminiApiKey).join('[REDACTED]') : rawMessage
+    )
+      .replace(/([?&]key=)[^&\s]+/gi, '$1[REDACTED]')
+      .replace(/(Bearer\s+)[A-Za-z0-9._~+/-]+=*/gi, '$1[REDACTED]')
+      .replace(/AIza[0-9A-Za-z_-]{20,}/g, '[REDACTED]');
+
+    const httpStatus =
+      typeof err?.status === 'number'
+        ? err.status
+        : typeof err?.statusCode === 'number'
+        ? err.statusCode
+        : typeof err?.response?.status === 'number'
+        ? err.response.status
+        : typeof err?.error?.code === 'number'
+        ? err.error.code
+        : undefined;
+
+    const errorCode =
+      typeof err?.code === 'string' || typeof err?.code === 'number'
+        ? err.code
+        : typeof err?.error?.status === 'string'
+        ? err.error.status
+        : typeof err?.error?.code === 'string' || typeof err?.error?.code === 'number'
+        ? err.error.code
+        : undefined;
+
+    console.error('[TitleResolutionService] Gemini title resolution failed:', {
+      name: errorName,
+      message: safeMessage,
+      ...(httpStatus !== undefined ? { status: httpStatus } : {}),
+      ...(errorCode !== undefined ? { code: errorCode } : {}),
+    });
+
     // Graceful fallback when Gemini fails, times out, or hits rate limits
     for (const idx of uncachedIndices) {
       const input = sanitizedInputs[idx];
