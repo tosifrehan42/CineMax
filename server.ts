@@ -230,7 +230,12 @@ function computeRawMatchTier(
   if (
     queryWords.length > 1 &&
     queryWords.every((qw) =>
-      titleWords.some((tw) => tw === qw || (qw.length >= 3 && tw.startsWith(qw)))
+      titleWords.some(
+        (tw) =>
+          tw === qw ||
+          (qw.length >= 3 && tw.startsWith(qw)) ||
+          (tw.length >= 4 && qw.startsWith(tw))
+      )
     )
   ) {
     return 2.0;
@@ -241,7 +246,12 @@ function computeRawMatchTier(
     );
     const evalWords = significantWords.length > 0 ? significantWords : queryWords;
     const matched = evalWords.filter((qw) =>
-      titleWords.some((tw) => tw === qw || (qw.length >= 3 && tw.startsWith(qw)))
+      titleWords.some(
+        (tw) =>
+          tw === qw ||
+          (qw.length >= 3 && tw.startsWith(qw)) ||
+          (tw.length >= 4 && qw.startsWith(tw))
+      )
     );
     const ratio = matched.length / evalWords.length;
     if (matched.length > 0 && (evalWords.length === 1 || ratio >= 0.6)) {
@@ -359,6 +369,8 @@ function mapTmdbItemToMediaItem(raw: any, forcedType?: 'movie' | 'tv', indexOffs
   const title =
     (mediaType === 'tv' ? raw.name || raw.original_name : raw.title || raw.original_title) ||
     'Untitled';
+  const originalTitle =
+    (mediaType === 'tv' ? raw.original_name : raw.original_title) || undefined;
   const dateStr = (mediaType === 'tv' ? raw.first_air_date : raw.release_date) || '';
   const parsedYear = dateStr ? parseInt(dateStr.slice(0, 4), 10) : 0;
   const year = Number.isFinite(parsedYear) && parsedYear > 0 ? parsedYear : 0;
@@ -408,6 +420,7 @@ function mapTmdbItemToMediaItem(raw: any, forcedType?: 'movie' | 'tv', indexOffs
   return {
     id,
     title,
+    originalTitle,
     type: mediaType,
     year,
     runtime:
@@ -570,9 +583,9 @@ async function getLiveExpandedCatalog(forceRefresh = false): Promise<MediaItem[]
 
   const byTitleKey = new Map<string, MediaItem>();
 
-  // 1. Seed with the 20 rich TMDB-poster anchor titles + franchise/regional anchor items
+  // 1. Seed with the rich TMDB-poster anchor titles + franchise/regional anchor items (keyed by year/id to preserve multi-edition releases)
   for (const item of [...MEDIA_ITEMS, ...EXTRA_ANCHOR_ITEMS]) {
-    const k = `${item.type}:${item.title.toLowerCase()}`;
+    const k = `${item.type}:${item.title.toLowerCase()}:${item.year || item.id}`;
     if (!byTitleKey.has(k)) {
       byTitleKey.set(k, {
         ...item,

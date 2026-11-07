@@ -391,7 +391,12 @@ function computeRawMatchTier(
   if (
     queryWords.length > 1 &&
     queryWords.every((qw) =>
-      titleWords.some((tw) => tw === qw || (qw.length >= 3 && tw.startsWith(qw)))
+      titleWords.some(
+        (tw) =>
+          tw === qw ||
+          (qw.length >= 3 && tw.startsWith(qw)) ||
+          (tw.length >= 4 && qw.startsWith(tw))
+      )
     )
   ) {
     return 2.0;
@@ -402,7 +407,12 @@ function computeRawMatchTier(
     );
     const evalWords = significantWords.length > 0 ? significantWords : queryWords;
     const matched = evalWords.filter((qw) =>
-      titleWords.some((tw) => tw === qw || (qw.length >= 3 && tw.startsWith(qw)))
+      titleWords.some(
+        (tw) =>
+          tw === qw ||
+          (qw.length >= 3 && tw.startsWith(qw)) ||
+          (tw.length >= 4 && qw.startsWith(tw))
+      )
     );
     const ratio = matched.length / evalWords.length;
     if (matched.length > 0 && (evalWords.length === 1 || ratio >= 0.6)) {
@@ -456,6 +466,8 @@ function mapClientTmdbItemToMediaItem(
   const title =
     (mediaType === 'tv' ? raw.name || raw.original_name : raw.title || raw.original_title) ||
     'Untitled';
+  const originalTitle =
+    (mediaType === 'tv' ? raw.original_name : raw.original_title) || undefined;
   const dateStr = (mediaType === 'tv' ? raw.first_air_date : raw.release_date) || '';
   const parsedYear = dateStr ? parseInt(dateStr.slice(0, 4), 10) : 0;
   const year = Number.isFinite(parsedYear) && parsedYear > 0 ? parsedYear : 0;
@@ -481,6 +493,7 @@ function mapClientTmdbItemToMediaItem(
   return {
     id,
     title,
+    originalTitle,
     type: mediaType,
     year,
     genres,
@@ -610,9 +623,9 @@ async function getClientLiveExpandedCatalog(forceRefresh = false): Promise<Media
   catalogLoadPromise = (async () => {
     const byTitleKey = new Map<string, MediaItem>();
 
-    // 1. Seed with the rich TMDB-poster anchor titles + franchise/regional anchor items
+    // 1. Seed with the rich TMDB-poster anchor titles + franchise/regional anchor items (keyed by year/id to preserve multi-edition releases)
     for (const item of [...MEDIA_ITEMS, ...EXTRA_ANCHOR_ITEMS]) {
-      const k = `${item.type}:${item.title.toLowerCase()}`;
+      const k = `${item.type}:${item.title.toLowerCase()}:${item.year || item.id}`;
       if (!byTitleKey.has(k)) {
         byTitleKey.set(k, {
           ...item,
@@ -1995,6 +2008,7 @@ import {
   rankSmartSearchCandidates,
   resolveDeterministicTitle,
   resolveDeterministicTitlesBatch,
+  scoreDeterministicCandidate,
 } from './titleMatcher';
 
 export type SmartTitleResolutionInput = DeterministicTitleInput;
@@ -2015,6 +2029,48 @@ export function resolveTitlesDeterministically(
 }
 
 /**
+ * Collects high-relevance canonical anchor items from MEDIA_ITEMS and EXTRA_ANCHOR_ITEMS
+ * for a given query and deterministic resolution so canonical franchise installments
+ * (such as "Final Destination Bloodlines (2025)") and multi-edition classics ("The Office", "Dune")
+ * are guaranteed to be present in the candidate pool alongside live TMDB results.
+ */
+function findMatchingCanonicalAnchorItems(
+  cleanQuery: string,
+  resolved: DeterministicResolvedTitle,
+  typeFilter: 'all' | 'movie' | 'tv'
+): MediaItem[] {
+  const anchorPool = dedupeMediaItems([...MEDIA_ITEMS, ...EXTRA_ANCHOR_ITEMS]);
+  const matches: MediaItem[] = [];
+
+  for (const item of anchorPool) {
+    if (typeFilter !== 'all' && item.type !== typeFilter) continue;
+    const score = scoreDeterministicCandidate(
+      {
+        title: cleanQuery,
+        normalizedTitle: resolved.normalizedTitle,
+        alternateQueries: resolved.alternateQueries,
+        mediaTypeHint: typeFilter === 'all' ? null : typeFilter,
+        yearHint: resolved.isAmbiguous ? null : resolved.yearHint,
+        inferredTypeHint: resolved.mediaTypeHint,
+        inferredYearHint: resolved.yearHint,
+        tmdbIdHint: resolved.tmdbIdHint,
+        franchiseKey: resolved.franchiseKey,
+        installmentNumber: resolved.installmentNumber,
+        confidence: resolved.confidence,
+        isAmbiguous: resolved.isAmbiguous,
+      },
+      item
+    );
+
+    if (score >= 42) {
+      matches.push(item);
+    }
+  }
+
+  return matches;
+}
+
+/**
  * Determines whether direct TMDB search results need follow-up query expansion
  * using the deterministically normalized canonical title and alternate queries.
  */
@@ -2030,18 +2086,17 @@ export function needsSmartSearchExpansion(
     return true;
   }
 
-  // If deterministic alias resolution mapped the query to a different canonical title
-  // (e.g. "john wick 3" -> "John Wick: Chapter 3 – Parabellum", "dark knight" -> "The Dark Knight",
-  // "spider man no way home" -> "Spider-Man: No Way Home"), verify whether that canonical title
-  // is already in the top 3 direct results.
   const normCanonical = normalizeForSearch(resolved.normalizedTitle);
   const normRaw = normalizeForSearch(cleanQuery);
 
+  // If deterministic alias resolution mapped the query to a different canonical title
+  // (e.g. "final destination 6" -> "Final Destination Bloodlines",
+  // "john wick 3" -> "John Wick: Chapter 3 – Parabellum"), expand if not already in top 2
   if (normCanonical && normCanonical !== normRaw) {
-    const hasCanonicalInTop3 = directItems
-      .slice(0, 3)
+    const hasCanonicalInTop2 = directItems
+      .slice(0, 2)
       .some((item) => normalizeForSearch(item.title) === normCanonical);
-    if (!hasCanonicalInTop3) {
+    if (!hasCanonicalInTop2) {
       return true;
     }
   }
@@ -2075,7 +2130,14 @@ export async function executeSmartSearch(
 ): Promise<SmartSearchResponse> {
   const cleanQuery = String(params.query || '').replace(/\s+/g, ' ').trim();
 
-  // 1. Always run standard TMDB/catalogue search first
+  // 1. Deterministically resolve the query synchronously (zero network latency)
+  const resolved = resolveDeterministicTitle({
+    rowId: 'search-0',
+    title: cleanQuery,
+    mediaTypeHint: params.typeFilter === 'all' ? null : params.typeFilter,
+  });
+
+  // 2. Run standard TMDB/catalogue search first
   const directRes = await fetchCatalogue(
     {
       category: 'discover',
@@ -2095,16 +2157,16 @@ export async function executeSmartSearch(
     };
   }
 
-  // 2. Deterministically resolve the query (zero network latency)
-  const resolved = resolveDeterministicTitle({
-    rowId: 'search-0',
-    title: cleanQuery,
-    mediaTypeHint: params.typeFilter === 'all' ? null : params.typeFilter,
-  });
+  const anchorMatches = findMatchingCanonicalAnchorItems(
+    cleanQuery,
+    resolved,
+    params.typeFilter
+  );
 
-  // Rank direct results right away so initial display is already deterministically ordered
+  // Rank direct results + matching canonical anchors right away so initial display is already relevance-ordered
+  const initialPool = dedupeMediaItems([...directRes.items, ...anchorMatches]);
   const initialRanked = rankSmartSearchCandidates(
-    directRes.items,
+    initialPool,
     cleanQuery,
     resolved,
     params.typeFilter
@@ -2115,8 +2177,8 @@ export async function executeSmartSearch(
     items: initialRanked,
   });
 
-  // 3. Check if direct results already contain the exact canonical match
-  if (!needsSmartSearchExpansion(cleanQuery, initialRanked, resolved)) {
+  // 3. Check if direct results already contain the exact canonical match and sufficient franchise context
+  if (!needsSmartSearchExpansion(cleanQuery, directRes.items, resolved)) {
     const hasCanonicalDifference =
       resolved.normalizedTitle.toLowerCase() !== cleanQuery.toLowerCase() ||
       resolved.isAmbiguous;
@@ -2124,13 +2186,14 @@ export async function executeSmartSearch(
     return {
       ...directRes,
       items: initialRanked,
+      totalResults: Math.max(directRes.totalResults, initialRanked.length),
       smartResolution: resolved,
       smartMatched:
         initialRanked.length > 0 && (resolved.smartMatched || hasCanonicalDifference),
     };
   }
 
-  // 4. Build bounded follow-up TMDB queries (normalizedTitle + up to 2 alternateQueries)
+  // 4. Build bounded follow-up TMDB queries (normalizedTitle + up to 3 distinct alternateQueries)
   const candidateQueries: string[] = [];
   const seenLower = new Set<string>([cleanQuery.toLowerCase()]);
 
@@ -2149,13 +2212,6 @@ export async function executeSmartSearch(
     pushQuery(alt);
   }
 
-  if (candidateQueries.length < 3 && /[:–—-]/.test(resolved.normalizedTitle)) {
-    const prefix = resolved.normalizedTitle.split(/[:–—]/)[0]?.trim();
-    if (prefix && prefix.length >= 3) {
-      pushQuery(prefix);
-    }
-  }
-
   if (candidateQueries.length === 0) {
     const hasCanonicalDifference =
       resolved.normalizedTitle.toLowerCase() !== cleanQuery.toLowerCase() ||
@@ -2164,6 +2220,7 @@ export async function executeSmartSearch(
     return {
       ...directRes,
       items: initialRanked,
+      totalResults: Math.max(directRes.totalResults, initialRanked.length),
       smartResolution: resolved,
       smartMatched:
         initialRanked.length > 0 && (resolved.smartMatched || hasCanonicalDifference),
@@ -2198,7 +2255,11 @@ export async function executeSmartSearch(
       }
     }
 
-    const mergedPool = dedupeMediaItems([...additionalItems, ...directRes.items]);
+    const mergedPool = dedupeMediaItems([
+      ...additionalItems,
+      ...directRes.items,
+      ...anchorMatches,
+    ]);
     const rankedItems = rankSmartSearchCandidates(
       mergedPool,
       cleanQuery,

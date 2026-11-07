@@ -138,6 +138,7 @@ export interface WatchProvidersInfo {
 export interface MediaItem {
   id: string;
   title: string;
+  originalTitle?: string;
   type: MediaType;
   year: number;
   runtime?: string; // e.g. "2h 46m"

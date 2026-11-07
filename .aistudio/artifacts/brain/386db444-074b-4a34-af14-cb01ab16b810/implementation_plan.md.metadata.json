@@ -1,6 +1,6 @@
 {
-  "summary":  "Implementation plan to migrate CineMax from Gemini-powered title resolution and image extraction to a 100% deterministic, TMDB-powered title normalization, ranking, and ambiguity engine paired with lazy-loaded client-side Tesseract.js OCR.",
-  "updatedAt":  "2026-11-07T08:13:41.789167715Z",
+  "summary":  "Implementation plan for upgrading CineMax's deterministic search and matching engine into a Google-style intelligent movie and TV search engine with multi-variant query expansion, franchise installment registry, franchise-aware sequel scoring, fuzzy spelling tolerance, relevance-first ranking, and automated test suite.",
+  "updatedAt":  "2026-11-07T16:06:15.151024274Z",
   "requestFeedback":  true,
   "userFacing":  true
 }
