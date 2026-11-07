@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { motion } from 'motion/react';
 import {
   formatAuthErrorMessage,
   requestPasswordResetEmail,
@@ -7,6 +8,12 @@ import {
   SUPABASE_SCHEMA_SQL,
 } from '../services/supabaseClient';
 import { LiquidTabBubble, useLiquidTabBubble } from './LiquidTabBubble';
+import {
+  modalBackdropVariants,
+  modalPanelVariants,
+  reducedMotionVariants,
+  useCinematicMotion,
+} from '../utils/motionSystem';
 import {
   X,
   Film,
@@ -59,6 +66,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const [showSqlHelper, setShowSqlHelper] = useState(false);
   const [copiedSql, setCopiedSql] = useState(false);
+  const { prefersReducedMotion } = useCinematicMotion();
 
   useEffect(() => {
     if (isOpen) {
@@ -171,10 +179,22 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto cm-glass-backdrop flex items-center justify-center p-4 animate-in fade-in duration-200">
+    <motion.div
+      variants={prefersReducedMotion ? reducedMotionVariants : modalBackdropVariants}
+      initial="hidden"
+      animate="visible"
+      exit="exit"
+      className="fixed inset-0 z-50 overflow-y-auto cm-glass-backdrop flex items-center justify-center p-4"
+    >
       <div className="fixed inset-0" onClick={onClose} />
 
-      <div className="relative z-10 w-full max-w-md cm-glass-panel rounded-2xl overflow-hidden my-auto">
+      <motion.div
+        variants={prefersReducedMotion ? reducedMotionVariants : modalPanelVariants}
+        initial="hidden"
+        animate="visible"
+        exit="exit"
+        className="relative z-10 w-full max-w-md cm-glass-panel rounded-2xl overflow-hidden my-auto"
+      >
         {/* Top Header */}
         <div className="px-6 pt-6 pb-4 border-b border-white/[0.07] cm-glass-subbar flex items-center justify-between">
           <div className="flex items-center gap-2.5">
@@ -490,7 +510,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
             </div>
           )}
         </div>
-      </div>
-    </div>
+      </motion.div>
+    </motion.div>
   );
 };

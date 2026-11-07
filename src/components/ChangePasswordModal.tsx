@@ -1,8 +1,15 @@
 import React, { useState, useEffect } from 'react';
+import { motion } from 'motion/react';
 import {
   changeSignedInUserPassword,
   validatePasswordPolicy,
 } from '../services/supabaseClient';
+import {
+  modalBackdropVariants,
+  modalPanelVariants,
+  reducedMotionVariants,
+  useCinematicMotion,
+} from '../utils/motionSystem';
 import {
   X,
   Lock,
@@ -35,6 +42,7 @@ export const ChangePasswordModal: React.FC<ChangePasswordModalProps> = ({
   const [submitting, setSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
+  const { prefersReducedMotion } = useCinematicMotion();
 
   useEffect(() => {
     if (isOpen) {
@@ -128,7 +136,13 @@ export const ChangePasswordModal: React.FC<ChangePasswordModalProps> = ({
     newPassword === confirmPassword;
 
   return (
-    <div className="cm-glass-backdrop fixed inset-0 z-50 overflow-y-auto flex items-center justify-center p-4 animate-in fade-in duration-200">
+    <motion.div
+      variants={prefersReducedMotion ? reducedMotionVariants : modalBackdropVariants}
+      initial="initial"
+      animate="animate"
+      exit="exit"
+      className="cm-glass-backdrop fixed inset-0 z-50 overflow-y-auto flex items-center justify-center p-4"
+    >
       <div
         className="fixed inset-0"
         onClick={() => {
@@ -136,10 +150,14 @@ export const ChangePasswordModal: React.FC<ChangePasswordModalProps> = ({
         }}
       />
 
-      <div
+      <motion.div
         role="dialog"
         aria-modal="true"
         aria-labelledby="change-password-modal-title"
+        variants={prefersReducedMotion ? reducedMotionVariants : modalPanelVariants}
+        initial="initial"
+        animate="animate"
+        exit="exit"
         className="cm-glass-panel relative z-10 w-full max-w-md rounded-2xl overflow-hidden my-auto"
       >
         {/* Header */}
@@ -380,7 +398,7 @@ export const ChangePasswordModal: React.FC<ChangePasswordModalProps> = ({
             <span>Current password verified via Supabase Auth</span>
           </span>
         </div>
-      </div>
-    </div>
+      </motion.div>
+    </motion.div>
   );
 };

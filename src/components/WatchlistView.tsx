@@ -1,4 +1,5 @@
 import React, { useState, useMemo } from 'react';
+import { motion } from 'motion/react';
 import {
   MediaItem,
   WatchedEpisodeEntry,
@@ -9,6 +10,14 @@ import {
 } from '../types';
 import { MediaPoster } from './MediaPoster';
 import { LiquidTabBubble, useLiquidTabBubble } from './LiquidTabBubble';
+import {
+  CINEMATIC_EASE,
+  getBoundedStaggerDelay,
+  MOTION_DURATIONS,
+  SPRING_GENTLE,
+  SPRING_TACTILE,
+  useCinematicMotion,
+} from '../utils/motionSystem';
 import {
   parseRuntimeMinutes,
   SUPABASE_SCHEMA_SQL,
@@ -86,6 +95,7 @@ export const WatchlistView: React.FC<WatchlistViewProps> = ({
   const [viewMode, setViewMode] = useState<'grid' | 'table'>('grid');
   const [copiedSql, setCopiedSql] = useState(false);
   const [copiedMigrationSql, setCopiedMigrationSql] = useState(false);
+  const { prefersReducedMotion, canHover } = useCinematicMotion();
 
   // Map watchlist entries to their media items (supporting dynamically paginated titles)
   const entriesWithMedia = useMemo(() => {
@@ -779,7 +789,7 @@ export const WatchlistView: React.FC<WatchlistViewProps> = ({
       ) : viewMode === 'grid' ? (
         /* Poster Grid View */
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4 sm:gap-6">
-          {filteredAndSorted.map(({ entry, media }) => {
+          {filteredAndSorted.map(({ entry, media }, idx) => {
             const watchedEps = watchedEpCountByMedia.get(media.id) || 0;
             const totalEps = media.totalEpisodes || (media.seasons ? media.seasons * 8 : 0);
             const tvPct =
@@ -789,9 +799,19 @@ export const WatchlistView: React.FC<WatchlistViewProps> = ({
             const isCompleted = entry.status === 'completed';
 
             return (
-              <div
+              <motion.div
                 key={media.id}
-                className="group relative flex flex-col bg-slate-900/60 rounded-xl border border-white/5 p-2.5 hover:border-amber-400/30 transition-all"
+                initial={prefersReducedMotion ? false : { opacity: 0, y: 12 }}
+                whileInView={prefersReducedMotion ? undefined : { opacity: 1, y: 0 }}
+                viewport={{ once: true, margin: '-20px' }}
+                whileHover={canHover && !prefersReducedMotion ? { y: -4 } : undefined}
+                transition={{
+                  ...SPRING_GENTLE,
+                  delay: prefersReducedMotion ? 0 : getBoundedStaggerDelay(idx % 12, 0.035, 10),
+                  duration: MOTION_DURATIONS.normal,
+                  ease: CINEMATIC_EASE,
+                }}
+                className="group relative flex flex-col bg-slate-900/60 rounded-xl border border-white/5 p-2.5 hover:border-amber-400/30 cm-card-glow transition-colors"
               >
                 <div
                   onClick={() => onSelectMedia(media)}
@@ -800,7 +820,7 @@ export const WatchlistView: React.FC<WatchlistViewProps> = ({
                   <MediaPoster media={media} aspect="poster" />
 
                   {/* Top-left Quick Checkable Completion Control */}
-                  <button
+                  <motion.button
                     type="button"
                     onClick={(e) => {
                       e.stopPropagation();
@@ -810,6 +830,8 @@ export const WatchlistView: React.FC<WatchlistViewProps> = ({
                         media
                       );
                     }}
+                    whileTap={prefersReducedMotion ? undefined : { scale: 0.9 }}
+                    transition={SPRING_TACTILE}
                     aria-label={
                       isCompleted ? 'Mark as Want to Watch' : 'Mark as Completed'
                     }
@@ -818,7 +840,7 @@ export const WatchlistView: React.FC<WatchlistViewProps> = ({
                         ? 'Completed (Click to uncheck)'
                         : 'Mark as Completed'
                     }
-                    className={`absolute top-2 left-2 p-1.5 rounded-lg backdrop-blur-md border transition-all flex items-center gap-1 text-[11px] font-semibold ${
+                    className={`absolute top-2 left-2 p-1.5 rounded-lg backdrop-blur-md border transition-colors flex items-center gap-1 text-[11px] font-semibold ${
                       isCompleted
                         ? 'bg-emerald-500 text-slate-950 border-emerald-400 shadow-md'
                         : 'bg-black/65 text-white/80 border-white/15 hover:bg-black/85 hover:text-white'
@@ -829,16 +851,18 @@ export const WatchlistView: React.FC<WatchlistViewProps> = ({
                     ) : (
                       <Square className="w-3.5 h-3.5" />
                     )}
-                  </button>
+                  </motion.button>
 
                   {/* Top-right Favourite Heart Button */}
                   {onToggleFavourite && (
-                    <button
+                    <motion.button
                       type="button"
                       onClick={(e) => {
                         e.stopPropagation();
                         onToggleFavourite(media.id, media);
                       }}
+                      whileTap={prefersReducedMotion ? undefined : { scale: 0.88 }}
+                      transition={SPRING_TACTILE}
                       aria-label={
                         entry.isFavourite ? 'Remove from favourites' : 'Mark as favourite'
                       }
@@ -851,7 +875,7 @@ export const WatchlistView: React.FC<WatchlistViewProps> = ({
                       <Heart
                         className={`w-3.5 h-3.5 ${entry.isFavourite ? 'fill-current' : ''}`}
                       />
-                    </button>
+                    </motion.button>
                   )}
 
                   {/* Bottom Progress Bar for TV Series */}
@@ -933,14 +957,14 @@ export const WatchlistView: React.FC<WatchlistViewProps> = ({
                       type="button"
                       onClick={() => onRemoveFromWatchlist(media.id)}
                       aria-label={`Remove ${media.title} from checklist`}
-                      className="p-1.5 text-slate-500 hover:text-red-400 rounded-lg hover:bg-white/5 transition-colors shrink-0"
+                      className="p-1.5 text-slate-500 hover:text-red-400 rounded-lg hover:bg-white/5 transition-colors shrink-0 active:scale-90"
                       title="Remove from Checklist"
                     >
                       <Trash2 className="w-3.5 h-3.5" />
                     </button>
                   </div>
                 </div>
-              </div>
+              </motion.div>
             );
           })}
         </div>

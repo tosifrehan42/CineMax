@@ -1,4 +1,5 @@
 import React, { useEffect } from 'react';
+import { motion } from 'motion/react';
 import {
   FranchiseCollection,
   MediaItem,
@@ -6,6 +7,15 @@ import {
   WATCH_STATUS_LABELS,
 } from '../types';
 import { MediaPoster } from './MediaPoster';
+import {
+  CINEMATIC_EASE,
+  getBoundedStaggerDelay,
+  modalBackdropVariants,
+  modalPanelVariants,
+  MOTION_DURATIONS,
+  reducedMotionVariants,
+  useCinematicMotion,
+} from '../utils/motionSystem';
 import {
   X,
   Play,
@@ -38,6 +48,8 @@ export const FranchiseModal: React.FC<FranchiseModalProps> = ({
   onSelectMedia,
   onPlayTrailer,
 }) => {
+  const { prefersReducedMotion } = useCinematicMotion();
+
   useEffect(() => {
     if (!collection) return;
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -57,15 +69,23 @@ export const FranchiseModal: React.FC<FranchiseModalProps> = ({
     totalCount > 0 ? Math.round((completedCount / totalCount) * 100) : 0;
 
   return (
-    <div
+    <motion.div
+      variants={prefersReducedMotion ? reducedMotionVariants : modalBackdropVariants}
+      initial="initial"
+      animate="animate"
+      exit="exit"
       className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-6 cm-glass-backdrop overflow-y-auto"
       onClick={onClose}
       role="dialog"
       aria-modal="true"
       aria-label={collection.title}
     >
-      <div
+      <motion.div
         onClick={(e) => e.stopPropagation()}
+        variants={prefersReducedMotion ? reducedMotionVariants : modalPanelVariants}
+        initial="initial"
+        animate="animate"
+        exit="exit"
         className="relative w-full max-w-4xl max-h-[90vh] overflow-y-auto rounded-2xl cm-glass-panel text-slate-100"
       >
         {/* Top Cinematic Banner */}
@@ -131,8 +151,15 @@ export const FranchiseModal: React.FC<FranchiseModalProps> = ({
               const isCompleted = status === 'completed';
 
               return (
-                <div
+                <motion.div
                   key={item.id}
+                  initial={prefersReducedMotion ? false : { opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{
+                    duration: MOTION_DURATIONS.normal,
+                    delay: prefersReducedMotion ? 0 : getBoundedStaggerDelay(idx, 0.035, 8),
+                    ease: CINEMATIC_EASE,
+                  }}
                   className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 p-4 rounded-xl bg-[#131924] hover:bg-[#171F2E] border border-white/[0.08] transition-colors"
                 >
                   <div className="flex items-start sm:items-center gap-4 min-w-0">
@@ -254,12 +281,12 @@ export const FranchiseModal: React.FC<FranchiseModalProps> = ({
                       <Info className="w-4 h-4" />
                     </button>
                   </div>
-                </div>
+                </motion.div>
               );
             })}
           </div>
         </div>
-      </div>
-    </div>
+      </motion.div>
+    </motion.div>
   );
 };

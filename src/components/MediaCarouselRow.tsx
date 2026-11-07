@@ -1,7 +1,14 @@
 import React, { useRef, useState, useEffect, useCallback, useMemo } from 'react';
+import { motion } from 'motion/react';
 import { MediaItem, WatchStatus } from '../types';
 import { MediaCard } from './MediaCard';
 import { dedupeMediaItems } from '../utils/mediaIntegrity';
+import {
+  CINEMATIC_EASE,
+  MOTION_DURATIONS,
+  SPRING_TACTILE,
+  useCinematicMotion,
+} from '../utils/motionSystem';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 
 interface MediaCarouselRowProps {
@@ -45,6 +52,7 @@ const MediaCarouselRowComponent: React.FC<MediaCarouselRowProps> = ({
   const rafIdRef = useRef<number | null>(null);
   const [canScrollLeft, setCanScrollLeft] = useState(false);
   const [canScrollRight, setCanScrollRight] = useState(true);
+  const { prefersReducedMotion } = useCinematicMotion();
 
   const uniqueItems = useMemo(() => {
     if (!items || items.length === 0) return [];
@@ -111,7 +119,13 @@ const MediaCarouselRowComponent: React.FC<MediaCarouselRowProps> = ({
   if (uniqueItems.length === 0) return null;
 
   return (
-    <section className="relative space-y-3.5 sm:space-y-4 group/row">
+    <motion.section
+      initial={prefersReducedMotion ? false : { opacity: 0, y: 14 }}
+      whileInView={prefersReducedMotion ? undefined : { opacity: 1, y: 0 }}
+      viewport={{ once: true, margin: '-40px' }}
+      transition={{ duration: MOTION_DURATIONS.normal, ease: CINEMATIC_EASE }}
+      className="relative space-y-3.5 sm:space-y-4 group/row"
+    >
       {/* Row Header */}
       <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-2 sm:gap-4">
         <div className="min-w-0 flex-1 space-y-1 sm:space-y-1.5">
@@ -140,34 +154,38 @@ const MediaCarouselRowComponent: React.FC<MediaCarouselRowProps> = ({
         <div className="flex items-center gap-2 shrink-0 self-start sm:self-auto">
           {/* Desktop Prev / Next Controls */}
           <div className="hidden md:flex items-center gap-1">
-            <button
+            <motion.button
               type="button"
               onClick={() => handleScrollBy('left')}
               disabled={!canScrollLeft}
               aria-label={`Scroll ${title} left`}
+              whileTap={prefersReducedMotion ? undefined : { scale: 0.92 }}
+              transition={SPRING_TACTILE}
               className="p-1.5 rounded-lg cm-glass-control text-slate-300 hover:text-white disabled:opacity-25 disabled:pointer-events-none"
             >
               <ChevronLeft className="w-4 h-4" />
-            </button>
-            <button
+            </motion.button>
+            <motion.button
               type="button"
               onClick={() => handleScrollBy('right')}
               disabled={!canScrollRight}
               aria-label={`Scroll ${title} right`}
+              whileTap={prefersReducedMotion ? undefined : { scale: 0.92 }}
+              transition={SPRING_TACTILE}
               className="p-1.5 rounded-lg cm-glass-control text-slate-300 hover:text-white disabled:opacity-25 disabled:pointer-events-none"
             >
               <ChevronRight className="w-4 h-4" />
-            </button>
+            </motion.button>
           </div>
 
           {onExploreAll && (
             <button
               type="button"
               onClick={onExploreAll}
-              className="text-xs font-semibold text-amber-400 hover:text-amber-300 flex items-center gap-0.5 transition-colors sm:pl-1 whitespace-nowrap"
+              className="group/explore text-xs font-semibold text-amber-400 hover:text-amber-300 flex items-center gap-0.5 transition-colors sm:pl-1 whitespace-nowrap active:scale-[0.97]"
             >
               <span>{exploreLabel}</span>
-              <ChevronRight className="w-3.5 h-3.5 shrink-0" />
+              <ChevronRight className="w-3.5 h-3.5 shrink-0 transition-transform group-hover/explore:translate-x-0.5" />
             </button>
           )}
         </div>
@@ -205,6 +223,7 @@ const MediaCarouselRowComponent: React.FC<MediaCarouselRowProps> = ({
                     media={item}
                     compact={true}
                     rankBadge={rankNum}
+                    staggerIndex={idx}
                     isInWatchlist={isInWatchlist(item.id)}
                     watchlistStatus={getWatchlistStatus?.(item.id)}
                     onToggleWatchlist={onToggleWatchlist}
@@ -227,6 +246,7 @@ const MediaCarouselRowComponent: React.FC<MediaCarouselRowProps> = ({
               <MediaCard
                 media={item}
                 compact={true}
+                staggerIndex={idx}
                 isInWatchlist={isInWatchlist(item.id)}
                 watchlistStatus={getWatchlistStatus?.(item.id)}
                 onToggleWatchlist={onToggleWatchlist}
@@ -240,7 +260,7 @@ const MediaCarouselRowComponent: React.FC<MediaCarouselRowProps> = ({
           );
         })}
       </div>
-    </section>
+    </motion.section>
   );
 };
 

@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { AnimatePresence, motion } from 'motion/react';
 import { MediaItem } from '../types';
 import { MediaPoster } from './MediaPoster';
 import {
@@ -8,6 +9,17 @@ import {
   normalizeForSearch,
 } from '../services/mediaApi';
 import { dedupeMediaItems } from '../utils/mediaIntegrity';
+import {
+  CINEMATIC_EASE,
+  fadeDownVariants,
+  getBoundedStaggerDelay,
+  modalBackdropVariants,
+  modalPanelVariants,
+  MOTION_DURATIONS,
+  reducedMotionVariants,
+  SPRING_TACTILE,
+  useCinematicMotion,
+} from '../utils/motionSystem';
 import {
   Search,
   X,
@@ -49,9 +61,11 @@ export const SearchOverlay: React.FC<SearchOverlayProps> = ({
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [searchWarning, setSearchWarning] = useState<string | null>(null);
+  const [isInputFocused, setIsInputFocused] = useState(false);
 
   const inputRef = useRef<HTMLInputElement>(null);
   const requestIdRef = useRef(0);
+  const { prefersReducedMotion } = useCinematicMotion();
 
   useEffect(() => {
     if (isOpen) {
@@ -64,6 +78,7 @@ export const SearchOverlay: React.FC<SearchOverlayProps> = ({
       setIsSmartMatching(false);
       setSmartResolution(null);
       setSmartMatched(false);
+      setIsInputFocused(false);
     }
   }, [isOpen]);
 
@@ -225,31 +240,63 @@ export const SearchOverlay: React.FC<SearchOverlayProps> = ({
     : '';
 
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto cm-glass-backdrop flex items-start justify-center pt-16 sm:pt-24 px-4 animate-in fade-in duration-150">
+    <motion.div
+      variants={prefersReducedMotion ? reducedMotionVariants : modalBackdropVariants}
+      initial="hidden"
+      animate="visible"
+      exit="exit"
+      className="fixed inset-0 z-50 overflow-y-auto cm-glass-backdrop flex items-start justify-center pt-16 sm:pt-24 px-4"
+    >
       <div className="fixed inset-0" onClick={onClose} />
 
-      <div className="relative z-10 w-full max-w-2xl cm-glass-panel rounded-2xl overflow-hidden flex flex-col max-h-[80vh]">
+      <motion.div
+        variants={prefersReducedMotion ? reducedMotionVariants : modalPanelVariants}
+        initial="hidden"
+        animate="visible"
+        exit="exit"
+        className="relative z-10 w-full max-w-2xl cm-glass-panel rounded-2xl overflow-hidden flex flex-col max-h-[80vh]"
+      >
         {/* Search Bar Input */}
-        <div className="flex items-center gap-3 px-5 py-4 border-b border-white/10 cm-glass-subbar">
+        <div
+          className={`flex items-center gap-3 px-5 py-4 border-b cm-glass-subbar transition-colors duration-200 ${
+            isInputFocused
+              ? 'border-amber-400/45 shadow-[inset_0_-1px_0_rgba(245,158,11,0.3)]'
+              : 'border-white/10'
+          }`}
+        >
           {showBusy ? (
             <Loader2 className="w-5 h-5 text-amber-400 animate-spin shrink-0" />
           ) : (
-            <Search className="w-5 h-5 text-amber-400 shrink-0" />
+            <Search
+              className={`w-5 h-5 shrink-0 transition-transform duration-200 ${
+                isInputFocused ? 'text-amber-300 scale-105' : 'text-amber-400'
+              }`}
+            />
           )}
           <input
             ref={inputRef}
             type="text"
             value={query}
+            onFocus={() => setIsInputFocused(true)}
+            onBlur={() => setIsInputFocused(false)}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Search movies and TV series across the catalogue..."
             className="w-full bg-transparent text-white placeholder:text-slate-400 text-sm focus:outline-none"
           />
-          {isSmartMatching && (
-            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-amber-500/15 border border-amber-400/30 text-[11px] font-medium text-amber-300 whitespace-nowrap shrink-0">
-              <Loader2 className="w-3 h-3 animate-spin text-amber-400 shrink-0" />
-              <span>TMDB Smart Match</span>
-            </span>
-          )}
+          <AnimatePresence initial={false}>
+            {isSmartMatching && (
+              <motion.span
+                initial={prefersReducedMotion ? false : { opacity: 0, scale: 0.9 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={prefersReducedMotion ? { opacity: 0 } : { opacity: 0, scale: 0.9 }}
+                transition={SPRING_TACTILE}
+                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-amber-500/15 border border-amber-400/30 text-[11px] font-medium text-amber-300 whitespace-nowrap shrink-0"
+              >
+                <Loader2 className="w-3 h-3 animate-spin text-amber-400 shrink-0" />
+                <span>TMDB Smart Match</span>
+              </motion.span>
+            )}
+          </AnimatePresence>
           {query && (
             <button
               onClick={() => {
@@ -257,8 +304,9 @@ export const SearchOverlay: React.FC<SearchOverlayProps> = ({
                 setDebouncedQuery('');
                 setSmartResolution(null);
                 setSmartMatched(false);
+                inputRef.current?.focus();
               }}
-              className="p-1 text-slate-400 hover:text-white rounded"
+              className="p-1 text-slate-400 hover:text-white rounded active:scale-90 transition-transform"
             >
               <X className="w-4 h-4" />
             </button>
@@ -274,7 +322,7 @@ export const SearchOverlay: React.FC<SearchOverlayProps> = ({
             <span className="text-slate-400 font-medium mr-1">Filter:</span>
             <button
               onClick={() => setTypeFilter('all')}
-              className={`px-2.5 py-1 rounded-md transition-colors whitespace-nowrap ${
+              className={`px-2.5 py-1 rounded-md transition-colors whitespace-nowrap active:scale-[0.97] ${
                 typeFilter === 'all'
                   ? 'bg-amber-500 text-black font-semibold shadow-sm'
                   : 'cm-glass-control text-slate-300 hover:text-white'
@@ -284,7 +332,7 @@ export const SearchOverlay: React.FC<SearchOverlayProps> = ({
             </button>
             <button
               onClick={() => setTypeFilter('movie')}
-              className={`px-2.5 py-1 rounded-md transition-colors whitespace-nowrap ${
+              className={`px-2.5 py-1 rounded-md transition-colors whitespace-nowrap active:scale-[0.97] ${
                 typeFilter === 'movie'
                   ? 'bg-amber-500 text-black font-semibold shadow-sm'
                   : 'cm-glass-control text-slate-300 hover:text-white'
@@ -294,7 +342,7 @@ export const SearchOverlay: React.FC<SearchOverlayProps> = ({
             </button>
             <button
               onClick={() => setTypeFilter('tv')}
-              className={`px-2.5 py-1 rounded-md transition-colors whitespace-nowrap ${
+              className={`px-2.5 py-1 rounded-md transition-colors whitespace-nowrap active:scale-[0.97] ${
                 typeFilter === 'tv'
                   ? 'bg-amber-500 text-black font-semibold shadow-sm'
                   : 'cm-glass-control text-slate-300 hover:text-white'
@@ -309,39 +357,48 @@ export const SearchOverlay: React.FC<SearchOverlayProps> = ({
         </div>
 
         {/* Subtle TMDB Smart Match Canonical Title Banner */}
-        {!isSmartMatching &&
-          debouncedQuery &&
-          smartMatched &&
-          smartResolution &&
-          results.length > 0 && (
-            <div className="px-5 py-2 bg-amber-500/[0.08] border-b border-amber-500/20 flex flex-wrap items-center justify-between gap-2 text-xs">
-              <div className="flex items-center gap-2 min-w-0">
-                <Sparkles className="w-3.5 h-3.5 text-amber-400 shrink-0" />
-                <span className="text-slate-300 truncate">
-                  {smartResolution.isAmbiguous ? (
-                    <>
-                      Multiple editions found for{' '}
-                      <strong className="text-white font-semibold">
-                        {smartResolution.normalizedTitle}
-                      </strong>{' '}
-                      — showing top TMDB candidates
-                    </>
-                  ) : (
-                    <>
-                      TMDB Smart Match for{' '}
-                      <span className="text-slate-400">&quot;{debouncedQuery}&quot;</span>:{' '}
-                      <strong className="text-amber-300 font-semibold">
-                        {smartResolution.normalizedTitle}
-                      </strong>
-                    </>
-                  )}
+        <AnimatePresence initial={false}>
+          {!isSmartMatching &&
+            debouncedQuery &&
+            smartMatched &&
+            smartResolution &&
+            results.length > 0 && (
+              <motion.div
+                key={`smart-banner-${smartResolution.normalizedTitle}`}
+                variants={prefersReducedMotion ? reducedMotionVariants : fadeDownVariants}
+                initial="hidden"
+                animate="visible"
+                exit="exit"
+                className="px-5 py-2 bg-amber-500/[0.08] border-b border-amber-500/20 flex flex-wrap items-center justify-between gap-2 text-xs"
+              >
+                <div className="flex items-center gap-2 min-w-0">
+                  <Sparkles className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                  <span className="text-slate-300 truncate">
+                    {smartResolution.isAmbiguous ? (
+                      <>
+                        Multiple editions found for{' '}
+                        <strong className="text-white font-semibold">
+                          {smartResolution.normalizedTitle}
+                        </strong>{' '}
+                        — showing top TMDB candidates
+                      </>
+                    ) : (
+                      <>
+                        TMDB Smart Match for{' '}
+                        <span className="text-slate-400">&quot;{debouncedQuery}&quot;</span>:{' '}
+                        <strong className="text-amber-300 font-semibold">
+                          {smartResolution.normalizedTitle}
+                        </strong>
+                      </>
+                    )}
+                  </span>
+                </div>
+                <span className="text-[10px] font-mono text-amber-300/90 px-2 py-0.5 rounded bg-amber-500/15 border border-amber-400/25 shrink-0">
+                  TMDB Smart Match
                 </span>
-              </div>
-              <span className="text-[10px] font-mono text-amber-300/90 px-2 py-0.5 rounded bg-amber-500/15 border border-amber-400/25 shrink-0">
-                TMDB Smart Match
-              </span>
-            </div>
-          )}
+              </motion.div>
+            )}
+        </AnimatePresence>
 
         {/* API Error Banner */}
         {error && (
@@ -378,11 +435,16 @@ export const SearchOverlay: React.FC<SearchOverlayProps> = ({
         {/* Results List */}
         <div className="overflow-y-auto divide-y divide-white/5 p-2">
           {results.length === 0 && !showBusy && !isSmartMatching ? (
-            <div className="py-12 text-center text-slate-500">
+            <motion.div
+              initial={prefersReducedMotion ? false : { opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: MOTION_DURATIONS.normal, ease: CINEMATIC_EASE }}
+              className="py-12 text-center text-slate-500"
+            >
               <Film className="w-10 h-10 mx-auto stroke-1 opacity-40 mb-2" />
               <p className="text-sm font-medium text-slate-400">No matching titles found</p>
               <p className="text-xs text-slate-500 mt-1">Try another keyword, actor, or genre</p>
-            </div>
+            </motion.div>
           ) : (
             <>
               {results.map((item, idx) => {
@@ -395,8 +457,15 @@ export const SearchOverlay: React.FC<SearchOverlayProps> = ({
                   idx === 0;
 
                 return (
-                  <div
+                  <motion.div
                     key={item.id}
+                    initial={prefersReducedMotion ? false : { opacity: 0, y: 8 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{
+                      duration: MOTION_DURATIONS.fast,
+                      ease: CINEMATIC_EASE,
+                      delay: prefersReducedMotion ? 0 : getBoundedStaggerDelay(idx, 0.025, 8),
+                    }}
                     onMouseEnter={() => setActiveIndex(idx)}
                     onClick={() => {
                       onClose();
@@ -444,12 +513,14 @@ export const SearchOverlay: React.FC<SearchOverlayProps> = ({
                         <span>{item.rating > 0 ? item.rating.toFixed(1) : 'NR'}</span>
                       </div>
                       <ArrowRight
-                        className={`w-4 h-4 transition-colors ${
-                          activeIndex === idx ? 'text-white' : 'text-slate-600 group-hover:text-white'
+                        className={`w-4 h-4 transition-all duration-200 ${
+                          activeIndex === idx
+                            ? 'text-white translate-x-0.5'
+                            : 'text-slate-600 group-hover:text-white group-hover:translate-x-0.5'
                         }`}
                       />
                     </div>
-                  </div>
+                  </motion.div>
                 );
               })}
 
@@ -458,7 +529,7 @@ export const SearchOverlay: React.FC<SearchOverlayProps> = ({
                   <button
                     onClick={handleLoadMore}
                     disabled={isLoadingMore}
-                    className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg cm-glass-control text-xs font-semibold text-amber-400"
+                    className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg cm-glass-control text-xs font-semibold text-amber-400 active:scale-[0.98]"
                   >
                     {isLoadingMore ? (
                       <>
@@ -477,8 +548,8 @@ export const SearchOverlay: React.FC<SearchOverlayProps> = ({
             </>
           )}
         </div>
-      </div>
-    </div>
+      </motion.div>
+    </motion.div>
   );
 };
 

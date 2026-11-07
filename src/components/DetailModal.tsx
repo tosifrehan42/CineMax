@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
+import { motion } from 'motion/react';
 import {
   EpisodeInfo,
   MediaItem,
@@ -9,6 +10,12 @@ import {
   WATCH_STATUS_ORDER,
 } from '../types';
 import { MediaPoster } from './MediaPoster';
+import {
+  modalBackdropVariants,
+  modalPanelVariants,
+  reducedMotionVariants,
+  useCinematicMotion,
+} from '../utils/motionSystem';
 import {
   fetchOnlinePlaybackSources,
   fetchTitleDetails,
@@ -131,6 +138,7 @@ export const DetailModal: React.FC<DetailModalProps> = ({
   const [episodeRetryTick, setEpisodeRetryTick] = useState<number>(0);
   const [isLoadingDetails, setIsLoadingDetails] = useState<boolean>(false);
   const [onlineSourceTick, setOnlineSourceTick] = useState<number>(0);
+  const { prefersReducedMotion } = useCinematicMotion();
 
   useEffect(() => {
     setEnrichedMedia(media);
@@ -382,11 +390,23 @@ export const DetailModal: React.FC<DetailModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto cm-glass-backdrop flex items-center justify-center p-3 sm:p-6 animate-in fade-in duration-200">
+    <motion.div
+      variants={prefersReducedMotion ? reducedMotionVariants : modalBackdropVariants}
+      initial="hidden"
+      animate="visible"
+      exit="exit"
+      className="fixed inset-0 z-50 overflow-y-auto cm-glass-backdrop flex items-center justify-center p-3 sm:p-6"
+    >
       {/* Background click dismiss */}
       <div className="fixed inset-0" onClick={onClose} />
 
-      <div className="relative z-10 w-full max-w-4xl cm-glass-panel rounded-2xl overflow-hidden my-auto max-h-[92vh] flex flex-col">
+      <motion.div
+        variants={prefersReducedMotion ? reducedMotionVariants : modalPanelVariants}
+        initial="hidden"
+        animate="visible"
+        exit="exit"
+        className="relative z-10 w-full max-w-4xl cm-glass-panel rounded-2xl overflow-hidden my-auto max-h-[92vh] flex flex-col"
+      >
         {/* Top Backdrop Header */}
         <div className="relative w-full h-48 sm:h-64 shrink-0 overflow-hidden">
           <MediaPoster
@@ -1249,7 +1269,7 @@ export const DetailModal: React.FC<DetailModalProps> = ({
             </div>
           )}
         </div>
-      </div>
-    </div>
+      </motion.div>
+    </motion.div>
   );
 };

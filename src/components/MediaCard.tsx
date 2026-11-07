@@ -1,4 +1,10 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
+import {
+  AnimatePresence,
+  motion,
+  useMotionValue,
+  useSpring,
+} from 'motion/react';
 import {
   MediaItem,
   WatchStatus,
@@ -6,6 +12,13 @@ import {
   WATCH_STATUS_ORDER,
 } from '../types';
 import { MediaPoster } from './MediaPoster';
+import {
+  CINEMATIC_EASE,
+  getBoundedStaggerDelay,
+  popoverMenuVariants,
+  SPRING_CARD_TILT,
+  useCinematicMotion,
+} from '../utils/motionSystem';
 import {
   Bookmark,
   Star,
@@ -32,6 +45,7 @@ interface MediaCardProps {
   onPlayTrailer?: (media: MediaItem) => void;
   rankBadge?: number;
   compact?: boolean;
+  staggerIndex?: number;
 }
 
 const MediaCardComponent: React.FC<MediaCardProps> = ({
@@ -47,9 +61,36 @@ const MediaCardComponent: React.FC<MediaCardProps> = ({
   onPlayTrailer,
   rankBadge,
   compact = false,
+  staggerIndex,
 }) => {
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
+  const { prefersReducedMotion, canHoverDesktop, enable3DTilt } = useCinematicMotion();
+
+  // Subtle 3D tilt motion values (desktop fine-pointer only, capped at ±3.5deg)
+  const rawRotateX = useMotionValue(0);
+  const rawRotateY = useMotionValue(0);
+  const rotateX = useSpring(rawRotateX, SPRING_CARD_TILT);
+  const rotateY = useSpring(rawRotateY, SPRING_CARD_TILT);
+
+  const handlePointerMove = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>) => {
+      if (!enable3DTilt || menuOpen) return;
+      const rect = e.currentTarget.getBoundingClientRect();
+      if (rect.width <= 0 || rect.height <= 0) return;
+      const normX = (e.clientX - rect.left) / rect.width - 0.5;
+      const normY = (e.clientY - rect.top) / rect.height - 0.5;
+      rawRotateX.set(-normY * 6.5);
+      rawRotateY.set(normX * 6.5);
+    },
+    [enable3DTilt, menuOpen, rawRotateX, rawRotateY]
+  );
+
+  const handlePointerLeave = useCallback(() => {
+    if (!enable3DTilt) return;
+    rawRotateX.set(0);
+    rawRotateY.set(0);
+  }, [enable3DTilt, rawRotateX, rawRotateY]);
 
   useEffect(() => {
     if (!menuOpen) return;
@@ -158,10 +199,41 @@ const MediaCardComponent: React.FC<MediaCardProps> = ({
       ? `${media.seasons} ${media.seasons === 1 ? 'Season' : 'Seasons'}`
       : 'Series';
 
+  const hasStaggerEntrance =
+    typeof staggerIndex === 'number' && !prefersReducedMotion;
+
   return (
-    <div
+    <motion.div
+      initial={hasStaggerEntrance ? { opacity: 0, y: 12 } : false}
+      whileInView={hasStaggerEntrance ? { opacity: 1, y: 0 } : undefined}
+      viewport={hasStaggerEntrance ? { once: true, margin: '-20px' } : undefined}
+      transition={
+        hasStaggerEntrance
+          ? {
+              duration: 0.34,
+              delay: getBoundedStaggerDelay(staggerIndex, 0.03, 10),
+              ease: CINEMATIC_EASE,
+            }
+          : { duration: 0.2, ease: CINEMATIC_EASE }
+      }
+      whileHover={
+        canHoverDesktop && !prefersReducedMotion
+          ? { y: -4, scale: 1.015 }
+          : undefined
+      }
+      onPointerMove={enable3DTilt ? handlePointerMove : undefined}
+      onPointerLeave={enable3DTilt ? handlePointerLeave : undefined}
+      style={
+        enable3DTilt
+          ? {
+              rotateX,
+              rotateY,
+              transformPerspective: 900,
+            }
+          : undefined
+      }
       onClick={() => onClick(media)}
-      className="group relative flex flex-col cursor-pointer md:transition-transform md:duration-200 md:hover:-translate-y-1 focus:outline-none"
+      className="group relative flex flex-col cursor-pointer focus:outline-none"
       role="button"
       tabIndex={0}
       onKeyDown={(e) => {
@@ -171,8 +243,8 @@ const MediaCardComponent: React.FC<MediaCardProps> = ({
         }
       }}
     >
-      {/* Portrait 2:3 Poster Surface */}
-      <div className="relative aspect-[2/3] w-full overflow-hidden rounded-xl border border-white/[0.08] bg-[#121721] shadow-md md:group-hover:border-amber-400/45 md:group-hover:shadow-xl transition-colors">
+      {/* Portrait 2:3 Poster Surface with Animated Border Illumination */}
+      <div className="relative aspect-[2/3] w-full overflow-hidden rounded-xl border border-white/[0.08] bg-[#121721] shadow-md cm-card-glow">
         {/* Optional Rank Number Badge (Solid on mobile, glassmorphic on desktop) */}
         {rankBadge && (
           <div className="absolute top-2 left-2 z-20 px-2 py-0.5 rounded-md bg-[#0B0E14]/95 md:bg-black/80 md:backdrop-blur-md border border-amber-400/30 flex items-center justify-center text-[11px] font-mono font-bold text-amber-400 shadow-sm">
@@ -182,8 +254,9 @@ const MediaCardComponent: React.FC<MediaCardProps> = ({
 
         {/* Watchlist Quick Action & Status Menu Trigger */}
         <div ref={menuRef} className="absolute top-2 right-2 z-30">
-          <button
+          <motion.button
             type="button"
+            whileTap={prefersReducedMotion ? undefined : { scale: 0.9 }}
             onClick={handleChecklistButtonClick}
             aria-label={
               isInWatchlist
@@ -203,53 +276,59 @@ const MediaCardComponent: React.FC<MediaCardProps> = ({
             ) : (
               <Bookmark className="w-3.5 h-3.5" />
             )}
-          </button>
+          </motion.button>
 
-          {/* Status Popover Menu */}
-          {menuOpen && (
-            <div
-              onClick={(e) => e.stopPropagation()}
-              className="absolute right-0 mt-1.5 w-44 rounded-xl cm-glass-popover p-1.5 z-40"
-            >
-              <div className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-slate-400 border-b border-white/10 mb-1">
-                Watchlist Status
-              </div>
-              {WATCH_STATUS_ORDER.map((st) => {
-                const active = isInWatchlist && watchlistStatus === st;
-                return (
-                  <button
-                    key={st}
-                    type="button"
-                    onClick={(e) => handleSelectStatus(e, st)}
-                    className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs transition-colors whitespace-nowrap ${
-                      active
-                        ? 'bg-amber-500/20 text-amber-300 font-semibold'
-                        : 'text-slate-300 hover:bg-white/10 hover:text-white'
-                    }`}
-                  >
-                    <span className="flex items-center gap-2">
-                      {renderStatusIcon(st, 'w-3.5 h-3.5')}
-                      <span>{WATCH_STATUS_LABELS[st]}</span>
-                    </span>
-                    {active && <Check className="w-3 h-3 text-amber-400 stroke-[2.5]" />}
-                  </button>
-                );
-              })}
-
-              {isInWatchlist && (
-                <div className="mt-1 pt-1 border-t border-white/10">
-                  <button
-                    type="button"
-                    onClick={handleRemove}
-                    className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs text-red-300 hover:bg-red-500/15 hover:text-red-200 transition-colors whitespace-nowrap"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                    <span>Remove</span>
-                  </button>
+          {/* Status Popover Menu with Smooth Entrance & Exit */}
+          <AnimatePresence>
+            {menuOpen && (
+              <motion.div
+                variants={popoverMenuVariants}
+                initial="hidden"
+                animate="visible"
+                exit="exit"
+                onClick={(e) => e.stopPropagation()}
+                className="absolute right-0 mt-1.5 w-44 rounded-xl cm-glass-popover p-1.5 z-40 origin-top-right"
+              >
+                <div className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-slate-400 border-b border-white/10 mb-1">
+                  Watchlist Status
                 </div>
-              )}
-            </div>
-          )}
+                {WATCH_STATUS_ORDER.map((st) => {
+                  const active = isInWatchlist && watchlistStatus === st;
+                  return (
+                    <button
+                      key={st}
+                      type="button"
+                      onClick={(e) => handleSelectStatus(e, st)}
+                      className={`w-full flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs transition-colors whitespace-nowrap ${
+                        active
+                          ? 'bg-amber-500/20 text-amber-300 font-semibold'
+                          : 'text-slate-300 hover:bg-white/10 hover:text-white'
+                      }`}
+                    >
+                      <span className="flex items-center gap-2">
+                        {renderStatusIcon(st, 'w-3.5 h-3.5')}
+                        <span>{WATCH_STATUS_LABELS[st]}</span>
+                      </span>
+                      {active && <Check className="w-3 h-3 text-amber-400 stroke-[2.5]" />}
+                    </button>
+                  );
+                })}
+
+                {isInWatchlist && (
+                  <div className="mt-1 pt-1 border-t border-white/10">
+                    <button
+                      type="button"
+                      onClick={handleRemove}
+                      className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-xs text-red-300 hover:bg-red-500/15 hover:text-red-200 transition-colors whitespace-nowrap"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                      <span>Remove</span>
+                    </button>
+                  </div>
+                )}
+              </motion.div>
+            )}
+          </AnimatePresence>
         </div>
 
         {/* Poster Artwork */}
@@ -266,11 +345,12 @@ const MediaCardComponent: React.FC<MediaCardProps> = ({
         )}
 
         {/* Desktop Restrained Hover Quick-Action Overlay */}
-        <div className="hidden md:flex absolute inset-0 z-10 bg-gradient-to-t from-[#0A0D12] via-[#0A0D12]/50 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-200 flex-col justify-end p-3 pointer-events-none">
-          <div className="flex items-center gap-1.5 pointer-events-auto">
+        <div className="hidden md:flex absolute inset-0 z-10 bg-gradient-to-t from-[#0A0D12] via-[#0A0D12]/55 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-200 flex-col justify-end p-3 pointer-events-none">
+          <div className="flex items-center gap-1.5 pointer-events-auto translate-y-1.5 group-hover:translate-y-0 transition-transform duration-200 ease-out">
             {onPlayTrailer && (
-              <button
+              <motion.button
                 type="button"
+                whileTap={prefersReducedMotion ? undefined : { scale: 0.94 }}
                 onClick={(e) => {
                   e.stopPropagation();
                   onPlayTrailer(media);
@@ -280,10 +360,11 @@ const MediaCardComponent: React.FC<MediaCardProps> = ({
               >
                 <Play className="w-3 h-3 fill-slate-950" />
                 <span>Trailer</span>
-              </button>
+              </motion.button>
             )}
-            <button
+            <motion.button
               type="button"
+              whileTap={prefersReducedMotion ? undefined : { scale: 0.94 }}
               onClick={(e) => {
                 e.stopPropagation();
                 onClick(media);
@@ -295,7 +376,7 @@ const MediaCardComponent: React.FC<MediaCardProps> = ({
             >
               <Info className="w-3 h-3" />
               {!onPlayTrailer && <span>Details</span>}
-            </button>
+            </motion.button>
           </div>
         </div>
       </div>
@@ -329,7 +410,7 @@ const MediaCardComponent: React.FC<MediaCardProps> = ({
           </div>
         </div>
       </div>
-    </div>
+    </motion.div>
   );
 };
 
@@ -349,9 +430,11 @@ export const MediaCard = React.memo(
     prev.totalEpisodesCount === next.totalEpisodesCount &&
     prev.rankBadge === next.rankBadge &&
     prev.compact === next.compact &&
+    prev.staggerIndex === next.staggerIndex &&
     prev.onClick === next.onClick &&
     prev.onPlayTrailer === next.onPlayTrailer &&
     prev.onToggleWatchlist === next.onToggleWatchlist &&
     prev.onUpdateStatus === next.onUpdateStatus &&
     prev.onRemoveFromWatchlist === next.onRemoveFromWatchlist
 );
+

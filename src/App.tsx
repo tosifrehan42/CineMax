@@ -67,6 +67,12 @@ import {
   shouldShowAdminTab,
 } from './services/adminApi';
 import { Film, Loader2 } from 'lucide-react';
+import { AnimatePresence, motion } from 'motion/react';
+import {
+  pageTransitionVariants,
+  reducedMotionVariants,
+  useCinematicMotion,
+} from './utils/motionSystem';
 
 // Lazy-loaded secondary views and modals to keep the initial Home bundle fast
 const DiscoverView = React.lazy(() =>
@@ -205,6 +211,7 @@ const INITIAL_WATCHED_EPISODES: WatchedEpisodeEntry[] = [
 ];
 
 export default function App() {
+  const { prefersReducedMotion } = useCinematicMotion();
   const [currentTab, setCurrentTab] = useState<TabView>(() =>
     isUrlAdminRoute() ? 'admin' : 'home'
   );
@@ -1881,300 +1888,334 @@ export default function App() {
 
       {/* Main View Area (1440px Fluid OTT Container) */}
       <main className="flex-1 max-w-[1440px] w-full mx-auto px-4 sm:px-6 lg:px-8 pt-4 sm:pt-6">
-        {currentTab === 'home' && (
-          <HomeView
-            initialItems={MEDIA_ITEMS}
-            allMedia={knownMedia}
-            hubMode={homeHubMode}
-            watchlist={activeWatchlist}
-            watchedEpisodes={activeWatchedEpisodes}
-            watchHistory={effectiveWatchHistory}
-            userProfile={userProfile}
-            isInWatchlist={isInWatchlist}
-            getWatchlistStatus={getWatchlistStatus}
-            onToggleWatchlist={handleToggleWatchlist}
-            onUpdateStatus={handleUpdateStatus}
-            onRemoveFromWatchlist={handleRemoveFromWatchlist}
-            getWatchedEpisodesCount={getWatchedEpisodesCount}
-            onSelectMedia={handleSelectMedia}
-            onPlayTrailer={handlePlayTrailer}
-            onExploreMood={handleExploreMood}
-            onExploreCategory={handleExploreCategory}
-            onExploreGenre={handleExploreGenre}
-            onNavigateTab={navigateToTab}
-            onRegisterMedia={handleRegisterMedia}
-          />
-        )}
+        <AnimatePresence mode="wait" initial={false}>
+          <motion.div
+            key={currentTab === 'home' ? `home-${homeHubMode}` : currentTab}
+            variants={prefersReducedMotion ? reducedMotionVariants : pageTransitionVariants}
+            initial="initial"
+            animate="animate"
+            exit="exit"
+          >
+            {currentTab === 'home' && (
+              <HomeView
+                initialItems={MEDIA_ITEMS}
+                allMedia={knownMedia}
+                hubMode={homeHubMode}
+                watchlist={activeWatchlist}
+                watchedEpisodes={activeWatchedEpisodes}
+                watchHistory={effectiveWatchHistory}
+                userProfile={userProfile}
+                isInWatchlist={isInWatchlist}
+                getWatchlistStatus={getWatchlistStatus}
+                onToggleWatchlist={handleToggleWatchlist}
+                onUpdateStatus={handleUpdateStatus}
+                onRemoveFromWatchlist={handleRemoveFromWatchlist}
+                getWatchedEpisodesCount={getWatchedEpisodesCount}
+                onSelectMedia={handleSelectMedia}
+                onPlayTrailer={handlePlayTrailer}
+                onExploreMood={handleExploreMood}
+                onExploreCategory={handleExploreCategory}
+                onExploreGenre={handleExploreGenre}
+                onNavigateTab={navigateToTab}
+                onRegisterMedia={handleRegisterMedia}
+              />
+            )}
 
-        <Suspense fallback={viewFallback}>
-          {currentTab === 'discover' && (
-            <DiscoverView
-              isInWatchlist={isInWatchlist}
-              getWatchlistStatus={getWatchlistStatus}
-              onToggleWatchlist={handleToggleWatchlist}
-              onUpdateStatus={handleUpdateStatus}
-              onRemoveFromWatchlist={handleRemoveFromWatchlist}
-              getWatchedEpisodesCount={getWatchedEpisodesCount}
-              onSelectMedia={handleSelectMedia}
-              onPlayTrailer={handlePlayTrailer}
-              onOpenEstimator={handleOpenEstimatorFromDiscover}
-              initialMood={discoverInitialMood}
-              initialCategory={discoverInitialCategory}
-              initialGenre={discoverInitialGenre}
-              onRegisterMedia={handleRegisterMedia}
-            />
-          )}
+            <Suspense fallback={viewFallback}>
+              {currentTab === 'discover' && (
+                <DiscoverView
+                  isInWatchlist={isInWatchlist}
+                  getWatchlistStatus={getWatchlistStatus}
+                  onToggleWatchlist={handleToggleWatchlist}
+                  onUpdateStatus={handleUpdateStatus}
+                  onRemoveFromWatchlist={handleRemoveFromWatchlist}
+                  getWatchedEpisodesCount={getWatchedEpisodesCount}
+                  onSelectMedia={handleSelectMedia}
+                  onPlayTrailer={handlePlayTrailer}
+                  onOpenEstimator={handleOpenEstimatorFromDiscover}
+                  initialMood={discoverInitialMood}
+                  initialCategory={discoverInitialCategory}
+                  initialGenre={discoverInitialGenre}
+                  onRegisterMedia={handleRegisterMedia}
+                />
+              )}
 
-          {currentTab === 'watchlist' && (
-            <WatchlistView
-              watchlist={activeWatchlist}
-              allMedia={knownMedia}
-              watchedEpisodes={activeWatchedEpisodes}
-              onRemoveFromWatchlist={handleRemoveFromWatchlist}
-              onUpdateStatus={(mediaId, status) => handleUpdateStatus(mediaId, status)}
-              onToggleFavourite={handleToggleFavourite}
-              onSelectMedia={handleSelectMedia}
-              onNavigateHome={() => setCurrentTab('discover')}
-              isAuthenticated={isAuthenticated}
-              isLoading={isCloudLoading}
-              error={cloudError}
-              schemaMissing={schemaMissing}
-              migrationNeeded={migrationNeeded}
-              onRetry={authUser ? () => loadCloudUserData(authUser) : undefined}
-              onOpenAuthModal={handleOpenAuthModal}
-              pendingLocalCount={pendingLocalItems.length}
-              onImportLocalWatchlist={handleImportLocalWatchlist}
-              onOpenImportCompleted={() => setIsImportCompletedModalOpen(true)}
-            />
-          )}
+              {currentTab === 'watchlist' && (
+                <WatchlistView
+                  watchlist={activeWatchlist}
+                  allMedia={knownMedia}
+                  watchedEpisodes={activeWatchedEpisodes}
+                  onRemoveFromWatchlist={handleRemoveFromWatchlist}
+                  onUpdateStatus={(mediaId, status) => handleUpdateStatus(mediaId, status)}
+                  onToggleFavourite={handleToggleFavourite}
+                  onSelectMedia={handleSelectMedia}
+                  onNavigateHome={() => setCurrentTab('discover')}
+                  isAuthenticated={isAuthenticated}
+                  isLoading={isCloudLoading}
+                  error={cloudError}
+                  schemaMissing={schemaMissing}
+                  migrationNeeded={migrationNeeded}
+                  onRetry={authUser ? () => loadCloudUserData(authUser) : undefined}
+                  onOpenAuthModal={handleOpenAuthModal}
+                  pendingLocalCount={pendingLocalItems.length}
+                  onImportLocalWatchlist={handleImportLocalWatchlist}
+                  onOpenImportCompleted={() => setIsImportCompletedModalOpen(true)}
+                />
+              )}
 
-          {currentTab === 'estimator' && (
-            <QualityFileSizeEstimator
-              allMedia={knownMedia}
-              initialMedia={estimatorInitialMedia}
-              initialSeasonNumber={estimatorInitialSeason}
-              onClearInitialMedia={() => {
-                setEstimatorInitialMedia(null);
-                setEstimatorInitialSeason(undefined);
-              }}
-              onSelectMediaDetail={handleSelectMedia}
-              onRegisterMedia={handleRegisterMedia}
-            />
-          )}
+              {currentTab === 'estimator' && (
+                <QualityFileSizeEstimator
+                  allMedia={knownMedia}
+                  initialMedia={estimatorInitialMedia}
+                  initialSeasonNumber={estimatorInitialSeason}
+                  onClearInitialMedia={() => {
+                    setEstimatorInitialMedia(null);
+                    setEstimatorInitialSeason(undefined);
+                  }}
+                  onSelectMediaDetail={handleSelectMedia}
+                  onRegisterMedia={handleRegisterMedia}
+                />
+              )}
 
-          {currentTab === 'profile' && (
-            <ProfileView
-              watchlist={activeWatchlist}
-              watchHistory={effectiveWatchHistory}
-              userProfile={userProfile}
-              userEmail={authUser?.email}
-              isAuthenticated={isAuthenticated}
-              isLoading={isCloudLoading}
-              error={cloudError}
-              schemaMissing={schemaMissing}
-              onRetry={authUser ? () => loadCloudUserData(authUser) : undefined}
-              onOpenAuthModal={handleOpenAuthModal}
-              onOpenChangePassword={() => setIsChangePasswordModalOpen(true)}
-              onSignOut={handleSignOut}
-              onUpdateProfile={handleUpdateProfile}
-              onUploadAvatar={handleUploadAvatar}
-              onRemoveAvatar={handleRemoveAvatar}
-              onDeleteHistoryEntry={handleDeleteHistoryEntry}
-              onOpenImportCompleted={() => setIsImportCompletedModalOpen(true)}
-              allMedia={knownMedia}
-              onSelectMedia={handleSelectMedia}
-              onNavigateTab={navigateToTab}
-            />
-          )}
+              {currentTab === 'profile' && (
+                <ProfileView
+                  watchlist={activeWatchlist}
+                  watchHistory={effectiveWatchHistory}
+                  userProfile={userProfile}
+                  userEmail={authUser?.email}
+                  isAuthenticated={isAuthenticated}
+                  isLoading={isCloudLoading}
+                  error={cloudError}
+                  schemaMissing={schemaMissing}
+                  onRetry={authUser ? () => loadCloudUserData(authUser) : undefined}
+                  onOpenAuthModal={handleOpenAuthModal}
+                  onOpenChangePassword={() => setIsChangePasswordModalOpen(true)}
+                  onSignOut={handleSignOut}
+                  onUpdateProfile={handleUpdateProfile}
+                  onUploadAvatar={handleUploadAvatar}
+                  onRemoveAvatar={handleRemoveAvatar}
+                  onDeleteHistoryEntry={handleDeleteHistoryEntry}
+                  onOpenImportCompleted={() => setIsImportCompletedModalOpen(true)}
+                  allMedia={knownMedia}
+                  onSelectMedia={handleSelectMedia}
+                  onNavigateTab={navigateToTab}
+                />
+              )}
 
-          {currentTab === 'admin' && (
-            <AdminDashboardView
-              isAuthenticated={isAuthenticated}
-              isAuthInitializing={isAuthInitializing}
-              adminAccessState={adminAccessState}
-              adminCheckError={adminCheckError}
-              currentUserId={authUserId}
-              currentUserEmail={authUser?.email || null}
-              onOpenAuthModal={handleOpenAuthModal}
-              onExitAdmin={() => navigateToTab('home')}
-              onRetryAdminAccess={() =>
-                authUserId
-                  ? verifyCurrentUserAdminAccess(authUserId, true)
-                  : undefined
-              }
-              onAdminVerified={handleAdminVerifiedFromDashboard}
-              onAdminExplicitlyDenied={handleAdminExplicitlyDeniedFromDashboard}
-            />
-          )}
-        </Suspense>
+              {currentTab === 'admin' && (
+                <AdminDashboardView
+                  isAuthenticated={isAuthenticated}
+                  isAuthInitializing={isAuthInitializing}
+                  adminAccessState={adminAccessState}
+                  adminCheckError={adminCheckError}
+                  currentUserId={authUserId}
+                  currentUserEmail={authUser?.email || null}
+                  onOpenAuthModal={handleOpenAuthModal}
+                  onExitAdmin={() => navigateToTab('home')}
+                  onRetryAdminAccess={() =>
+                    authUserId
+                      ? verifyCurrentUserAdminAccess(authUserId, true)
+                      : undefined
+                  }
+                  onAdminVerified={handleAdminVerifiedFromDashboard}
+                  onAdminExplicitlyDenied={handleAdminExplicitlyDeniedFromDashboard}
+                />
+              )}
+            </Suspense>
+          </motion.div>
+        </AnimatePresence>
       </main>
 
       {/* Global Modals & Overlays (Lazy Mounted when active) */}
       <Suspense fallback={null}>
-        {selectedMedia && (
-          <DetailModal
-            media={selectedMedia}
-            onClose={() => setSelectedMedia(null)}
-            isInWatchlist={isInWatchlist(selectedMedia.id)}
-            isFavourite={Boolean(selectedWatchlistEntry?.isFavourite)}
-            watchlistStatus={selectedWatchlistEntry?.status}
-            personalRating={
-              selectedWatchlistEntry?.personalRating || selectedHistoryEntry?.personalRating
-            }
-            personalNotes={
-              selectedWatchlistEntry?.personalNotes || selectedHistoryEntry?.reviewNotes
-            }
-            watchedAtDate={selectedHistoryEntry?.watchedAt || selectedWatchlistEntry?.updatedAt}
-            onToggleWatchlist={handleToggleWatchlist}
-            onRemoveFromWatchlist={handleRemoveFromWatchlist}
-            onToggleFavourite={handleToggleFavourite}
-            onUpdateWatchlistDetails={handleUpdateWatchlistDetails}
-            watchedEpisodes={activeWatchedEpisodes}
-            onToggleEpisodeWatched={handleToggleEpisodeWatched}
-            onToggleSeasonWatched={handleToggleSeasonWatched}
-            onPlayTrailer={handlePlayTrailer}
-            onPlayOnline={handlePlayOnline}
-            allMedia={knownMedia}
-            onSelectSimilar={handleSelectMedia}
-            onRegisterMedia={handleRegisterMedia}
-            onOpenEstimator={(media, seasonNum) => {
-              setSelectedMedia(null);
-              setEstimatorInitialMedia(media);
-              setEstimatorInitialSeason(seasonNum);
-              setCurrentTab('estimator');
-              window.scrollTo({ top: 0, behavior: 'smooth' });
-            }}
-          />
-        )}
-
-        {trailerMedia && (
-          <TrailerModal
-            media={trailerMedia}
-            onClose={() => setTrailerMedia(null)}
-          />
-        )}
-
-        {onlinePlaybackTarget && (
-          <OnlinePlayerModal
-            media={onlinePlaybackTarget.media}
-            initialSeasonNumber={onlinePlaybackTarget.seasonNumber}
-            initialEpisodeNumber={onlinePlaybackTarget.episodeNumber}
-            watchedEpisodes={activeWatchedEpisodes}
-            onToggleEpisodeWatched={handleToggleEpisodeWatched}
-            onClose={() => setOnlinePlaybackTarget(null)}
-          />
-        )}
-
-        {isSurpriseOpen && (
-          <SurpriseMeModal
-            isOpen={isSurpriseOpen}
-            onClose={() => setIsSurpriseOpen(false)}
-            items={knownMedia}
-            onSelectMedia={handleSelectMedia}
-          />
-        )}
-
-        {isSearchOpen && (
-          <SearchOverlay
-            isOpen={isSearchOpen}
-            onClose={() => setIsSearchOpen(false)}
-            items={knownMedia}
-            onSelectMedia={handleSelectMedia}
-            onRegisterMedia={handleRegisterMedia}
-          />
-        )}
-
-        {isAuthModalOpen && (
-          <AuthModal
-            isOpen={isAuthModalOpen}
-            onClose={() => setIsAuthModalOpen(false)}
-            supabaseConfigured={supabaseConfigured}
-            securityWarning={securityWarning}
-            initialMode={authModalMode}
-          />
-        )}
-
-        {isChangePasswordModalOpen && (
-          <ChangePasswordModal
-            isOpen={isChangePasswordModalOpen}
-            onClose={() => setIsChangePasswordModalOpen(false)}
-            userEmail={authUser?.email}
-          />
-        )}
-
-        {isImportCompletedModalOpen && (
-          <ImportCompletedModal
-            isOpen={isImportCompletedModalOpen}
-            onClose={() => setIsImportCompletedModalOpen(false)}
-            isAuthenticated={isAuthenticated}
-            userId={authUser?.id}
-            allMedia={knownMedia}
-            watchlist={activeWatchlist}
-            watchHistory={effectiveWatchHistory}
-            onOpenAuthModal={handleOpenAuthModal}
-            onImportSuccess={({
-              savedWatchlistEntries,
-              savedHistoryEntries,
-              savedEpisodeEntries,
-              newlyDiscoveredMedia,
-              migrationNeeded: migNeeded,
-            }) => {
-              if (newlyDiscoveredMedia.length > 0) {
-                handleRegisterMedia(newlyDiscoveredMedia);
+        <AnimatePresence>
+          {selectedMedia && (
+            <DetailModal
+              key={`detail-${selectedMedia.id}`}
+              media={selectedMedia}
+              onClose={() => setSelectedMedia(null)}
+              isInWatchlist={isInWatchlist(selectedMedia.id)}
+              isFavourite={Boolean(selectedWatchlistEntry?.isFavourite)}
+              watchlistStatus={selectedWatchlistEntry?.status}
+              personalRating={
+                selectedWatchlistEntry?.personalRating || selectedHistoryEntry?.personalRating
               }
-              if (migNeeded) {
-                setMigrationNeeded(true);
+              personalNotes={
+                selectedWatchlistEntry?.personalNotes || selectedHistoryEntry?.reviewNotes
               }
-              if (savedWatchlistEntries.length > 0) {
-                setCloudWatchlist((prev) => {
-                  const byId = new Map<string, WatchlistEntry>();
-                  for (const item of prev) {
-                    byId.set(item.mediaId, item);
-                  }
-                  for (const saved of savedWatchlistEntries) {
-                    byId.set(saved.mediaId, saved);
-                  }
-                  return Array.from(byId.values());
-                });
-              }
-              if (savedHistoryEntries.length > 0) {
-                setWatchHistory((prev) => {
-                  const byId = new Map<string, WatchHistoryEntry>();
-                  for (const h of prev) {
-                    byId.set(h.mediaId, h);
-                  }
-                  for (const saved of savedHistoryEntries) {
-                    byId.set(saved.mediaId, saved);
-                  }
-                  return Array.from(byId.values()).sort(
-                    (a, b) =>
-                      new Date(b.watchedAt).getTime() -
-                      new Date(a.watchedAt).getTime()
-                  );
-                });
-              }
-              if (savedEpisodeEntries.length > 0) {
-                setCloudWatchedEpisodes((prev) => {
-                  const byKey = new Map<string, WatchedEpisodeEntry>();
-                  for (const ep of prev) {
-                    byKey.set(
-                      `${ep.mediaId}:${ep.seasonNumber}:${ep.episodeNumber}`,
-                      ep
+              watchedAtDate={selectedHistoryEntry?.watchedAt || selectedWatchlistEntry?.updatedAt}
+              onToggleWatchlist={handleToggleWatchlist}
+              onRemoveFromWatchlist={handleRemoveFromWatchlist}
+              onToggleFavourite={handleToggleFavourite}
+              onUpdateWatchlistDetails={handleUpdateWatchlistDetails}
+              watchedEpisodes={activeWatchedEpisodes}
+              onToggleEpisodeWatched={handleToggleEpisodeWatched}
+              onToggleSeasonWatched={handleToggleSeasonWatched}
+              onPlayTrailer={handlePlayTrailer}
+              onPlayOnline={handlePlayOnline}
+              allMedia={knownMedia}
+              onSelectSimilar={handleSelectMedia}
+              onRegisterMedia={handleRegisterMedia}
+              onOpenEstimator={(media, seasonNum) => {
+                setSelectedMedia(null);
+                setEstimatorInitialMedia(media);
+                setEstimatorInitialSeason(seasonNum);
+                setCurrentTab('estimator');
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+              }}
+            />
+          )}
+        </AnimatePresence>
+
+        <AnimatePresence>
+          {trailerMedia && (
+            <TrailerModal
+              key={`trailer-${trailerMedia.id}`}
+              media={trailerMedia}
+              onClose={() => setTrailerMedia(null)}
+            />
+          )}
+        </AnimatePresence>
+
+        <AnimatePresence>
+          {onlinePlaybackTarget && (
+            <OnlinePlayerModal
+              key={`player-${onlinePlaybackTarget.media.id}`}
+              media={onlinePlaybackTarget.media}
+              initialSeasonNumber={onlinePlaybackTarget.seasonNumber}
+              initialEpisodeNumber={onlinePlaybackTarget.episodeNumber}
+              watchedEpisodes={activeWatchedEpisodes}
+              onToggleEpisodeWatched={handleToggleEpisodeWatched}
+              onClose={() => setOnlinePlaybackTarget(null)}
+            />
+          )}
+        </AnimatePresence>
+
+        <AnimatePresence>
+          {isSurpriseOpen && (
+            <SurpriseMeModal
+              key="surprise-modal"
+              isOpen={isSurpriseOpen}
+              onClose={() => setIsSurpriseOpen(false)}
+              items={knownMedia}
+              onSelectMedia={handleSelectMedia}
+            />
+          )}
+        </AnimatePresence>
+
+        <AnimatePresence>
+          {isSearchOpen && (
+            <SearchOverlay
+              key="search-overlay"
+              isOpen={isSearchOpen}
+              onClose={() => setIsSearchOpen(false)}
+              items={knownMedia}
+              onSelectMedia={handleSelectMedia}
+              onRegisterMedia={handleRegisterMedia}
+            />
+          )}
+        </AnimatePresence>
+
+        <AnimatePresence>
+          {isAuthModalOpen && (
+            <AuthModal
+              key="auth-modal"
+              isOpen={isAuthModalOpen}
+              onClose={() => setIsAuthModalOpen(false)}
+              supabaseConfigured={supabaseConfigured}
+              securityWarning={securityWarning}
+              initialMode={authModalMode}
+            />
+          )}
+        </AnimatePresence>
+
+        <AnimatePresence>
+          {isChangePasswordModalOpen && (
+            <ChangePasswordModal
+              key="change-password-modal"
+              isOpen={isChangePasswordModalOpen}
+              onClose={() => setIsChangePasswordModalOpen(false)}
+              userEmail={authUser?.email}
+            />
+          )}
+        </AnimatePresence>
+
+        <AnimatePresence>
+          {isImportCompletedModalOpen && (
+            <ImportCompletedModal
+              key="import-completed-modal"
+              isOpen={isImportCompletedModalOpen}
+              onClose={() => setIsImportCompletedModalOpen(false)}
+              isAuthenticated={isAuthenticated}
+              userId={authUser?.id}
+              allMedia={knownMedia}
+              watchlist={activeWatchlist}
+              watchHistory={effectiveWatchHistory}
+              onOpenAuthModal={handleOpenAuthModal}
+              onImportSuccess={({
+                savedWatchlistEntries,
+                savedHistoryEntries,
+                savedEpisodeEntries,
+                newlyDiscoveredMedia,
+                migrationNeeded: migNeeded,
+              }) => {
+                if (newlyDiscoveredMedia.length > 0) {
+                  handleRegisterMedia(newlyDiscoveredMedia);
+                }
+                if (migNeeded) {
+                  setMigrationNeeded(true);
+                }
+                if (savedWatchlistEntries.length > 0) {
+                  setCloudWatchlist((prev) => {
+                    const byId = new Map<string, WatchlistEntry>();
+                    for (const item of prev) {
+                      byId.set(item.mediaId, item);
+                    }
+                    for (const saved of savedWatchlistEntries) {
+                      byId.set(saved.mediaId, saved);
+                    }
+                    return Array.from(byId.values());
+                  });
+                }
+                if (savedHistoryEntries.length > 0) {
+                  setWatchHistory((prev) => {
+                    const byId = new Map<string, WatchHistoryEntry>();
+                    for (const h of prev) {
+                      byId.set(h.mediaId, h);
+                    }
+                    for (const saved of savedHistoryEntries) {
+                      byId.set(saved.mediaId, saved);
+                    }
+                    return Array.from(byId.values()).sort(
+                      (a, b) =>
+                        new Date(b.watchedAt).getTime() -
+                        new Date(a.watchedAt).getTime()
                     );
-                  }
-                  for (const saved of savedEpisodeEntries) {
-                    byKey.set(
-                      `${saved.mediaId}:${saved.seasonNumber}:${saved.episodeNumber}`,
-                      saved
-                    );
-                  }
-                  return Array.from(byKey.values());
-                });
-              }
-            }}
-            onNavigateTab={(tab) => navigateToTab(tab)}
-          />
-        )}
+                  });
+                }
+                if (savedEpisodeEntries.length > 0) {
+                  setCloudWatchedEpisodes((prev) => {
+                    const byKey = new Map<string, WatchedEpisodeEntry>();
+                    for (const ep of prev) {
+                      byKey.set(
+                        `${ep.mediaId}:${ep.seasonNumber}:${ep.episodeNumber}`,
+                        ep
+                      );
+                    }
+                    for (const saved of savedEpisodeEntries) {
+                      byKey.set(
+                        `${saved.mediaId}:${saved.seasonNumber}:${saved.episodeNumber}`,
+                        saved
+                      );
+                    }
+                    return Array.from(byKey.values());
+                  });
+                }
+              }}
+              onNavigateTab={(tab) => navigateToTab(tab)}
+            />
+          )}
+        </AnimatePresence>
       </Suspense>
 
       {/* Clean OTT Footer */}

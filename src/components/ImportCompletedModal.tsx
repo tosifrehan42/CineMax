@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
+import { motion } from 'motion/react';
 import {
   MediaItem,
   WatchedEpisodeEntry,
@@ -7,6 +8,12 @@ import {
 } from '../types';
 import { MediaPoster } from './MediaPoster';
 import { LiquidTabBubble, useLiquidTabBubble } from './LiquidTabBubble';
+import {
+  modalBackdropVariants,
+  modalPanelVariants,
+  reducedMotionVariants,
+  useCinematicMotion,
+} from '../utils/motionSystem';
 import {
   executeCompletedImport,
   getTodayDateIso,
@@ -90,6 +97,7 @@ export const ImportCompletedModal: React.FC<ImportCompletedModalProps> = ({
   const [imagePreviewUrl, setImagePreviewUrl] = useState<string | null>(null);
   const [pastedText, setPastedText] = useState('');
   const [inputError, setInputError] = useState<string | null>(null);
+  const { prefersReducedMotion } = useCinematicMotion();
 
   const [isExtracting, setIsExtracting] = useState(false);
   const [ocrProgress, setOcrProgress] = useState<{
@@ -491,13 +499,23 @@ export const ImportCompletedModal: React.FC<ImportCompletedModalProps> = ({
   }, [resolvedRows, reviewFilter]);
 
   return (
-    <div
+    <motion.div
+      variants={prefersReducedMotion ? reducedMotionVariants : modalBackdropVariants}
+      initial="initial"
+      animate="animate"
+      exit="exit"
       className="fixed inset-0 z-50 flex items-center justify-center px-3 sm:px-6 pt-[max(env(safe-area-inset-top,12px),12px)] pb-[max(env(safe-area-inset-bottom,12px),12px)] sm:py-6 bg-black/80 backdrop-blur-md overflow-hidden box-border"
       role="dialog"
       aria-modal="true"
       aria-labelledby="import-completed-modal-title"
     >
-      <div className="relative box-border w-full max-w-[calc(100vw-24px)] sm:max-w-4xl my-auto rounded-[20px] sm:rounded-[24px] cm-glass-nav border border-white/15 shadow-2xl overflow-hidden flex flex-col max-h-[calc(100dvh-24px-env(safe-area-inset-top,0px)-env(safe-area-inset-bottom,0px))] sm:max-h-[90vh]">
+      <motion.div
+        variants={prefersReducedMotion ? reducedMotionVariants : modalPanelVariants}
+        initial="initial"
+        animate="animate"
+        exit="exit"
+        className="relative box-border w-full max-w-[calc(100vw-24px)] sm:max-w-4xl my-auto rounded-[20px] sm:rounded-[24px] cm-glass-nav border border-white/15 shadow-2xl overflow-hidden flex flex-col max-h-[calc(100dvh-24px-env(safe-area-inset-top,0px)-env(safe-area-inset-bottom,0px))] sm:max-h-[90vh]"
+      >
         {/* Modal Top Header */}
         <div className="px-4 sm:px-7 py-3.5 sm:py-4 border-b border-white/10 flex items-start sm:items-center justify-between gap-2.5 sm:gap-4 shrink-0 box-border">
           <div className="flex items-start sm:items-center gap-2.5 sm:gap-3 min-w-0 flex-1">
@@ -1525,7 +1543,7 @@ export const ImportCompletedModal: React.FC<ImportCompletedModalProps> = ({
             )}
           </div>
         )}
-      </div>
-    </div>
+      </motion.div>
+    </motion.div>
   );
 };

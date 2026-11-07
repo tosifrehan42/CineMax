@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef, startTransition, Suspense } from 'react';
+import { AnimatePresence, motion } from 'motion/react';
 import {
   FranchiseCollection,
   HomeHubMode,
@@ -12,6 +13,14 @@ import {
 import { HeroSpotlight } from './HeroSpotlight';
 import { MediaCarouselRow } from './MediaCarouselRow';
 import { GENRES } from '../data/mediaData';
+import {
+  CINEMATIC_EASE,
+  getBoundedStaggerDelay,
+  MOTION_DURATIONS,
+  SPRING_GENTLE,
+  SPRING_TACTILE,
+  useCinematicMotion,
+} from '../utils/motionSystem';
 
 const FranchiseModal = React.lazy(() =>
   import('./FranchiseModal').then((m) => ({ default: m.FranchiseModal }))
@@ -182,6 +191,7 @@ const HomeViewComponent: React.FC<HomeViewProps> = ({
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [visibleRowCount, setVisibleRowCount] = useState<number>(ROW_BATCH_SIZE);
   const rowBatchSentinelRef = useRef<HTMLDivElement | null>(null);
+  const { prefersReducedMotion, canHover } = useCinematicMotion();
 
   // Reset visible row batch to initial 4 rows when switching between All / Movies / Series
   useEffect(() => {
@@ -811,7 +821,13 @@ const HomeViewComponent: React.FC<HomeViewProps> = ({
       )}
 
       {/* 11. Browse by Genre */}
-      <section className="space-y-4 pt-2">
+      <motion.section
+        initial={prefersReducedMotion ? false : { opacity: 0, y: 16 }}
+        whileInView={prefersReducedMotion ? undefined : { opacity: 1, y: 0 }}
+        viewport={{ once: true, margin: '-40px' }}
+        transition={{ duration: MOTION_DURATIONS.normal, ease: CINEMATIC_EASE }}
+        className="space-y-4 pt-2"
+      >
         <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-3">
           <div>
             <div className="flex items-center gap-2">
@@ -834,7 +850,7 @@ const HomeViewComponent: React.FC<HomeViewProps> = ({
                 onNavigateTab('discover');
               }
             }}
-            className="text-xs font-semibold text-amber-400 hover:text-amber-300 flex items-center gap-1 self-start sm:self-auto"
+            className="text-xs font-semibold text-amber-400 hover:text-amber-300 flex items-center gap-1 self-start sm:self-auto active:scale-[0.97]"
           >
             <span>Open {selectedBrowseGenre} in Discover</span>
             <ChevronRight className="w-3.5 h-3.5" />
@@ -846,18 +862,21 @@ const HomeViewComponent: React.FC<HomeViewProps> = ({
           {GENRES.filter((g) => g !== 'All').map((genre) => {
             const active = selectedBrowseGenre === genre;
             return (
-              <button
+              <motion.button
                 key={genre}
                 type="button"
                 onClick={() => setSelectedBrowseGenre(genre)}
-                className={`px-3.5 py-1.5 rounded-xl text-xs font-semibold transition-all whitespace-nowrap shrink-0 ${
+                whileHover={canHover && !prefersReducedMotion ? { y: -1 } : undefined}
+                whileTap={prefersReducedMotion ? undefined : { scale: 0.96 }}
+                transition={SPRING_TACTILE}
+                className={`px-3.5 py-1.5 rounded-xl text-xs font-semibold transition-colors whitespace-nowrap shrink-0 ${
                   active
                     ? 'bg-amber-500 text-slate-950 shadow-sm shadow-amber-500/20'
                     : 'cm-glass-control text-slate-300 hover:text-white'
                 }`}
               >
                 {genre}
-              </button>
+              </motion.button>
             );
           })}
         </div>
@@ -874,10 +893,16 @@ const HomeViewComponent: React.FC<HomeViewProps> = ({
           onSelectMedia={onSelectMedia}
           onPlayTrailer={onPlayTrailer}
         />
-      </section>
+      </motion.section>
 
       {/* 12. Franchise Collections / Watch Order */}
-      <section className="space-y-4 pt-2">
+      <motion.section
+        initial={prefersReducedMotion ? false : { opacity: 0, y: 16 }}
+        whileInView={prefersReducedMotion ? undefined : { opacity: 1, y: 0 }}
+        viewport={{ once: true, margin: '-40px' }}
+        transition={{ duration: MOTION_DURATIONS.normal, ease: CINEMATIC_EASE }}
+        className="space-y-4 pt-2"
+      >
         <div className="flex items-end justify-between gap-4">
           <div>
             <div className="flex items-center gap-2">
@@ -893,14 +918,14 @@ const HomeViewComponent: React.FC<HomeViewProps> = ({
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-5">
-          {FRANCHISE_COLLECTIONS.map((franchise) => {
+          {FRANCHISE_COLLECTIONS.map((franchise, franchiseIdx) => {
             const totalCount = franchise.items.length;
             const completedCount = franchise.items.filter(
               (item) => getWatchlistStatus?.(item.id) === 'completed'
             ).length;
 
             return (
-              <div
+              <motion.div
                 key={franchise.id}
                 onClick={() => setActiveFranchise(franchise)}
                 role="button"
@@ -911,14 +936,23 @@ const HomeViewComponent: React.FC<HomeViewProps> = ({
                     setActiveFranchise(franchise);
                   }
                 }}
-                className="group relative overflow-hidden rounded-2xl border border-white/10 bg-[#121721] hover:border-amber-400/50 transition-all cursor-pointer flex flex-col justify-between p-5 min-h-[210px] shadow-lg"
+                initial={prefersReducedMotion ? false : { opacity: 0, y: 14 }}
+                whileInView={prefersReducedMotion ? undefined : { opacity: 1, y: 0 }}
+                viewport={{ once: true, margin: '-30px' }}
+                whileHover={canHover && !prefersReducedMotion ? { y: -4, scale: 1.01 } : undefined}
+                whileTap={prefersReducedMotion ? undefined : { scale: 0.99 }}
+                transition={{
+                  ...SPRING_GENTLE,
+                  delay: prefersReducedMotion ? 0 : getBoundedStaggerDelay(franchiseIdx, 0.04, 9),
+                }}
+                className="group relative overflow-hidden rounded-2xl border border-white/10 bg-[#121721] hover:border-amber-400/50 cm-card-glow transition-colors cursor-pointer flex flex-col justify-between p-5 min-h-[210px] shadow-lg"
               >
                 {/* Subtle Backdrop Image */}
                 <img
                   src={franchise.backdropUrl}
                   alt={franchise.title}
                   loading="lazy"
-                  className="absolute inset-0 w-full h-full object-cover opacity-25 group-hover:opacity-35 group-hover:scale-105 transition-all duration-500"
+                  className="absolute inset-0 w-full h-full object-cover opacity-25 md:group-hover:opacity-35 md:group-hover:scale-105 transition-all duration-500 ease-[cubic-bezier(0.16,1,0.3,1)]"
                 />
                 <div className="absolute inset-0 bg-gradient-to-t from-[#0A0D12] via-[#0A0D12]/80 to-[#0A0D12]/40" />
 
@@ -960,27 +994,30 @@ const HomeViewComponent: React.FC<HomeViewProps> = ({
                     <span>Watch Order</span>
                   </span>
                 </div>
-              </div>
+              </motion.div>
             );
           })}
         </div>
-      </section>
+      </motion.section>
 
       {/* Franchise Watch-Order Modal */}
-      {activeFranchise && (
-        <Suspense fallback={null}>
-          <FranchiseModal
-            collection={activeFranchise}
-            onClose={() => setActiveFranchise(null)}
-            isInWatchlist={isInWatchlist}
-            getWatchlistStatus={getWatchlistStatus}
-            onToggleWatchlist={onToggleWatchlist}
-            onUpdateStatus={onUpdateStatus}
-            onSelectMedia={onSelectMedia}
-            onPlayTrailer={onPlayTrailer}
-          />
-        </Suspense>
-      )}
+      <Suspense fallback={null}>
+        <AnimatePresence>
+          {activeFranchise && (
+            <FranchiseModal
+              key={activeFranchise.id}
+              collection={activeFranchise}
+              onClose={() => setActiveFranchise(null)}
+              isInWatchlist={isInWatchlist}
+              getWatchlistStatus={getWatchlistStatus}
+              onToggleWatchlist={onToggleWatchlist}
+              onUpdateStatus={onUpdateStatus}
+              onSelectMedia={onSelectMedia}
+              onPlayTrailer={onPlayTrailer}
+            />
+          )}
+        </AnimatePresence>
+      </Suspense>
     </div>
   );
 };

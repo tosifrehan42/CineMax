@@ -1,9 +1,16 @@
 import React, { useEffect, useState, useRef, useCallback, useMemo } from 'react';
+import { motion } from 'motion/react';
 import {
   AuthorizedOnlineSource,
   MediaItem,
   WatchedEpisodeEntry,
 } from '../types';
+import {
+  modalBackdropVariants,
+  modalPanelVariants,
+  reducedMotionVariants,
+  useCinematicMotion,
+} from '../utils/motionSystem';
 import {
   buildAuthorizedYouTubeEmbedUrl,
   buildEpisodeYoutubeSearchUrl,
@@ -85,6 +92,7 @@ export const OnlinePlayerModal: React.FC<OnlinePlayerModalProps> = ({
   const [embedBlocked, setEmbedBlocked] = useState<boolean>(false);
   const [embedErrorReason, setEmbedErrorReason] = useState<string | null>(null);
   const [thumbFallback, setThumbFallback] = useState<boolean>(false);
+  const { prefersReducedMotion } = useCinematicMotion();
 
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
 
@@ -309,14 +317,22 @@ export const OnlinePlayerModal: React.FC<OnlinePlayerModalProps> = ({
     1;
 
   return (
-    <div
-      className="fixed inset-0 z-[75] flex items-center justify-center p-2 sm:p-4 md:p-6 cm-glass-backdrop animate-fadeIn overflow-y-auto"
+    <motion.div
+      variants={prefersReducedMotion ? reducedMotionVariants : modalBackdropVariants}
+      initial="hidden"
+      animate="visible"
+      exit="exit"
+      className="fixed inset-0 z-[75] flex items-center justify-center p-2 sm:p-4 md:p-6 cm-glass-backdrop overflow-y-auto"
       onClick={handleClosePlayer}
       role="dialog"
       aria-modal="true"
       aria-label={`${media.title} Online Player`}
     >
-      <div
+      <motion.div
+        variants={prefersReducedMotion ? reducedMotionVariants : modalPanelVariants}
+        initial="hidden"
+        animate="visible"
+        exit="exit"
         className="relative w-full max-w-5xl rounded-2xl cm-glass-panel overflow-hidden flex flex-col max-h-[94vh]"
         onClick={(e) => e.stopPropagation()}
       >
@@ -856,7 +872,7 @@ export const OnlinePlayerModal: React.FC<OnlinePlayerModalProps> = ({
             </div>
           )}
         </div>
-      </div>
-    </div>
+      </motion.div>
+    </motion.div>
   );
 };

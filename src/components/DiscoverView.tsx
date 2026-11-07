@@ -1,10 +1,17 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { AnimatePresence, motion } from 'motion/react';
 import { MediaItem, WatchStatus } from '../types';
 import { MOODS, GENRES } from '../data/mediaData';
 import { MediaCard } from './MediaCard';
 import { LiquidTabBubble, useLiquidTabBubble } from './LiquidTabBubble';
 import { CatalogueCategory, fetchCatalogue } from '../services/mediaApi';
 import { dedupeMediaItems } from '../utils/mediaIntegrity';
+import {
+  fadeUpVariants,
+  reducedMotionVariants,
+  SPRING_TACTILE,
+  useCinematicMotion,
+} from '../utils/motionSystem';
 import {
   Search,
   RotateCcw,
@@ -133,6 +140,7 @@ const DiscoverViewComponent: React.FC<DiscoverViewProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [searchWarning, setSearchWarning] = useState<string | null>(null);
   const requestIdRef = React.useRef(0);
+  const { prefersReducedMotion } = useCinematicMotion();
 
   // Sync external initial props
   useEffect(() => {
@@ -658,35 +666,50 @@ const DiscoverViewComponent: React.FC<DiscoverViewProps> = ({
       </div>
 
       {/* Active Filter Chips Bar */}
-      {activeChips.length > 0 && (
-        <div className="flex flex-wrap items-center gap-2">
-          <span className="text-xs text-slate-400 mr-1">Active Filters:</span>
-          {activeChips.map((chip) => (
-            <span
-              key={chip.key}
-              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-amber-500/15 border border-amber-500/30 text-xs font-medium text-amber-200"
-            >
-              <span>{chip.label}</span>
-              <button
-                type="button"
-                onClick={chip.onClear}
-                aria-label={`Remove ${chip.label} filter`}
-                className="text-amber-300 hover:text-white"
-              >
-                <X className="w-3 h-3" />
-              </button>
-            </span>
-          ))}
-          <button
-            type="button"
-            onClick={resetFilters}
-            className="cm-glass-control inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold text-slate-300 hover:text-white transition-colors"
+      <AnimatePresence initial={false}>
+        {activeChips.length > 0 && (
+          <motion.div
+            variants={prefersReducedMotion ? reducedMotionVariants : fadeUpVariants}
+            initial="hidden"
+            animate="visible"
+            exit="exit"
+            className="flex flex-wrap items-center gap-2"
           >
-            <RotateCcw className="w-3 h-3 text-amber-400" />
-            <span>Clear All</span>
-          </button>
-        </div>
-      )}
+            <span className="text-xs text-slate-400 mr-1">Active Filters:</span>
+            <AnimatePresence initial={false} mode="popLayout">
+              {activeChips.map((chip) => (
+                <motion.span
+                  key={chip.key}
+                  layout={!prefersReducedMotion}
+                  initial={prefersReducedMotion ? false : { opacity: 0, scale: 0.9 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  exit={prefersReducedMotion ? { opacity: 0 } : { opacity: 0, scale: 0.9 }}
+                  transition={SPRING_TACTILE}
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-amber-500/15 border border-amber-500/30 text-xs font-medium text-amber-200"
+                >
+                  <span>{chip.label}</span>
+                  <button
+                    type="button"
+                    onClick={chip.onClear}
+                    aria-label={`Remove ${chip.label} filter`}
+                    className="text-amber-300 hover:text-white active:scale-90 transition-transform"
+                  >
+                    <X className="w-3 h-3" />
+                  </button>
+                </motion.span>
+              ))}
+            </AnimatePresence>
+            <button
+              type="button"
+              onClick={resetFilters}
+              className="cm-glass-control inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold text-slate-300 hover:text-white transition-colors active:scale-[0.97]"
+            >
+              <RotateCcw className="w-3 h-3 text-amber-400" />
+              <span>Clear All</span>
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Results Summary & Top Pagination */}
       <div className="flex flex-wrap items-center justify-between gap-3 text-xs text-slate-400">
@@ -808,11 +831,12 @@ const DiscoverViewComponent: React.FC<DiscoverViewProps> = ({
         <>
           {/* Responsive OTT Poster Grid (2 cols mobile -> 6 cols desktop) */}
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4 sm:gap-5">
-            {items.map((item) => (
+            {items.map((item, idx) => (
               <MediaCard
                 key={item.id}
                 media={item}
                 compact={true}
+                staggerIndex={idx % 12}
                 isInWatchlist={isInWatchlist(item.id)}
                 watchlistStatus={getWatchlistStatus?.(item.id)}
                 onToggleWatchlist={onToggleWatchlist}

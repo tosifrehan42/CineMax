@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { motion } from 'motion/react';
 import {
   X,
   ZoomIn,
@@ -13,6 +14,12 @@ import {
   Move,
 } from 'lucide-react';
 import { SUPABASE_AVATARS_BUCKET_SQL } from '../services/supabaseClient';
+import {
+  modalBackdropVariants,
+  modalPanelVariants,
+  reducedMotionVariants,
+  useCinematicMotion,
+} from '../utils/motionSystem';
 
 interface AvatarCropModalProps {
   file: File | null;
@@ -43,6 +50,7 @@ export const AvatarCropModal: React.FC<AvatarCropModalProps> = ({
   const [isDragging, setIsDragging] = useState<boolean>(false);
   const [dragStart, setDragStart] = useState<{ x: number; y: number }>({ x: 0, y: 0 });
   const [copiedSql, setCopiedSql] = useState<boolean>(false);
+  const { prefersReducedMotion } = useCinematicMotion();
 
   const previewCanvasRef = useRef<HTMLCanvasElement | null>(null);
 
@@ -194,7 +202,13 @@ export const AvatarCropModal: React.FC<AvatarCropModalProps> = ({
   const fileSizeMb = (file.size / (1024 * 1024)).toFixed(2);
 
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto cm-glass-backdrop flex items-center justify-center p-4 animate-in fade-in duration-200">
+    <motion.div
+      variants={prefersReducedMotion ? reducedMotionVariants : modalBackdropVariants}
+      initial="initial"
+      animate="animate"
+      exit="exit"
+      className="fixed inset-0 z-50 overflow-y-auto cm-glass-backdrop flex items-center justify-center p-4"
+    >
       <div
         className="fixed inset-0"
         onClick={() => {
@@ -202,7 +216,15 @@ export const AvatarCropModal: React.FC<AvatarCropModalProps> = ({
         }}
       />
 
-      <div className="relative z-10 w-full max-w-md cm-glass-panel rounded-2xl overflow-hidden my-auto">
+      <motion.div
+        role="dialog"
+        aria-modal="true"
+        variants={prefersReducedMotion ? reducedMotionVariants : modalPanelVariants}
+        initial="initial"
+        animate="animate"
+        exit="exit"
+        className="relative z-10 w-full max-w-md cm-glass-panel rounded-2xl overflow-hidden my-auto"
+      >
         {/* Header */}
         <div className="px-6 py-4 border-b border-white/[0.07] flex items-center justify-between">
           <div>
@@ -361,7 +383,7 @@ export const AvatarCropModal: React.FC<AvatarCropModalProps> = ({
             </button>
           </div>
         </div>
-      </div>
-    </div>
+      </motion.div>
+    </motion.div>
   );
 };

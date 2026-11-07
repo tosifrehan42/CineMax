@@ -1,6 +1,13 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { motion } from 'motion/react';
 import { MediaItem, TrailerLookupResult, TrailerVideo } from '../types';
 import { fetchMediaTrailers } from '../services/mediaApi';
+import {
+  modalBackdropVariants,
+  modalPanelVariants,
+  reducedMotionVariants,
+  useCinematicMotion,
+} from '../utils/motionSystem';
 import {
   X,
   Play,
@@ -44,6 +51,7 @@ export const TrailerModal: React.FC<TrailerModalProps> = ({ media, onClose }) =>
   const [thumbnailHighResFailed, setThumbnailHighResFailed] = useState(false);
   const [embedErrorCode, setEmbedErrorCode] = useState<number | null>(null);
   const [reloadCounter, setReloadCounter] = useState(0);
+  const { prefersReducedMotion } = useCinematicMotion();
 
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
 
@@ -196,15 +204,25 @@ export const TrailerModal: React.FC<TrailerModalProps> = ({ media, onClose }) =>
     : null;
 
   return (
-    <div
-      className="fixed inset-0 z-50 overflow-y-auto cm-glass-backdrop flex items-center justify-center p-3 sm:p-6 md:p-8 animate-in fade-in duration-200"
+    <motion.div
+      variants={prefersReducedMotion ? reducedMotionVariants : modalBackdropVariants}
+      initial="hidden"
+      animate="visible"
+      exit="exit"
+      className="fixed inset-0 z-50 overflow-y-auto cm-glass-backdrop flex items-center justify-center p-3 sm:p-6 md:p-8"
       role="dialog"
       aria-modal="true"
       aria-label={`${media.title} Trailer`}
     >
       <div className="fixed inset-0" onClick={handleClose} />
 
-      <div className="relative z-10 w-full max-w-5xl cm-glass-panel rounded-2xl overflow-hidden flex flex-col">
+      <motion.div
+        variants={prefersReducedMotion ? reducedMotionVariants : modalPanelVariants}
+        initial="hidden"
+        animate="visible"
+        exit="exit"
+        className="relative z-10 w-full max-w-5xl cm-glass-panel rounded-2xl overflow-hidden flex flex-col"
+      >
         {/* Top Header Bar */}
         <div className="flex items-center justify-between px-4 sm:px-6 py-3.5 cm-glass-subbar border-b border-white/10 gap-3">
           <div className="flex items-center gap-2.5 min-w-0">
@@ -526,7 +544,7 @@ export const TrailerModal: React.FC<TrailerModalProps> = ({ media, onClose }) =>
             </div>
           </div>
         </div>
-      </div>
-    </div>
+      </motion.div>
+    </motion.div>
   );
 };

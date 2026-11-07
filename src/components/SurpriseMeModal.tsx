@@ -1,8 +1,16 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import { motion } from 'motion/react';
 import { MediaItem } from '../types';
 import { MOODS } from '../data/mediaData';
 import { MediaPoster } from './MediaPoster';
-import { X, Dice5, Star, Sparkles, ArrowRight } from 'lucide-react';
+import {
+  modalBackdropVariants,
+  modalPanelVariants,
+  reducedMotionVariants,
+  SPRING_TACTILE,
+  useCinematicMotion,
+} from '../utils/motionSystem';
+import { X, Dice5, Star, ArrowRight } from 'lucide-react';
 
 interface SurpriseMeModalProps {
   isOpen: boolean;
@@ -22,6 +30,16 @@ export const SurpriseMeModal: React.FC<SurpriseMeModalProps> = ({
   const [pickedItem, setPickedItem] = useState<MediaItem | null>(() => {
     return items[Math.floor(Math.random() * items.length)] || null;
   });
+  const { prefersReducedMotion } = useCinematicMotion();
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isOpen, onClose]);
 
   if (!isOpen) return null;
 
@@ -47,10 +65,22 @@ export const SurpriseMeModal: React.FC<SurpriseMeModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto cm-glass-backdrop flex items-center justify-center p-4 animate-in fade-in duration-200">
+    <motion.div
+      variants={prefersReducedMotion ? reducedMotionVariants : modalBackdropVariants}
+      initial="hidden"
+      animate="visible"
+      exit="exit"
+      className="fixed inset-0 z-50 overflow-y-auto cm-glass-backdrop flex items-center justify-center p-4"
+    >
       <div className="fixed inset-0" onClick={onClose} />
 
-      <div className="relative z-10 w-full max-w-xl cm-glass-panel rounded-2xl overflow-hidden p-6 sm:p-8">
+      <motion.div
+        variants={prefersReducedMotion ? reducedMotionVariants : modalPanelVariants}
+        initial="hidden"
+        animate="visible"
+        exit="exit"
+        className="relative z-10 w-full max-w-xl cm-glass-panel rounded-2xl overflow-hidden p-6 sm:p-8"
+      >
         {/* Header */}
         <div className="flex items-center justify-between pb-4 border-b border-white/10">
           <div className="flex items-center gap-2.5">
@@ -69,7 +99,7 @@ export const SurpriseMeModal: React.FC<SurpriseMeModalProps> = ({
 
           <button
             onClick={onClose}
-            className="p-1.5 text-slate-400 hover:text-white rounded-lg cm-glass-control"
+            className="p-1.5 text-slate-400 hover:text-white rounded-lg cm-glass-control active:scale-90 transition-transform"
           >
             <X className="w-5 h-5" />
           </button>
@@ -82,9 +112,11 @@ export const SurpriseMeModal: React.FC<SurpriseMeModalProps> = ({
           </span>
           <div className="flex flex-wrap gap-1.5">
             {MOODS.slice(0, 6).map((m) => (
-              <button
+              <motion.button
                 key={m.id}
                 onClick={() => setSelectedMood(m.id)}
+                whileTap={prefersReducedMotion ? undefined : { scale: 0.95 }}
+                transition={SPRING_TACTILE}
                 className={`px-3 py-1.5 text-xs font-medium rounded-lg transition-colors whitespace-nowrap ${
                   selectedMood === m.id
                     ? 'bg-amber-500 text-black font-semibold shadow-sm'
@@ -92,7 +124,7 @@ export const SurpriseMeModal: React.FC<SurpriseMeModalProps> = ({
                 }`}
               >
                 {m.label}
-              </button>
+              </motion.button>
             ))}
           </div>
         </div>
@@ -133,7 +165,7 @@ export const SurpriseMeModal: React.FC<SurpriseMeModalProps> = ({
                     onClose();
                     onSelectMedia(pickedItem);
                   }}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white text-black font-semibold text-xs hover:bg-slate-200 transition-colors"
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white text-black font-semibold text-xs hover:bg-slate-200 transition-colors active:scale-[0.97]"
                 >
                   <span>Open Title Details</span>
                   <ArrowRight className="w-3 h-3" />
@@ -145,16 +177,18 @@ export const SurpriseMeModal: React.FC<SurpriseMeModalProps> = ({
 
         {/* Roll Button */}
         <div className="mt-6 flex gap-3">
-          <button
+          <motion.button
             onClick={handleRoll}
             disabled={isRolling}
-            className="flex-1 flex items-center justify-center gap-2 py-3 px-4 rounded-xl bg-gradient-to-r from-amber-400 to-amber-500 hover:from-amber-300 hover:to-amber-400 text-slate-950 font-bold text-sm shadow-lg shadow-amber-500/20 transition-all hover:scale-[1.01] active:scale-[0.99] disabled:opacity-50"
+            whileTap={prefersReducedMotion ? undefined : { scale: 0.98 }}
+            transition={SPRING_TACTILE}
+            className="flex-1 flex items-center justify-center gap-2 py-3 px-4 rounded-xl bg-gradient-to-r from-amber-400 to-amber-500 hover:from-amber-300 hover:to-amber-400 text-slate-950 font-bold text-sm shadow-lg shadow-amber-500/20 transition-colors disabled:opacity-50"
           >
             <Dice5 className={`w-4 h-4 stroke-[2.5] ${isRolling ? 'animate-spin' : ''}`} />
             <span>{isRolling ? 'Selecting...' : 'Spin Again'}</span>
-          </button>
+          </motion.button>
         </div>
-      </div>
-    </div>
+      </motion.div>
+    </motion.div>
   );
 };

@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect, Suspense } from 'react';
+import { AnimatePresence, motion } from 'motion/react';
 import {
   MediaItem,
   UserProfile,
@@ -6,6 +7,15 @@ import {
   WatchlistEntry,
 } from '../types';
 import { MediaPoster } from './MediaPoster';
+import {
+  CINEMATIC_EASE,
+  getBoundedStaggerDelay,
+  modalBackdropVariants,
+  modalPanelVariants,
+  MOTION_DURATIONS,
+  reducedMotionVariants,
+  useCinematicMotion,
+} from '../utils/motionSystem';
 import {
   parseRuntimeMinutes,
   SUPABASE_SCHEMA_SQL,
@@ -138,6 +148,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
   const [avatarActionSuccess, setAvatarActionSuccess] = useState<string | null>(null);
   const [bucketSetupNeeded, setBucketSetupNeeded] = useState(false);
   const [avatarImageLoadFailed, setAvatarImageLoadFailed] = useState(false);
+  const { prefersReducedMotion } = useCinematicMotion();
 
   useEffect(() => {
     setAvatarImageLoadFailed(false);
@@ -590,7 +601,12 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
       ) : (
         <>
           {/* Profile Header Hero */}
-          <div className="cm-glass-surface relative overflow-hidden rounded-2xl p-6 sm:p-8 shadow-xl">
+          <motion.div
+            initial={prefersReducedMotion ? false : { opacity: 0, y: 14 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: MOTION_DURATIONS.normal, ease: CINEMATIC_EASE }}
+            className="cm-glass-surface relative overflow-hidden rounded-2xl p-6 sm:p-8 shadow-xl"
+          >
             <div className="relative z-10 flex flex-col lg:flex-row items-center lg:items-start justify-between gap-6 text-center sm:text-left">
               <div className="flex flex-col sm:flex-row items-center sm:items-start gap-6">
                 {/* Avatar container + Quick Photo Controls */}
@@ -789,7 +805,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
                 </div>
               )}
             </div>
-          </div>
+          </motion.div>
 
           {/* Two-Column Grid: Taste DNA & Viewing Journal */}
           <div className="grid grid-cols-1 md:grid-cols-12 gap-8">
@@ -942,13 +958,21 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
                   </div>
                 ) : (
                   <div className="space-y-3 pt-1 max-h-[520px] overflow-y-auto pr-1">
-                    {combinedJournal.map((item) => {
+                    {combinedJournal.map((item, journalIdx) => {
                       const formattedDate = item.watchedAt
                         ? String(item.watchedAt).split('T')[0]
                         : 'Logged';
                       return (
-                        <div
+                        <motion.div
                           key={`${item.mediaId}-${item.watchedAt}`}
+                          initial={prefersReducedMotion ? false : { opacity: 0, y: 10 }}
+                          whileInView={prefersReducedMotion ? undefined : { opacity: 1, y: 0 }}
+                          viewport={{ once: true, margin: '-15px' }}
+                          transition={{
+                            duration: MOTION_DURATIONS.normal,
+                            ease: CINEMATIC_EASE,
+                            delay: prefersReducedMotion ? 0 : getBoundedStaggerDelay(journalIdx, 0.035, 8),
+                          }}
                           className="p-3 rounded-xl bg-black/30 border border-white/5 hover:border-amber-400/30 transition-all flex gap-3 items-start group"
                         >
                           <div
@@ -1000,7 +1024,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
                               </p>
                             )}
                           </div>
-                        </div>
+                        </motion.div>
                       );
                     })}
                   </div>
@@ -1058,228 +1082,249 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
       )}
 
       {/* Edit Profile Modal */}
-      {isEditingProfile && (
-        <div className="cm-glass-backdrop fixed inset-0 z-50 overflow-y-auto flex items-center justify-center p-4 animate-in fade-in duration-200">
-          <div className="fixed inset-0" onClick={() => setIsEditingProfile(false)} />
-          <div className="cm-glass-panel relative z-10 w-full max-w-lg rounded-2xl overflow-hidden my-auto">
-            <div className="cm-glass-subbar px-6 py-4 flex items-center justify-between">
-              <h3 className="font-['Outfit'] text-lg font-bold text-white">
-                Edit Cinephile Profile
-              </h3>
-              <button
-                onClick={() => setIsEditingProfile(false)}
-                className="cm-glass-control p-1.5 text-slate-400 hover:text-white rounded-lg"
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
+      <AnimatePresence>
+        {isEditingProfile && (
+          <motion.div
+            key="edit-profile-modal"
+            variants={prefersReducedMotion ? reducedMotionVariants : modalBackdropVariants}
+            initial="hidden"
+            animate="visible"
+            exit="exit"
+            className="cm-glass-backdrop fixed inset-0 z-50 overflow-y-auto flex items-center justify-center p-4"
+          >
+            <div className="fixed inset-0" onClick={() => setIsEditingProfile(false)} />
+            <motion.div
+              variants={prefersReducedMotion ? reducedMotionVariants : modalPanelVariants}
+              initial="hidden"
+              animate="visible"
+              exit="exit"
+              className="cm-glass-panel relative z-10 w-full max-w-lg rounded-2xl overflow-hidden my-auto"
+            >
+              <div className="cm-glass-subbar px-6 py-4 flex items-center justify-between">
+                <h3 className="font-['Outfit'] text-lg font-bold text-white">
+                  Edit Cinephile Profile
+                </h3>
+                <button
+                  onClick={() => setIsEditingProfile(false)}
+                  className="cm-glass-control p-1.5 text-slate-400 hover:text-white rounded-lg"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
 
-            <form onSubmit={handleSaveProfile} className="p-6 space-y-4">
-              {profileFormError && (
-                <div className="p-3 rounded-xl bg-red-500/10 border border-red-500/30 text-xs text-red-300 flex items-start gap-2">
-                  <AlertCircle className="w-4 h-4 text-red-400 shrink-0 mt-0.5" />
-                  <span>{profileFormError}</span>
-                </div>
-              )}
+              <form onSubmit={handleSaveProfile} className="p-6 space-y-4">
+                {profileFormError && (
+                  <div className="p-3 rounded-xl bg-red-500/10 border border-red-500/30 text-xs text-red-300 flex items-start gap-2">
+                    <AlertCircle className="w-4 h-4 text-red-400 shrink-0 mt-0.5" />
+                    <span>{profileFormError}</span>
+                  </div>
+                )}
 
-              {/* Profile Photo Section inside Edit Profile Modal */}
-              <div className="cm-glass-surface p-3.5 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                <div className="flex items-center gap-3">
-                  <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-amber-400 to-amber-600 p-0.5 shrink-0">
-                    <div className="w-full h-full rounded-xl bg-[#090a0f] flex items-center justify-center overflow-hidden">
-                      {hasValidAvatar ? (
-                        <img
-                          src={userProfile!.avatarUrl!}
-                          alt={displayName}
-                          onError={() => setAvatarImageLoadFailed(true)}
-                          className="w-full h-full object-cover"
-                        />
-                      ) : (
-                        <span className="font-['Outfit'] text-lg font-extrabold text-amber-400">
-                          {initials}
-                        </span>
-                      )}
+                {/* Profile Photo Section inside Edit Profile Modal */}
+                <div className="cm-glass-surface p-3.5 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div className="flex items-center gap-3">
+                    <div className="w-14 h-14 rounded-xl bg-gradient-to-br from-amber-400 to-amber-600 p-0.5 shrink-0">
+                      <div className="w-full h-full rounded-xl bg-[#090a0f] flex items-center justify-center overflow-hidden">
+                        {hasValidAvatar ? (
+                          <img
+                            src={userProfile!.avatarUrl!}
+                            alt={displayName}
+                            onError={() => setAvatarImageLoadFailed(true)}
+                            className="w-full h-full object-cover"
+                          />
+                        ) : (
+                          <span className="font-['Outfit'] text-lg font-extrabold text-amber-400">
+                            {initials}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-xs font-semibold text-white">
+                        Profile Picture
+                      </div>
+                      <div className="text-[11px] text-slate-400">
+                        JPEG, PNG, or WebP up to 10 MB · Public avatar URL
+                      </div>
                     </div>
                   </div>
-                  <div>
-                    <div className="text-xs font-semibold text-white">
-                      Profile Picture
-                    </div>
-                    <div className="text-[11px] text-slate-400">
-                      JPEG, PNG, or WebP up to 10 MB · Public avatar URL
-                    </div>
-                  </div>
-                </div>
 
-                <div className="flex items-center gap-2 shrink-0">
-                  <button
-                    type="button"
-                    disabled={isUploadingAvatar || isRemovingAvatar}
-                    onClick={handleTriggerFileSelect}
-                    className="px-3 py-1.5 rounded-lg bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/30 text-xs font-semibold text-amber-300 flex items-center gap-1.5 transition-colors disabled:opacity-40"
-                  >
-                    <Upload className="w-3.5 h-3.5" />
-                    <span>{hasValidAvatar ? 'Change Photo' : 'Upload Photo'}</span>
-                  </button>
-                  {hasValidAvatar && (
+                  <div className="flex items-center gap-2 shrink-0">
                     <button
                       type="button"
                       disabled={isUploadingAvatar || isRemovingAvatar}
-                      onClick={handleRemoveAvatarClick}
-                      className="px-2.5 py-1.5 rounded-lg bg-red-500/10 hover:bg-red-500/20 border border-red-500/25 text-xs font-semibold text-red-300 flex items-center gap-1 transition-colors disabled:opacity-40"
-                      title="Remove Profile Photo"
+                      onClick={handleTriggerFileSelect}
+                      className="px-3 py-1.5 rounded-lg bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/30 text-xs font-semibold text-amber-300 flex items-center gap-1.5 transition-colors disabled:opacity-40"
                     >
-                      {isRemovingAvatar ? (
-                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                      ) : (
-                        <Trash2 className="w-3.5 h-3.5" />
-                      )}
-                      <span>Remove</span>
+                      <Upload className="w-3.5 h-3.5" />
+                      <span>{hasValidAvatar ? 'Change Photo' : 'Upload Photo'}</span>
                     </button>
-                  )}
-                </div>
-              </div>
-
-              <div className="space-y-1.5">
-                <label className="block text-xs font-medium text-slate-300">
-                  Display Name
-                </label>
-                <input
-                  type="text"
-                  required
-                  maxLength={80}
-                  value={editDisplayName}
-                  onChange={(e) => setEditDisplayName(e.target.value)}
-                  className="cm-glass-input w-full px-3.5 py-2 text-sm rounded-xl text-white focus:outline-none"
-                />
-              </div>
-
-              <div className="space-y-1.5">
-                <label className="block text-xs font-medium text-slate-300">
-                  Username (optional, 3–30 alphanumeric/underscore)
-                </label>
-                <input
-                  type="text"
-                  maxLength={30}
-                  placeholder="cinephile_alex"
-                  value={editUsername}
-                  onChange={(e) => setEditUsername(e.target.value)}
-                  className="cm-glass-input w-full px-3.5 py-2 text-sm rounded-xl text-white placeholder:text-slate-600 focus:outline-none font-mono"
-                />
-              </div>
-
-              <div className="space-y-1.5">
-                <label className="block text-xs font-medium text-slate-300">
-                  Personal Bio
-                </label>
-                <textarea
-                  rows={3}
-                  maxLength={500}
-                  placeholder="Share your favourite movements, directors, or cinema philosophy..."
-                  value={editBio}
-                  onChange={(e) => setEditBio(e.target.value)}
-                  className="cm-glass-input w-full px-3.5 py-2 text-sm rounded-xl text-white placeholder:text-slate-600 focus:outline-none resize-none"
-                />
-              </div>
-
-              <div className="space-y-2">
-                <label className="block text-xs font-medium text-slate-300">
-                  Preferred Genres
-                </label>
-                <div className="flex flex-wrap gap-1.5">
-                  {AVAILABLE_GENRES.map((genre) => {
-                    const active = editGenres.includes(genre);
-                    return (
+                    {hasValidAvatar && (
                       <button
                         type="button"
-                        key={genre}
-                        onClick={() => toggleEditGenre(genre)}
-                        className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-colors ${
-                          active
-                            ? 'bg-amber-500 text-slate-950 border border-amber-400 font-semibold'
-                            : 'cm-glass-control text-slate-300 hover:text-white'
-                        }`}
+                        disabled={isUploadingAvatar || isRemovingAvatar}
+                        onClick={handleRemoveAvatarClick}
+                        className="px-2.5 py-1.5 rounded-lg bg-red-500/10 hover:bg-red-500/20 border border-red-500/25 text-xs font-semibold text-red-300 flex items-center gap-1 transition-colors disabled:opacity-40"
+                        title="Remove Profile Photo"
                       >
-                        {genre}
+                        {isRemovingAvatar ? (
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        ) : (
+                          <Trash2 className="w-3.5 h-3.5" />
+                        )}
+                        <span>Remove</span>
                       </button>
-                    );
-                  })}
+                    )}
+                  </div>
                 </div>
-              </div>
 
-              <div className="pt-2 flex items-center justify-between gap-2">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setIsEditingProfile(false);
-                    if (onOpenChangePassword) {
-                      onOpenChangePassword();
-                    } else {
-                      setIsLocalChangePasswordOpen(true);
-                    }
-                  }}
-                  className="cm-glass-control px-3.5 py-2 rounded-xl text-xs font-semibold text-amber-300 hover:text-amber-200 flex items-center gap-1.5"
-                >
-                  <KeyRound className="w-3.5 h-3.5 text-amber-400" />
-                  <span>Change Password</span>
-                </button>
+                <div className="space-y-1.5">
+                  <label className="block text-xs font-medium text-slate-300">
+                    Display Name
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    maxLength={80}
+                    value={editDisplayName}
+                    onChange={(e) => setEditDisplayName(e.target.value)}
+                    className="cm-glass-input w-full px-3.5 py-2 text-sm rounded-xl text-white focus:outline-none"
+                  />
+                </div>
 
-                <div className="flex items-center gap-2">
+                <div className="space-y-1.5">
+                  <label className="block text-xs font-medium text-slate-300">
+                    Username (optional, 3–30 alphanumeric/underscore)
+                  </label>
+                  <input
+                    type="text"
+                    maxLength={30}
+                    placeholder="cinephile_alex"
+                    value={editUsername}
+                    onChange={(e) => setEditUsername(e.target.value)}
+                    className="cm-glass-input w-full px-3.5 py-2 text-sm rounded-xl text-white placeholder:text-slate-600 focus:outline-none font-mono"
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="block text-xs font-medium text-slate-300">
+                    Personal Bio
+                  </label>
+                  <textarea
+                    rows={3}
+                    maxLength={500}
+                    placeholder="Share your favourite movements, directors, or cinema philosophy..."
+                    value={editBio}
+                    onChange={(e) => setEditBio(e.target.value)}
+                    className="cm-glass-input w-full px-3.5 py-2 text-sm rounded-xl text-white placeholder:text-slate-600 focus:outline-none resize-none"
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <label className="block text-xs font-medium text-slate-300">
+                    Preferred Genres
+                  </label>
+                  <div className="flex flex-wrap gap-1.5">
+                    {AVAILABLE_GENRES.map((genre) => {
+                      const active = editGenres.includes(genre);
+                      return (
+                        <button
+                          type="button"
+                          key={genre}
+                          onClick={() => toggleEditGenre(genre)}
+                          className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-colors ${
+                            active
+                              ? 'bg-amber-500 text-slate-950 border border-amber-400 font-semibold'
+                              : 'cm-glass-control text-slate-300 hover:text-white'
+                          }`}
+                        >
+                          {genre}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+
+                <div className="pt-2 flex items-center justify-between gap-2">
                   <button
                     type="button"
-                    onClick={() => setIsEditingProfile(false)}
-                    className="cm-glass-control px-4 py-2 rounded-xl text-xs font-medium text-slate-300 hover:text-white"
+                    onClick={() => {
+                      setIsEditingProfile(false);
+                      if (onOpenChangePassword) {
+                        onOpenChangePassword();
+                      } else {
+                        setIsLocalChangePasswordOpen(true);
+                      }
+                    }}
+                    className="cm-glass-control px-3.5 py-2 rounded-xl text-xs font-semibold text-amber-300 hover:text-amber-200 flex items-center gap-1.5"
                   >
-                    Cancel
+                    <KeyRound className="w-3.5 h-3.5 text-amber-400" />
+                    <span>Change Password</span>
                   </button>
-                  <button
-                    type="submit"
-                    disabled={savingProfile}
-                    className="px-5 py-2 rounded-xl bg-gradient-to-r from-amber-400 to-amber-500 hover:from-amber-300 hover:to-amber-400 text-slate-950 font-bold text-xs flex items-center gap-1.5"
-                  >
-                    {savingProfile ? (
-                      <>
-                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                        <span>Saving...</span>
-                      </>
-                    ) : (
-                      <span>Save Profile</span>
-                    )}
-                  </button>
+
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setIsEditingProfile(false)}
+                      className="cm-glass-control px-4 py-2 rounded-xl text-xs font-medium text-slate-300 hover:text-white"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={savingProfile}
+                      className="px-5 py-2 rounded-xl bg-gradient-to-r from-amber-400 to-amber-500 hover:from-amber-300 hover:to-amber-400 text-slate-950 font-bold text-xs flex items-center gap-1.5"
+                    >
+                      {savingProfile ? (
+                        <>
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          <span>Saving...</span>
+                        </>
+                      ) : (
+                        <span>Save Profile</span>
+                      )}
+                    </button>
+                  </div>
                 </div>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
+              </form>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Lazy-Loaded Interactive Circular Crop & Change Password Modals */}
       <Suspense fallback={null}>
-        {isCropModalOpen && (
-          <AvatarCropModal
-            file={selectedAvatarFile}
-            isOpen={isCropModalOpen}
-            isUploading={isUploadingAvatar}
-            error={avatarActionError}
-            bucketSetupNeeded={bucketSetupNeeded}
-            onClose={() => {
-              if (!isUploadingAvatar) {
-                setIsCropModalOpen(false);
-                setSelectedAvatarFile(null);
-                setAvatarActionError(null);
-              }
-            }}
-            onConfirmUpload={handleConfirmCroppedUpload}
-          />
-        )}
+        <AnimatePresence>
+          {isCropModalOpen && (
+            <AvatarCropModal
+              key="avatar-crop-modal"
+              file={selectedAvatarFile}
+              isOpen={isCropModalOpen}
+              isUploading={isUploadingAvatar}
+              error={avatarActionError}
+              bucketSetupNeeded={bucketSetupNeeded}
+              onClose={() => {
+                if (!isUploadingAvatar) {
+                  setIsCropModalOpen(false);
+                  setSelectedAvatarFile(null);
+                  setAvatarActionError(null);
+                }
+              }}
+              onConfirmUpload={handleConfirmCroppedUpload}
+            />
+          )}
+        </AnimatePresence>
 
-        {isLocalChangePasswordOpen && (
-          <ChangePasswordModal
-            isOpen={isLocalChangePasswordOpen}
-            onClose={() => setIsLocalChangePasswordOpen(false)}
-            userEmail={userEmail}
-          />
-        )}
+        <AnimatePresence>
+          {isLocalChangePasswordOpen && (
+            <ChangePasswordModal
+              key="local-change-password-modal"
+              isOpen={isLocalChangePasswordOpen}
+              onClose={() => setIsLocalChangePasswordOpen(false)}
+              userEmail={userEmail}
+            />
+          )}
+        </AnimatePresence>
       </Suspense>
     </div>
   );
