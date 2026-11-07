@@ -14,11 +14,20 @@ import {
   normalizeMediaTitle,
 } from '../utils/mediaIntegrity';
 import {
-  AiResolvedTitle,
   executeSmartSearch,
   fetchCatalogue,
-  resolveTitlesWithAi,
 } from './mediaApi';
+import {
+  detectCandidateAmbiguity,
+  isProtectedNumericTitle,
+  resolveDeterministicTitle,
+  resolveDeterministicTitlesBatch,
+  scoreDeterministicCandidate,
+} from './titleMatcher';
+import {
+  extractTextFromImageWithOcr,
+  OcrProgressUpdate,
+} from './ocrImportService';
 import {
   setSeasonEpisodesWatchedInDb,
   upsertWatchHistoryItem,
@@ -33,11 +42,12 @@ export interface ExtractedImportItem {
   alternateQueries?: string[];
   mediaTypeHint?: MediaType;
   yearHint?: number;
-  aiMediaTypeHint?: MediaType;
-  aiYearHint?: number;
-  aiConfidence?: number;
-  aiAssisted?: boolean;
-  aiIsAmbiguous?: boolean;
+  inferredMediaTypeHint?: MediaType;
+  inferredYearHint?: number;
+  matchConfidence?: number;
+  smartMatched?: boolean;
+  isAmbiguousHint?: boolean;
+  ambiguityReasonHint?: string;
   seasonNumber?: number;
   episodeNumbers?: number[];
   watchedAtHint?: string;
@@ -57,7 +67,7 @@ export interface ResolvedImportRow {
   extracted: ExtractedImportItem;
   matchStatus: ImportMatchStatus;
   matchReason?: string;
-  aiAssisted?: boolean;
+  smartMatched?: boolean;
   normalizedTitle?: string;
   selectedMedia: MediaItem | null;
   candidates: MediaItem[];
@@ -93,30 +103,6 @@ const MAX_TEXT_FILE_BYTES = 2 * 1024 * 1024; // 2 MB
 
 const SUPPORTED_IMAGE_EXTENSIONS = ['.png', '.jpg', '.jpeg', '.webp'];
 const SUPPORTED_TEXT_EXTENSIONS = ['.txt', '.csv', '.json'];
-
-const DEFAULT_REMOTE_API_ORIGIN = 'https://cinemax-kxpv.onrender.com';
-
-function getApiBaseOrigin(): string {
-  const configured = String(
-    (import.meta as any).env?.VITE_API_BASE_URL || ''
-  )
-    .trim()
-    .replace(/\/+$/, '');
-  if (configured) return configured;
-  if (typeof window !== 'undefined') {
-    const host = window.location.hostname.toLowerCase();
-    const protocol = window.location.protocol.toLowerCase();
-    if (
-      host.endsWith('.github.io') ||
-      protocol === 'capacitor:' ||
-      protocol === 'file:' ||
-      (host === 'localhost' && window.location.port === '')
-    ) {
-      return DEFAULT_REMOTE_API_ORIGIN;
-    }
-  }
-  return '';
-}
 
 export function getTodayDateIso(): string {
   return new Date().toISOString().split('T')[0];
@@ -308,7 +294,7 @@ export function parseSingleTextLine(
     /(?:\b(?:rating|score)\s*[:=-]?\s*)?\b(10|[1-9](?:\.\d)?)\s*\/\s*10\b/i
   );
   if (ratingMatch) {
-    const val = Math.round( parseFloat(ratingMatch[1]) );
+    const val = Math.round(parseFloat(ratingMatch[1]));
     if (val >= 1 && val <= 10) {
       personalRatingHint = val;
     }
@@ -366,9 +352,13 @@ export function parseSingleTextLine(
   // 5. Extract release year in parentheses/brackets or trailing delimiter: (2023), [2019], - 2024
   const parenYearMatch = working.match(/[\[(]\s*((?:19|20)\d{2})\s*[\])]/);
   if (parenYearMatch) {
-    yearHint = parseInt(parenYearMatch[1], 10);
-    working = working.replace(parenYearMatch[0], ' ').trim();
-  } else {
+    const candidateYear = parseInt(parenYearMatch[1], 10);
+    const stripped = working.replace(parenYearMatch[0], ' ').trim();
+    if (stripped.length >= 1) {
+      yearHint = candidateYear;
+      working = stripped;
+    }
+  } else if (!isProtectedNumericTitle(working)) {
     const trailingYearMatch = working.match(
       /(?:\s+[-–—|]\s+|\s+)((?:19|20)\d{2})\s*$/
     );
@@ -379,7 +369,7 @@ export function parseSingleTextLine(
       if (
         prefixTitle.length >= 2 &&
         candidateYear <= new Date().getFullYear() + 1 &&
-        !/\bblade\s+runner$/i.test(prefixTitle)
+        !isProtectedNumericTitle(`${prefixTitle} ${candidateYear}`)
       ) {
         yearHint = candidateYear;
         working = prefixTitle;
@@ -806,101 +796,50 @@ export function parseJsonImportFile(jsonContent: string): {
   return { items, error: null };
 }
 
-function readFileAsDataUrl(file: File): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result || ''));
-    reader.onerror = () => reject(new Error('Could not read the selected image file.'));
-    reader.readAsDataURL(file);
-  });
-}
-
-export async function extractTitlesFromImageFile(file: File): Promise<{
+/**
+ * Extracts completed movie and TV series titles from a screenshot locally in the browser
+ * using Tesseract.js OCR and passes the extracted text through parseTextImportList().
+ * Never uploads screenshot image data to any server.
+ */
+export async function extractTitlesFromImageFile(
+  file: File,
+  onProgress?: (update: OcrProgressUpdate) => void
+): Promise<{
   items: ExtractedImportItem[];
   error: string | null;
 }> {
-  try {
-    const dataUrl = await readFileAsDataUrl(file);
-    const base64Part = dataUrl.includes(',') ? dataUrl.split(',')[1] : dataUrl;
-    const mimeType = file.type || 'image/png';
-
-    const origin = getApiBaseOrigin();
-    const endpoint = `${origin}/api/import/extract-image`;
-
-    const response = await fetch(endpoint, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        mimeType,
-        dataBase64: base64Part,
-      }),
-    });
-
-    const data = await response.json().catch(() => null);
-
-    if (!response.ok) {
-      return {
-        items: [],
-        error:
-          data?.error ||
-          `Image title extraction failed (HTTP ${response.status}). You can also paste your list as text or upload a TXT/CSV/JSON file.`,
-      };
-    }
-
-    const rawItems: any[] = Array.isArray(data?.items) ? data.items : [];
-    const items: ExtractedImportItem[] = rawItems.map((it, idx) => ({
-      id: `img-${idx}-${Date.now()}`,
-      rawLine: String(it.rawLine || it.title || '').trim(),
-      title: String(it.title || '').trim(),
-      mediaTypeHint:
-        it.mediaTypeHint === 'movie' || it.mediaTypeHint === 'tv'
-          ? it.mediaTypeHint
-          : undefined,
-      yearHint:
-        typeof it.yearHint === 'number' && it.yearHint >= 1888
-          ? it.yearHint
-          : undefined,
-      seasonNumber:
-        typeof it.seasonNumber === 'number' && it.seasonNumber >= 1
-          ? it.seasonNumber
-          : undefined,
-      episodeNumbers:
-        Array.isArray(it.episodeNumbers) && it.episodeNumbers.length > 0
-          ? it.episodeNumbers
-          : undefined,
-      watchedAtHint: normalizeDateString(it.watchedAtHint),
-      personalRatingHint:
-        typeof it.personalRatingHint === 'number' &&
-        it.personalRatingHint >= 1 &&
-        it.personalRatingHint <= 10
-          ? Math.round(it.personalRatingHint)
-          : undefined,
-      notesHint: it.notesHint ? String(it.notesHint).trim() : undefined,
-    }));
-
-    if (items.length === 0) {
-      return {
-        items: [],
-        error:
-          data?.error ||
-          'No movie or TV series titles were detected in this image.',
-      };
-    }
-
-    return { items, error: null };
-  } catch (err: any) {
+  const ocrResult = await extractTextFromImageWithOcr(file, onProgress);
+  if (ocrResult.error || !ocrResult.rawText.trim()) {
     return {
       items: [],
       error:
-        err?.message ||
-        'Could not reach the image extraction service. Please check your connection or use TXT, CSV, JSON, or Paste Text.',
+        ocrResult.error ||
+        'Could not read any movie or TV series titles from this screenshot. Please paste your list as text or upload a TXT/CSV file.',
     };
   }
+
+  const parsed = parseTextImportList(ocrResult.rawText);
+  if (parsed.error || parsed.items.length === 0) {
+    return {
+      items: [],
+      error:
+        'Text was detected in the screenshot, but no recognizable movie or TV titles could be parsed. Please paste your list as text or upload a TXT/CSV file.',
+    };
+  }
+
+  return {
+    items: parsed.items.map((item, idx) => ({
+      ...item,
+      id: `ocr-${idx}-${Date.now()}`,
+    })),
+    error: null,
+  };
 }
 
-export async function parseImportFile(file: File): Promise<{
+export async function parseImportFile(
+  file: File,
+  onOcrProgress?: (update: OcrProgressUpdate) => void
+): Promise<{
   items: ExtractedImportItem[];
   error: string | null;
 }> {
@@ -910,7 +849,7 @@ export async function parseImportFile(file: File): Promise<{
   }
 
   if (validation.kind === 'image') {
-    return extractTitlesFromImageFile(file);
+    return extractTitlesFromImageFile(file, onOcrProgress);
   }
 
   const textContent = await file.text();
@@ -924,168 +863,27 @@ export async function parseImportFile(file: File): Promise<{
 }
 
 // ============================================================================
-// Accurate TMDB & Catalog Title Matching
+// Deterministic TMDB & Catalog Title Matching
 // ============================================================================
-
-function computeSingleTitleSimilarityScore(
-  normQuery: string,
-  normCandidate: string
-): number {
-  if (!normQuery || !normCandidate) return 0;
-  if (normCandidate === normQuery) {
-    return 100;
-  }
-
-  // Strip leading "the " for article-insensitive exact match (e.g. "dark knight" === "the dark knight")
-  const bareQuery = normQuery.replace(/^the\s+/, '');
-  const bareCandidate = normCandidate.replace(/^the\s+/, '');
-  if (bareQuery && bareQuery === bareCandidate) {
-    return 98;
-  }
-
-  const queryNumbers = normQuery.match(/\b([2-9]|1[0-9]|ii|iii|iv|v|part\s+two|part\s+three)\b/g);
-  const candidateMissingSequelNumber =
-    queryNumbers &&
-    queryNumbers.some((numToken) => !normCandidate.includes(numToken));
-
-  if (normCandidate.startsWith(normQuery + ' ')) {
-    return 78;
-  }
-  if (normQuery.startsWith(normCandidate + ' ') && !candidateMissingSequelNumber) {
-    return 74;
-  }
-  if (normCandidate.includes(normQuery)) {
-    return 64;
-  }
-
-  const qWords = normQuery.split(' ').filter(Boolean);
-  const cWords = normCandidate.split(' ').filter(Boolean);
-  if (qWords.length > 0 && cWords.length > 0) {
-    const matchedWords = qWords.filter((qw) =>
-      cWords.some((cw) => cw === qw || (qw.length >= 4 && cw.startsWith(qw)))
-    );
-    const recall = matchedWords.length / qWords.length;
-    const precision = matchedWords.length / cWords.length;
-    if (recall >= 0.75) {
-      const base = Math.round(recall * 52 + precision * 22);
-      return candidateMissingSequelNumber ? Math.max(0, base - 25) : base;
-    }
-    if (recall >= 0.5 && qWords.length >= 2) {
-      const base = Math.round(recall * 36);
-      return candidateMissingSequelNumber ? Math.max(0, base - 20) : base;
-    }
-  }
-  return 0;
-}
 
 export function scoreMediaCandidate(
   item: ExtractedImportItem,
   candidate: MediaItem
 ): number {
-  const normOriginal = normalizeMediaTitle(item.title);
-  const normCandidate = normalizeMediaTitle(candidate.title);
-  if (!normOriginal || !normCandidate) return 0;
-
-  // Hard constraint: if mediaTypeHint is explicitly known ('movie' or 'tv'), never match the opposite type
-  if (item.mediaTypeHint && candidate.type !== item.mediaTypeHint) {
-    return -100;
-  }
-
-  let bestTitleScore = computeSingleTitleSimilarityScore(
-    normOriginal,
-    normCandidate
+  return scoreDeterministicCandidate(
+    {
+      title: item.title,
+      normalizedTitle: item.normalizedTitle,
+      alternateQueries: item.alternateQueries,
+      mediaTypeHint: item.mediaTypeHint ?? null,
+      yearHint: item.yearHint ?? null,
+      inferredTypeHint: item.inferredMediaTypeHint ?? null,
+      inferredYearHint: item.inferredYearHint ?? null,
+      confidence: item.matchConfidence,
+      isAmbiguous: item.isAmbiguousHint,
+    },
+    candidate
   );
-
-  const normAiCanonical = item.normalizedTitle
-    ? normalizeMediaTitle(item.normalizedTitle)
-    : '';
-
-  if (normAiCanonical) {
-    const canonicalSim = computeSingleTitleSimilarityScore(
-      normAiCanonical,
-      normCandidate
-    );
-    const confidenceWeight =
-      typeof item.aiConfidence === 'number' && item.aiConfidence >= 0.75
-        ? 1.0
-        : 0.92;
-    const weightedCanonical = Math.round(canonicalSim * confidenceWeight);
-    if (weightedCanonical > bestTitleScore) {
-      bestTitleScore = weightedCanonical;
-    }
-    // Bonus when candidate is an exact match to Gemini's high-confidence canonical title
-    if (
-      normCandidate === normAiCanonical &&
-      (item.aiConfidence ?? 0.8) >= 0.75 &&
-      !item.aiIsAmbiguous
-    ) {
-      bestTitleScore = Math.max(bestTitleScore, 102);
-    }
-  }
-
-  if (Array.isArray(item.alternateQueries)) {
-    for (const alt of item.alternateQueries.slice(0, 3)) {
-      const normAlt = normalizeMediaTitle(alt);
-      if (!normAlt) continue;
-      const altSim = Math.round(
-        computeSingleTitleSimilarityScore(normAlt, normCandidate) * 0.94
-      );
-      if (altSim > bestTitleScore) {
-        bestTitleScore = altSim;
-      }
-    }
-  }
-
-  let score = bestTitleScore;
-  if (score <= 0) return 0;
-
-  // Type alignment bonus when explicitly known on input, or softer bonus from AI hint
-  if (item.mediaTypeHint && candidate.type === item.mediaTypeHint) {
-    score += 18;
-  } else if (
-    !item.mediaTypeHint &&
-    item.aiMediaTypeHint &&
-    candidate.type === item.aiMediaTypeHint
-  ) {
-    score += 10;
-  }
-
-  // Year alignment scoring: explicit input yearHint takes strict priority; AI yearHint is a soft bonus
-  if (item.yearHint && candidate.year > 0) {
-    const yearDiff = Math.abs(candidate.year - item.yearHint);
-    if (yearDiff === 0) {
-      score += 26;
-    } else if (yearDiff === 1) {
-      score += 14;
-    } else if (yearDiff <= 2) {
-      score -= 6;
-    } else {
-      score -= 26;
-    }
-  } else if (
-    !item.yearHint &&
-    !item.aiIsAmbiguous &&
-    item.aiYearHint &&
-    candidate.year > 0 &&
-    (item.aiConfidence ?? 0) >= 0.85
-  ) {
-    const aiYearDiff = Math.abs(candidate.year - item.aiYearHint);
-    if (aiYearDiff === 0) {
-      score += 14;
-    } else if (aiYearDiff === 1) {
-      score += 6;
-    }
-  }
-
-  // Canonical TMDB identity & rating tie-breaker (prefer official TMDB records over TVMaze entries)
-  if (extractCanonicalTmdbIdentity(candidate.id, candidate.type)) {
-    score += 10;
-  }
-  if (candidate.rating >= 7.5) {
-    score += 3;
-  }
-
-  return score;
 }
 
 function findAccountMatch(
@@ -1159,8 +957,6 @@ function findAccountMatch(
   return { existingState: 'none' };
 }
 
-const IMPORT_AI_BATCH_SIZE = 25;
-
 export async function resolveExtractedImportItems(params: {
   extractedItems: ExtractedImportItem[];
   allMedia: MediaItem[];
@@ -1190,58 +986,49 @@ export async function resolveExtractedImportItems(params: {
     dedupedExtracted.push({ ...item });
   }
 
-  // Step 1: Batch AI title normalization via POST /api/ai/resolve-titles (in chunks of up to 25)
-  const aiMap = new Map<string, AiResolvedTitle>();
-  for (
-    let bStart = 0;
-    bStart < dedupedExtracted.length;
-    bStart += IMPORT_AI_BATCH_SIZE
-  ) {
-    const batchSlice = dedupedExtracted.slice(
-      bStart,
-      bStart + IMPORT_AI_BATCH_SIZE
-    );
-    try {
-      const aiRes = await resolveTitlesWithAi(
-        batchSlice.map((it) => ({
-          rowId: it.id,
-          title: it.title,
-          mediaTypeHint: it.mediaTypeHint ?? null,
-          yearHint: it.yearHint ?? null,
-        }))
-      );
-      for (const resolvedItem of aiRes.items || []) {
-        if (resolvedItem && resolvedItem.rowId) {
-          aiMap.set(resolvedItem.rowId, resolvedItem);
-        }
-      }
-    } catch {
-      // Safe fallback: continue with ordinary TMDB matching when AI endpoint is unreachable
-    }
-  }
+  // Step 1: Deterministic batch title normalization & alias expansion (zero external AI calls)
+  const deterministicBatch = resolveDeterministicTitlesBatch(
+    dedupedExtracted.map((it) => ({
+      rowId: it.id,
+      title: it.title,
+      mediaTypeHint: it.mediaTypeHint ?? null,
+      yearHint: it.yearHint ?? null,
+    }))
+  );
+  const deterministicByRowId = new Map(
+    deterministicBatch.map((res) => [res.rowId, res])
+  );
 
-  // Enrich each extracted item with AI suggestions while strictly preserving original fields
   const enrichedExtracted: ExtractedImportItem[] = dedupedExtracted.map(
-    (item) => {
-      const aiInfo = aiMap.get(item.id);
-      if (!aiInfo) return item;
+    (item, idx) => {
+      const resolved =
+        deterministicByRowId.get(item.id) ||
+        resolveDeterministicTitle(
+          {
+            rowId: item.id,
+            title: item.title,
+            mediaTypeHint: item.mediaTypeHint ?? null,
+            yearHint: item.yearHint ?? null,
+          },
+          idx
+        );
+
       return {
         ...item,
-        normalizedTitle: aiInfo.normalizedTitle || item.title,
-        alternateQueries: Array.isArray(aiInfo.alternateQueries)
-          ? aiInfo.alternateQueries
-          : undefined,
-        aiMediaTypeHint:
-          aiInfo.mediaTypeHint === 'movie' || aiInfo.mediaTypeHint === 'tv'
-            ? aiInfo.mediaTypeHint
+        normalizedTitle: resolved.normalizedTitle || item.title,
+        alternateQueries: resolved.alternateQueries,
+        inferredMediaTypeHint:
+          resolved.mediaTypeHint === 'movie' || resolved.mediaTypeHint === 'tv'
+            ? resolved.mediaTypeHint
             : undefined,
-        aiYearHint:
-          typeof aiInfo.yearHint === 'number' && aiInfo.yearHint >= 1888
-            ? aiInfo.yearHint
+        inferredYearHint:
+          typeof resolved.yearHint === 'number' && resolved.yearHint >= 1888
+            ? resolved.yearHint
             : undefined,
-        aiConfidence: aiInfo.confidence,
-        aiAssisted: aiInfo.aiAssisted,
-        aiIsAmbiguous: Boolean(aiInfo.isAmbiguous),
+        matchConfidence: resolved.confidence,
+        smartMatched: resolved.smartMatched,
+        isAmbiguousHint: resolved.isAmbiguous,
+        ambiguityReasonHint: resolved.ambiguityReason,
       };
     }
   );
@@ -1279,7 +1066,7 @@ export async function resolveExtractedImportItems(params: {
           queriesToRun.push(clean);
         };
 
-        if (extracted.normalizedTitle && (extracted.aiConfidence ?? 0) >= 0.45) {
+        if (extracted.normalizedTitle) {
           addSearchQuery(extracted.normalizedTitle);
         }
         addSearchQuery(extracted.title);
@@ -1313,7 +1100,7 @@ export async function resolveExtractedImportItems(params: {
           // Fallback to localPool if offline
         }
 
-        // Filter and score candidates
+        // Filter and score candidates deterministically
         const scored = candidatePool
           .map((media) => ({
             media,
@@ -1324,7 +1111,6 @@ export async function resolveExtractedImportItems(params: {
 
         const topCandidates = scored.slice(0, 6).map((s) => s.media);
         const best = scored[0];
-        const second = scored[1];
 
         let matchStatus: ImportMatchStatus = 'unmatched';
         let matchReason: string | undefined;
@@ -1342,63 +1128,45 @@ export async function resolveExtractedImportItems(params: {
           const normBest = normalizeMediaTitle(best.media.title);
           const exactTitle =
             normQuery === normBest ||
-            (normCanonical === normBest && (extracted.aiConfidence ?? 0) >= 0.75);
+            (normCanonical === normBest && (extracted.matchConfidence ?? 0) >= 0.75);
 
-          const yearMismatch =
-            Boolean(extracted.yearHint) &&
-            best.media.year > 0 &&
-            Math.abs(best.media.year - (extracted.yearHint || 0)) > 1;
+          const resolvedMeta =
+            deterministicByRowId.get(extracted.id) ||
+            resolveDeterministicTitle({
+              rowId: extracted.id,
+              title: extracted.title,
+              mediaTypeHint: extracted.mediaTypeHint ?? null,
+              yearHint: extracted.yearHint ?? null,
+            });
 
-          // Check if there is a close rival of a different type or year when type/year wasn't specified
-          const closeRival =
-            second &&
-            getCanonicalMediaKey(second.media) !==
-              getCanonicalMediaKey(best.media) &&
-            best.score - second.score <= 12;
+          const ambiguityCheck = detectCandidateAmbiguity({
+            rawTitle: extracted.title,
+            resolved: resolvedMeta,
+            explicitType: extracted.mediaTypeHint ?? null,
+            explicitYear: extracted.yearHint ?? null,
+            scoredCandidates: scored,
+          });
 
-          // Also detect same-title multi-edition ambiguity (e.g. "The Office" US 2005 vs UK 2001) when yearHint was not provided
-          const multiEditionAmbiguity =
-            !extracted.yearHint &&
-            (Boolean(extracted.aiIsAmbiguous) ||
-              Boolean(
-                second &&
-                  normalizeMediaTitle(second.media.title) === normBest &&
-                  second.media.year !== best.media.year &&
-                  getCanonicalMediaKey(second.media) !==
-                    getCanonicalMediaKey(best.media)
-              ));
-
-          const aiTransformedTitle =
+          const smartTransformedTitle =
             extracted.title.trim().toLowerCase() !==
             best.media.title.trim().toLowerCase();
 
-          if (yearMismatch) {
+          if (ambiguityCheck.isAmbiguous) {
             matchStatus = 'ambiguous';
-            matchReason = `Closest title match is from ${best.media.year} (input specified ${extracted.yearHint}). Please verify.`;
-          } else if (multiEditionAmbiguity) {
-            matchStatus = 'ambiguous';
-            matchReason = second
-              ? `Multiple editions found for '${extracted.title}' (${best.media.title} ${best.media.year} vs ${second.media.title} ${second.media.year}). Please select the edition you watched.`
-              : `Multiple adaptations exist for '${extracted.title}'. Please verify the release year (${best.media.year}).`;
-          } else if (
-            closeRival &&
-            !extracted.mediaTypeHint &&
-            !extracted.yearHint &&
-            (extracted.aiConfidence ?? 0) < 0.9
-          ) {
-            matchStatus = 'ambiguous';
-            matchReason = `Multiple similar titles found (${best.media.title} ${best.media.year} [${best.media.type === 'tv' ? 'Series' : 'Movie'}] vs ${second.media.title} ${second.media.year}). Please verify.`;
-          } else if (best.score >= 88 || (exactTitle && best.score >= 75)) {
+            matchReason =
+              ambiguityCheck.reason ||
+              'Multiple possible TMDB matches found — please confirm the exact title.';
+          } else if (best.score >= 88 || (exactTitle && best.score >= 76)) {
             matchStatus = 'matched';
-            if (aiTransformedTitle) {
-              matchReason = `AI recognized '${extracted.title}' as '${best.media.title}'; TMDB verified the match.`;
-            } else if (extracted.aiAssisted) {
+            if (smartTransformedTitle) {
+              matchReason = `TMDB Smart Match resolved '${extracted.title}' to '${best.media.title}' (${best.media.year}).`;
+            } else {
               matchReason = `TMDB verified '${best.media.title}' (${best.media.year}).`;
             }
           } else {
             matchStatus = 'ambiguous';
-            matchReason = aiTransformedTitle
-              ? `AI suggested '${best.media.title}' for '${extracted.title}' — please confirm this match.`
+            matchReason = smartTransformedTitle
+              ? `TMDB Smart Match suggested '${best.media.title}' for '${extracted.title}' — please confirm this match.`
               : 'Partial title similarity — please confirm this match.';
           }
         }
@@ -1416,9 +1184,9 @@ export async function resolveExtractedImportItems(params: {
           existingWatchedDate ||
           defaultWatchedDate;
 
-        const showAiBadge = Boolean(
+        const showSmartBadge = Boolean(
           selectedMedia &&
-            (extracted.aiAssisted ||
+            (extracted.smartMatched ||
               (extracted.normalizedTitle &&
                 extracted.normalizedTitle.toLowerCase() !==
                   extracted.title.toLowerCase()))
@@ -1429,7 +1197,7 @@ export async function resolveExtractedImportItems(params: {
           extracted,
           matchStatus,
           matchReason,
-          aiAssisted: showAiBadge,
+          smartMatched: showSmartBadge,
           normalizedTitle: extracted.normalizedTitle,
           selectedMedia,
           candidates: topCandidates,

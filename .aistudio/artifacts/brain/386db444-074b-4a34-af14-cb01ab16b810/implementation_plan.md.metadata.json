@@ -1,6 +1,6 @@
 {
-  "summary":  "Implementation plan to fix the Gemini primary-model timeout handling bug in titleResolutionService.ts so primary timeouts and 503-retry timeouts immediately trigger the secondary model (gemini-3.7-flash) with proper AbortController cancellation, meaningful remaining timeout allocation within a 25s overall budget, and structured diagnostic log events.",
-  "updatedAt":  "2026-11-07T07:47:14.518376076Z",
+  "summary":  "Implementation plan to migrate CineMax from Gemini-powered title resolution and image extraction to a 100% deterministic, TMDB-powered title normalization, ranking, and ambiguity engine paired with lazy-loaded client-side Tesseract.js OCR.",
+  "updatedAt":  "2026-11-07T08:13:41.789167715Z",
   "requestFeedback":  true,
   "userFacing":  true
 }

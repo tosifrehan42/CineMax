@@ -31,8 +31,6 @@ import type {
   TrailerLookupResult,
 } from './src/types/index.ts';
 import { processAdminRequest } from './src/server/adminHandler.ts';
-import { extractCompletedTitlesFromImage } from './src/server/importImageExtractor.ts';
-import { resolveTitlesWithGemini } from './src/server/titleResolutionService.ts';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -2727,32 +2725,7 @@ async function startServer() {
     return res.status(result.status).json(result.body);
   });
 
-  // 6. Server-Side Image Title Extraction Route for Completed List Import
-  app.post(
-    '/api/import/extract-image',
-    express.json({ limit: '15mb' }),
-    async (req, res) => {
-      const mimeType = String(req.body?.mimeType || '').trim();
-      const dataBase64 = String(req.body?.dataBase64 || '').trim();
-      const result = await extractCompletedTitlesFromImage({
-        mimeType,
-        dataBase64,
-      });
-      return res.status(result.status).json(result.body);
-    }
-  );
-
-  // 6b. Server-Side Gemini AI Title Resolution Route for Smart Search & Batch Import Matching
-  app.post(
-    '/api/ai/resolve-titles',
-    express.json({ limit: '1mb' }),
-    async (req, res) => {
-      const result = await resolveTitlesWithGemini(req.body || {});
-      return res.status(result.status).json(result.body);
-    }
-  );
-
-  // 7. Direct Download Endpoint for the 30s Instagram Promotional Reel MP4
+  // 6. Direct Download Endpoint for the 30s Instagram Promotional Reel MP4
   app.get('/download-reel', (_req, res) => {
     const reelPath = path.join(
       __dirname,

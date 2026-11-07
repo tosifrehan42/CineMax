@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { MediaItem } from '../types';
 import { MediaPoster } from './MediaPoster';
 import {
-  AiResolvedTitle,
+  SmartResolvedTitle,
   executeSmartSearch,
   fetchCatalogue,
   normalizeForSearch,
@@ -43,9 +43,9 @@ export const SearchOverlay: React.FC<SearchOverlayProps> = ({
   const [totalPages, setTotalPages] = useState(1);
   const [totalResults, setTotalResults] = useState(items.length);
   const [isLoading, setIsLoading] = useState(false);
-  const [isAiResolving, setIsAiResolving] = useState(false);
-  const [aiResolution, setAiResolution] = useState<AiResolvedTitle | null>(null);
-  const [aiAssisted, setAiAssisted] = useState(false);
+  const [isSmartMatching, setIsSmartMatching] = useState(false);
+  const [smartResolution, setSmartResolution] = useState<SmartResolvedTitle | null>(null);
+  const [smartMatched, setSmartMatched] = useState(false);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [searchWarning, setSearchWarning] = useState<string | null>(null);
@@ -61,9 +61,9 @@ export const SearchOverlay: React.FC<SearchOverlayProps> = ({
       setDebouncedQuery('');
       setError(null);
       setSearchWarning(null);
-      setIsAiResolving(false);
-      setAiResolution(null);
-      setAiAssisted(false);
+      setIsSmartMatching(false);
+      setSmartResolution(null);
+      setSmartMatched(false);
     }
   }, [isOpen]);
 
@@ -79,11 +79,11 @@ export const SearchOverlay: React.FC<SearchOverlayProps> = ({
     async (signal?: AbortSignal, forceRefresh = false) => {
       const currentReqId = ++requestIdRef.current;
       setIsLoading(true);
-      setIsAiResolving(false);
+      setIsSmartMatching(false);
       setError(null);
       if (!debouncedQuery) {
-        setAiResolution(null);
-        setAiAssisted(false);
+        setSmartResolution(null);
+        setSmartMatched(false);
       }
 
       try {
@@ -108,9 +108,9 @@ export const SearchOverlay: React.FC<SearchOverlayProps> = ({
               setSearchWarning(debouncedQuery ? directRes.searchWarning || null : null);
               setIsLoading(false);
             },
-            onAiResolvingChange: (resolving) => {
+            onSmartMatchingChange: (matching) => {
               if (signal?.aborted || currentReqId !== requestIdRef.current) return;
-              setIsAiResolving(resolving);
+              setIsSmartMatching(matching);
             },
           }
         );
@@ -125,8 +125,8 @@ export const SearchOverlay: React.FC<SearchOverlayProps> = ({
         setPage(res.page);
         setTotalPages(res.totalPages);
         setTotalResults(res.totalResults);
-        setAiResolution(res.aiResolution || null);
-        setAiAssisted(Boolean(res.aiAssisted));
+        setSmartResolution(res.smartResolution || null);
+        setSmartMatched(Boolean(res.smartMatched));
         setSearchWarning(debouncedQuery ? res.searchWarning || null : null);
       } catch (err: any) {
         if (err?.name === 'AbortError' || signal?.aborted || currentReqId !== requestIdRef.current) {
@@ -136,7 +136,7 @@ export const SearchOverlay: React.FC<SearchOverlayProps> = ({
       } finally {
         if (!signal?.aborted && currentReqId === requestIdRef.current) {
           setIsLoading(false);
-          setIsAiResolving(false);
+          setIsSmartMatching(false);
         }
       }
     },
@@ -159,8 +159,8 @@ export const SearchOverlay: React.FC<SearchOverlayProps> = ({
     try {
       const nextPage = page + 1;
       const effectiveQuery =
-        aiAssisted && aiResolution?.normalizedTitle
-          ? aiResolution.normalizedTitle
+        smartMatched && smartResolution?.normalizedTitle
+          ? smartResolution.normalizedTitle
           : debouncedQuery;
       const res = await fetchCatalogue({
         category: 'discover',
@@ -220,8 +220,8 @@ export const SearchOverlay: React.FC<SearchOverlayProps> = ({
 
   const isPendingDebounce = query.trim() !== debouncedQuery;
   const showBusy = isLoading || isPendingDebounce;
-  const normAiCanonical = aiResolution?.normalizedTitle
-    ? normalizeForSearch(aiResolution.normalizedTitle)
+  const normSmartCanonical = smartResolution?.normalizedTitle
+    ? normalizeForSearch(smartResolution.normalizedTitle)
     : '';
 
   return (
@@ -244,10 +244,10 @@ export const SearchOverlay: React.FC<SearchOverlayProps> = ({
             placeholder="Search movies and TV series across the catalogue..."
             className="w-full bg-transparent text-white placeholder:text-slate-400 text-sm focus:outline-none"
           />
-          {isAiResolving && (
+          {isSmartMatching && (
             <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-amber-500/15 border border-amber-400/30 text-[11px] font-medium text-amber-300 whitespace-nowrap shrink-0">
               <Loader2 className="w-3 h-3 animate-spin text-amber-400 shrink-0" />
-              <span>AI-assisted search</span>
+              <span>TMDB Smart Match</span>
             </span>
           )}
           {query && (
@@ -255,8 +255,8 @@ export const SearchOverlay: React.FC<SearchOverlayProps> = ({
               onClick={() => {
                 setQuery('');
                 setDebouncedQuery('');
-                setAiResolution(null);
-                setAiAssisted(false);
+                setSmartResolution(null);
+                setSmartMatched(false);
               }}
               className="p-1 text-slate-400 hover:text-white rounded"
             >
@@ -308,37 +308,37 @@ export const SearchOverlay: React.FC<SearchOverlayProps> = ({
           </span>
         </div>
 
-        {/* Subtle AI-Assisted Canonical Title Banner */}
-        {!isAiResolving &&
+        {/* Subtle TMDB Smart Match Canonical Title Banner */}
+        {!isSmartMatching &&
           debouncedQuery &&
-          aiAssisted &&
-          aiResolution &&
+          smartMatched &&
+          smartResolution &&
           results.length > 0 && (
             <div className="px-5 py-2 bg-amber-500/[0.08] border-b border-amber-500/20 flex flex-wrap items-center justify-between gap-2 text-xs">
               <div className="flex items-center gap-2 min-w-0">
                 <Sparkles className="w-3.5 h-3.5 text-amber-400 shrink-0" />
                 <span className="text-slate-300 truncate">
-                  {aiResolution.isAmbiguous ? (
+                  {smartResolution.isAmbiguous ? (
                     <>
                       Multiple editions found for{' '}
                       <strong className="text-white font-semibold">
-                        {aiResolution.normalizedTitle}
+                        {smartResolution.normalizedTitle}
                       </strong>{' '}
                       — showing top TMDB candidates
                     </>
                   ) : (
                     <>
-                      AI-assisted match for{' '}
+                      TMDB Smart Match for{' '}
                       <span className="text-slate-400">&quot;{debouncedQuery}&quot;</span>:{' '}
                       <strong className="text-amber-300 font-semibold">
-                        {aiResolution.normalizedTitle}
+                        {smartResolution.normalizedTitle}
                       </strong>
                     </>
                   )}
                 </span>
               </div>
               <span className="text-[10px] font-mono text-amber-300/90 px-2 py-0.5 rounded bg-amber-500/15 border border-amber-400/25 shrink-0">
-                AI-assisted match
+                TMDB Smart Match
               </span>
             </div>
           )}
@@ -377,7 +377,7 @@ export const SearchOverlay: React.FC<SearchOverlayProps> = ({
 
         {/* Results List */}
         <div className="overflow-y-auto divide-y divide-white/5 p-2">
-          {results.length === 0 && !showBusy && !isAiResolving ? (
+          {results.length === 0 && !showBusy && !isSmartMatching ? (
             <div className="py-12 text-center text-slate-500">
               <Film className="w-10 h-10 mx-auto stroke-1 opacity-40 mb-2" />
               <p className="text-sm font-medium text-slate-400">No matching titles found</p>
@@ -386,12 +386,12 @@ export const SearchOverlay: React.FC<SearchOverlayProps> = ({
           ) : (
             <>
               {results.map((item, idx) => {
-                const isCanonicalAiMatch =
+                const isCanonicalSmartMatch =
                   Boolean(debouncedQuery) &&
-                  aiAssisted &&
-                  Boolean(normAiCanonical) &&
-                  !aiResolution?.isAmbiguous &&
-                  normalizeForSearch(item.title) === normAiCanonical &&
+                  smartMatched &&
+                  Boolean(normSmartCanonical) &&
+                  !smartResolution?.isAmbiguous &&
+                  normalizeForSearch(item.title) === normSmartCanonical &&
                   idx === 0;
 
                 return (
@@ -421,10 +421,10 @@ export const SearchOverlay: React.FC<SearchOverlayProps> = ({
                           >
                             {item.title}
                           </h4>
-                          {isCanonicalAiMatch && (
+                          {isCanonicalSmartMatch && (
                             <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-500/15 border border-amber-400/30 text-[10px] font-medium text-amber-300 shrink-0">
                               <Sparkles className="w-2.5 h-2.5 text-amber-400" />
-                              <span>AI-assisted match</span>
+                              <span>TMDB Smart Match</span>
                             </span>
                           )}
                         </div>
@@ -481,3 +481,4 @@ export const SearchOverlay: React.FC<SearchOverlayProps> = ({
     </div>
   );
 };
+

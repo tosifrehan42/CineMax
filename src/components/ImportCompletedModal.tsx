@@ -92,6 +92,10 @@ export const ImportCompletedModal: React.FC<ImportCompletedModalProps> = ({
   const [inputError, setInputError] = useState<string | null>(null);
 
   const [isExtracting, setIsExtracting] = useState(false);
+  const [ocrProgress, setOcrProgress] = useState<{
+    status: string;
+    progress: number;
+  } | null>(null);
   const [matchProgress, setMatchProgress] = useState<{
     done: number;
     total: number;
@@ -204,6 +208,7 @@ export const ImportCompletedModal: React.FC<ImportCompletedModalProps> = ({
     }
     setInputError(null);
     setIsExtracting(false);
+    setOcrProgress(null);
     setMatchProgress(null);
     setResolvedRows([]);
     setReviewFilter('all');
@@ -261,6 +266,7 @@ export const ImportCompletedModal: React.FC<ImportCompletedModalProps> = ({
     }
 
     setIsExtracting(true);
+    setOcrProgress(null);
     setMatchProgress(null);
 
     try {
@@ -277,7 +283,9 @@ export const ImportCompletedModal: React.FC<ImportCompletedModalProps> = ({
           setIsExtracting(false);
           return;
         }
-        extractedResult = await parseImportFile(selectedFile);
+        extractedResult = await parseImportFile(selectedFile, (update) => {
+          setOcrProgress(update);
+        });
       } else {
         extractedResult = parseTextImportList(pastedText);
       }
@@ -291,6 +299,7 @@ export const ImportCompletedModal: React.FC<ImportCompletedModalProps> = ({
         return;
       }
 
+      setOcrProgress(null);
       setMatchProgress({ done: 0, total: extractedResult.items.length });
 
       const rows = await resolveExtractedImportItems({
@@ -312,6 +321,7 @@ export const ImportCompletedModal: React.FC<ImportCompletedModalProps> = ({
       );
     } finally {
       setIsExtracting(false);
+      setOcrProgress(null);
       setMatchProgress(null);
     }
   };
@@ -768,19 +778,24 @@ export const ImportCompletedModal: React.FC<ImportCompletedModalProps> = ({
                     <span className="break-words">
                       {matchProgress
                         ? `Resolving TMDB matches (${matchProgress.done} of ${matchProgress.total})...`
+                        : ocrProgress
+                        ? ocrProgress.status
                         : inputMode === 'file' &&
                           selectedFile &&
                           validateImportFile(selectedFile).kind === 'image'
-                        ? 'Extracting titles from screenshot & matching with TMDB...'
+                        ? 'Running local browser OCR on screenshot...'
                         : 'Parsing titles & matching with TMDB...'}
                     </span>
                   </div>
-                  {matchProgress && (
+                  {(matchProgress || ocrProgress) && (
                     <span className="font-mono font-bold text-amber-400 tabular-nums shrink-0">
-                      {Math.round(
-                        (matchProgress.done / Math.max(1, matchProgress.total)) *
-                          100
-                      )}
+                      {matchProgress
+                        ? Math.round(
+                            (matchProgress.done /
+                              Math.max(1, matchProgress.total)) *
+                              100
+                          )
+                        : ocrProgress?.progress || 0}
                       %
                     </span>
                   )}
@@ -1008,12 +1023,12 @@ export const ImportCompletedModal: React.FC<ImportCompletedModalProps> = ({
                                     </>
                                   )}
                                 </span>
-                                {row.aiAssisted &&
+                                {row.smartMatched &&
                                   row.extracted.title.trim().toLowerCase() !==
                                     media.title.trim().toLowerCase() && (
                                     <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-500/15 border border-amber-400/30 text-[10px] font-medium text-amber-300">
                                       <Sparkles className="w-2.5 h-2.5 text-amber-400 shrink-0" />
-                                      <span>AI-assisted match</span>
+                                      <span>TMDB Smart Match</span>
                                     </span>
                                   )}
                               </div>
