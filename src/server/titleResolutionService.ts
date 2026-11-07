@@ -38,9 +38,151 @@ export interface TitleResolutionResponseBody {
 
 export const MAX_TITLES_PER_REQUEST = 50;
 export const MAX_TITLE_LENGTH = 200;
-const GEMINI_TIMEOUT_MS = 25000;
+const PRIMARY_GEMINI_MODEL = 'gemini-3.8-flash';
+const FALLBACK_GEMINI_MODEL = 'gemini-3.7-flash';
+const GEMINI_TOTAL_BUDGET_MS = 22000;
+const GEMINI_ATTEMPT_TIMEOUT_MS = 8500;
+const MIN_REMAINING_BUDGET_MS = 1500;
+const BACKOFF_BASE_DELAY_MS = 500;
+const BACKOFF_JITTER_MS = 350;
 const RESOLUTION_CACHE_TTL_MS = 1000 * 60 * 15; // 15 minutes
 const MAX_CACHE_ENTRIES = 1000;
+
+interface SafeGeminiErrorDetails {
+  name: string;
+  message: string;
+  status?: number;
+  code?: string | number;
+}
+
+function extractSafeGeminiErrorDetails(
+  err: any,
+  geminiApiKey: string
+): SafeGeminiErrorDetails {
+  const errorName =
+    typeof err?.name === 'string' && err.name.trim() ? err.name.trim() : 'Error';
+  const rawMessage =
+    typeof err?.message === 'string'
+      ? err.message
+      : String(err ?? 'Unknown Gemini API error');
+  const safeMessage = (
+    geminiApiKey ? rawMessage.split(geminiApiKey).join('[REDACTED]') : rawMessage
+  )
+    .replace(/([?&]key=)[^&\s]+/gi, '$1[REDACTED]')
+    .replace(/(Bearer\s+)[A-Za-z0-9._~+/-]+=*/gi, '$1[REDACTED]')
+    .replace(/AIza[0-9A-Za-z_-]{20,}/g, '[REDACTED]');
+
+  const httpStatus =
+    typeof err?.status === 'number'
+      ? err.status
+      : typeof err?.statusCode === 'number'
+      ? err.statusCode
+      : typeof err?.response?.status === 'number'
+      ? err.response.status
+      : typeof err?.error?.code === 'number'
+      ? err.error.code
+      : undefined;
+
+  const errorCode =
+    typeof err?.code === 'string' || typeof err?.code === 'number'
+      ? err.code
+      : typeof err?.error?.status === 'string'
+      ? err.error.status
+      : typeof err?.error?.code === 'string' || typeof err?.error?.code === 'number'
+      ? err.error.code
+      : undefined;
+
+  return {
+    name: errorName,
+    message: safeMessage,
+    ...(httpStatus !== undefined ? { status: httpStatus } : {}),
+    ...(errorCode !== undefined ? { code: errorCode } : {}),
+  };
+}
+
+function isNonRetryableGeminiError(err: any): boolean {
+  const status =
+    typeof err?.status === 'number'
+      ? err.status
+      : typeof err?.statusCode === 'number'
+      ? err.statusCode
+      : typeof err?.response?.status === 'number'
+      ? err.response.status
+      : typeof err?.error?.code === 'number'
+      ? err.error.code
+      : undefined;
+
+  if (
+    status === 400 ||
+    status === 401 ||
+    status === 403 ||
+    status === 404 ||
+    status === 422 ||
+    status === 429
+  ) {
+    return true;
+  }
+
+  const codeStr = String(
+    err?.code ?? err?.error?.status ?? err?.error?.code ?? ''
+  ).toUpperCase();
+  if (
+    codeStr === 'INVALID_ARGUMENT' ||
+    codeStr === 'UNAUTHENTICATED' ||
+    codeStr === 'PERMISSION_DENIED' ||
+    codeStr === 'NOT_FOUND' ||
+    codeStr === 'RESOURCE_EXHAUSTED' ||
+    codeStr === 'API_KEY_INVALID'
+  ) {
+    return true;
+  }
+
+  const msg = String(err?.message ?? '');
+  return /\b(400|401|403|429)\b|INVALID_ARGUMENT|UNAUTHENTICATED|PERMISSION_DENIED|API_KEY_INVALID|RESOURCE_EXHAUSTED|quota|invalid api key/i.test(
+    msg
+  );
+}
+
+function isHttp503UnavailableError(err: any): boolean {
+  if (isNonRetryableGeminiError(err)) {
+    return false;
+  }
+
+  const status =
+    typeof err?.status === 'number'
+      ? err.status
+      : typeof err?.statusCode === 'number'
+      ? err.statusCode
+      : typeof err?.response?.status === 'number'
+      ? err.response.status
+      : typeof err?.error?.code === 'number'
+      ? err.error.code
+      : undefined;
+
+  if (status === 503) {
+    return true;
+  }
+
+  const codeStr = String(
+    err?.code ?? err?.error?.status ?? err?.error?.code ?? ''
+  ).toUpperCase();
+  if (codeStr === '503' || codeStr === 'UNAVAILABLE') {
+    return true;
+  }
+
+  const msg = String(err?.message ?? '');
+  return /\b503\b|UNAVAILABLE|high demand|overloaded|service unavailable/i.test(msg);
+}
+
+function computeBackoffWithJitterMs(attemptIndex: number): number {
+  const exponentialDelay = BACKOFF_BASE_DELAY_MS * Math.pow(2, attemptIndex);
+  const jitter = Math.floor(Math.random() * BACKOFF_JITTER_MS);
+  return exponentialDelay + jitter;
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 interface CacheEntry {
   timestamp: number;
@@ -377,6 +519,133 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
   });
 }
 
+const TITLE_RESOLUTION_RESPONSE_SCHEMA = {
+  type: Type.OBJECT,
+  properties: {
+    items: {
+      type: Type.ARRAY,
+      items: {
+        type: Type.OBJECT,
+        properties: {
+          rowId: {
+            type: Type.STRING,
+            description: 'The exact rowId from the input item.',
+          },
+          originalTitle: {
+            type: Type.STRING,
+            description: 'The original input title.',
+          },
+          normalizedTitle: {
+            type: Type.STRING,
+            description: 'The canonical TMDB release title.',
+          },
+          alternateQueries: {
+            type: Type.ARRAY,
+            items: { type: Type.STRING },
+            description: 'Up to 3 search queries to try on TMDB.',
+          },
+          mediaTypeHint: {
+            type: Type.STRING,
+            description: '"movie", "tv", or "unknown".',
+          },
+          yearHint: {
+            type: Type.INTEGER,
+            description: 'Release year if unambiguously known, else 0.',
+          },
+          confidence: {
+            type: Type.NUMBER,
+            description: 'Confidence score from 0.0 to 1.0.',
+          },
+          isAmbiguous: {
+            type: Type.BOOLEAN,
+            description:
+              'True if multiple distinct adaptations/remakes share this exact title and no year was specified.',
+          },
+        },
+        required: [
+          'rowId',
+          'originalTitle',
+          'normalizedTitle',
+          'alternateQueries',
+          'confidence',
+        ],
+      },
+    },
+  },
+  required: ['items'],
+};
+
+async function generateTitleResolutionWithRetryAndFallback(
+  ai: GoogleGenAI,
+  promptText: string,
+  geminiApiKey: string
+) {
+  const startTime = Date.now();
+  const getRemainingBudgetMs = () =>
+    Math.max(0, GEMINI_TOTAL_BUDGET_MS - (Date.now() - startTime));
+
+  const invokeModel = (model: string) => {
+    const remainingMs = getRemainingBudgetMs();
+    if (remainingMs < MIN_REMAINING_BUDGET_MS) {
+      throw new Error(
+        `Gemini title resolution time budget exhausted (${GEMINI_TOTAL_BUDGET_MS}ms)`
+      );
+    }
+    const attemptTimeoutMs = Math.min(GEMINI_ATTEMPT_TIMEOUT_MS, remainingMs);
+    return withTimeout(
+      ai.models.generateContent({
+        model,
+        contents: promptText,
+        config: {
+          responseMimeType: 'application/json',
+          responseSchema: TITLE_RESOLUTION_RESPONSE_SCHEMA,
+        },
+      }),
+      attemptTimeoutMs
+    );
+  };
+
+  try {
+    return await invokeModel(PRIMARY_GEMINI_MODEL);
+  } catch (primaryErr: any) {
+    if (isNonRetryableGeminiError(primaryErr)) {
+      throw primaryErr;
+    }
+
+    if (isHttp503UnavailableError(primaryErr)) {
+      const backoffMs = computeBackoffWithJitterMs(0);
+      console.error(
+        `[TitleResolutionService] ${PRIMARY_GEMINI_MODEL} returned HTTP 503; retrying once after ${backoffMs}ms:`,
+        extractSafeGeminiErrorDetails(primaryErr, geminiApiKey)
+      );
+
+      if (getRemainingBudgetMs() > backoffMs + MIN_REMAINING_BUDGET_MS) {
+        await delay(backoffMs);
+      }
+
+      try {
+        return await invokeModel(PRIMARY_GEMINI_MODEL);
+      } catch (retryErr: any) {
+        if (isNonRetryableGeminiError(retryErr)) {
+          throw retryErr;
+        }
+
+        if (isHttp503UnavailableError(retryErr)) {
+          console.error(
+            `[TitleResolutionService] ${PRIMARY_GEMINI_MODEL} returned HTTP 503 after retry; switching to ${FALLBACK_GEMINI_MODEL}:`,
+            extractSafeGeminiErrorDetails(retryErr, geminiApiKey)
+          );
+          return await invokeModel(FALLBACK_GEMINI_MODEL);
+        }
+
+        throw retryErr;
+      }
+    }
+
+    throw primaryErr;
+  }
+}
+
 export async function resolveTitlesWithGemini(
   body: TitleResolutionRequestBody
 ): Promise<{
@@ -561,70 +830,10 @@ Rules:
 Input items JSON:
 ${JSON.stringify(uncachedPayload)}`;
 
-    const response = await withTimeout(
-      ai.models.generateContent({
-        model: 'gemini-3.8-flash',
-        contents: promptText,
-        config: {
-          responseMimeType: 'application/json',
-          responseSchema: {
-            type: Type.OBJECT,
-            properties: {
-              items: {
-                type: Type.ARRAY,
-                items: {
-                  type: Type.OBJECT,
-                  properties: {
-                    rowId: {
-                      type: Type.STRING,
-                      description: 'The exact rowId from the input item.',
-                    },
-                    originalTitle: {
-                      type: Type.STRING,
-                      description: 'The original input title.',
-                    },
-                    normalizedTitle: {
-                      type: Type.STRING,
-                      description: 'The canonical TMDB release title.',
-                    },
-                    alternateQueries: {
-                      type: Type.ARRAY,
-                      items: { type: Type.STRING },
-                      description: 'Up to 3 search queries to try on TMDB.',
-                    },
-                    mediaTypeHint: {
-                      type: Type.STRING,
-                      description: '"movie", "tv", or "unknown".',
-                    },
-                    yearHint: {
-                      type: Type.INTEGER,
-                      description: 'Release year if unambiguously known, else 0.',
-                    },
-                    confidence: {
-                      type: Type.NUMBER,
-                      description: 'Confidence score from 0.0 to 1.0.',
-                    },
-                    isAmbiguous: {
-                      type: Type.BOOLEAN,
-                      description:
-                        'True if multiple distinct adaptations/remakes share this exact title and no year was specified.',
-                    },
-                  },
-                  required: [
-                    'rowId',
-                    'originalTitle',
-                    'normalizedTitle',
-                    'alternateQueries',
-                    'confidence',
-                  ],
-                },
-              },
-            },
-            required: ['items'],
-          },
-        },
-      }),
-      GEMINI_TIMEOUT_MS
+    const response = await generateTitleResolutionWithRetryAndFallback(
+      ai,
+      promptText,
+      geminiApiKey
     );
 
     const rawText = (response.text || '').trim();
@@ -739,45 +948,10 @@ ${JSON.stringify(uncachedPayload)}`;
       },
     };
   } catch (err: any) {
-    const errorName =
-      typeof err?.name === 'string' && err.name.trim() ? err.name.trim() : 'Error';
-    const rawMessage =
-      typeof err?.message === 'string'
-        ? err.message
-        : String(err ?? 'Unknown Gemini API error');
-    const safeMessage = (
-      geminiApiKey ? rawMessage.split(geminiApiKey).join('[REDACTED]') : rawMessage
-    )
-      .replace(/([?&]key=)[^&\s]+/gi, '$1[REDACTED]')
-      .replace(/(Bearer\s+)[A-Za-z0-9._~+/-]+=*/gi, '$1[REDACTED]')
-      .replace(/AIza[0-9A-Za-z_-]{20,}/g, '[REDACTED]');
-
-    const httpStatus =
-      typeof err?.status === 'number'
-        ? err.status
-        : typeof err?.statusCode === 'number'
-        ? err.statusCode
-        : typeof err?.response?.status === 'number'
-        ? err.response.status
-        : typeof err?.error?.code === 'number'
-        ? err.error.code
-        : undefined;
-
-    const errorCode =
-      typeof err?.code === 'string' || typeof err?.code === 'number'
-        ? err.code
-        : typeof err?.error?.status === 'string'
-        ? err.error.status
-        : typeof err?.error?.code === 'string' || typeof err?.error?.code === 'number'
-        ? err.error.code
-        : undefined;
-
-    console.error('[TitleResolutionService] Gemini title resolution failed:', {
-      name: errorName,
-      message: safeMessage,
-      ...(httpStatus !== undefined ? { status: httpStatus } : {}),
-      ...(errorCode !== undefined ? { code: errorCode } : {}),
-    });
+    console.error(
+      '[TitleResolutionService] Gemini title resolution failed:',
+      extractSafeGeminiErrorDetails(err, geminiApiKey)
+    );
 
     // Graceful fallback when Gemini fails, times out, or hits rate limits
     for (const idx of uncachedIndices) {
