@@ -3,9 +3,12 @@
 @layer base {
   html {
     color-scheme: dark;
+    overflow-x: clip;
+    -webkit-text-size-adjust: 100%;
   }
   body {
     font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+    overflow-x: clip;
   }
 
   /* Sleek dark cinema scrollbar */
@@ -23,6 +26,17 @@
   ::-webkit-scrollbar-thumb:hover {
     background: #333a52;
   }
+}
+
+/* Mobile viewport height & touch-ergonomic utilities (100vh fallback + 100dvh) */
+.cm-min-h-dvh {
+  min-height: 100vh;
+  min-height: 100dvh;
+}
+
+.cm-touch-target {
+  min-width: 44px;
+  min-height: 44px;
 }
 
 /* Avoid content-visibility: auto on nested scroll-snap carousels to prevent mobile scroll freezes */
@@ -131,11 +145,10 @@
     inset 0 1px 0 0 rgba(255, 255, 255, 0.11),
     0 2px 8px rgba(0, 0, 0, 0.28);
   transition:
-    background 160ms var(--cm-glass-ease),
-    border-color 160ms var(--cm-glass-ease),
-    color 160ms var(--cm-glass-ease),
-    box-shadow 160ms var(--cm-glass-ease),
-    transform 140ms var(--cm-glass-ease);
+    background-color 150ms var(--cm-glass-ease),
+    border-color 150ms var(--cm-glass-ease),
+    color 150ms var(--cm-glass-ease),
+    transform 130ms var(--cm-glass-ease);
 }
 
 .cm-glass-control:hover:not(:disabled) {
@@ -145,13 +158,10 @@
     rgba(255, 255, 255, 0.055) 100%
   );
   border-color: rgba(255, 255, 255, 0.18);
-  box-shadow:
-    inset 0 1px 0 0 rgba(255, 255, 255, 0.18),
-    0 4px 14px rgba(0, 0, 0, 0.38);
 }
 
 .cm-glass-control:active:not(:disabled) {
-  transform: scale(0.985);
+  transform: scale(0.98);
   background: linear-gradient(
     180deg,
     rgba(255, 255, 255, 0.05) 0%,
@@ -180,27 +190,38 @@
   transform-origin: center center;
 }
 
-/* Subtle luxury card illumination & amber ambient glow */
+/* Lightweight CSS-only Poster Card Hover & Tap Feedback (175ms compositor transform) */
+.cm-poster-card {
+  transition: transform 175ms var(--cm-glass-ease);
+}
+
+.cm-poster-card:active {
+  transform: scale(0.988);
+}
+
+/* Lightweight border illumination without animating large box-shadows */
 .cm-card-glow {
-  transition:
-    border-color 240ms var(--cm-glass-ease),
-    box-shadow 260ms var(--cm-glass-ease);
+  transition: border-color 175ms var(--cm-glass-ease);
 }
 
 @media (hover: hover) and (pointer: fine) {
+  .cm-poster-card:hover {
+    transform: translate3d(0, -2px, 0) scale(1.01);
+  }
+
+  .cm-poster-card:hover:active {
+    transform: translate3d(0, -1px, 0) scale(0.995);
+  }
+
   .group:hover .cm-card-glow {
-    border-color: rgba(251, 191, 36, 0.48);
-    box-shadow:
-      inset 0 1px 0 0 rgba(255, 255, 255, 0.22),
-      0 18px 38px -10px rgba(0, 0, 0, 0.82),
-      0 0 22px -4px rgba(245, 158, 11, 0.22);
+    border-color: rgba(251, 191, 36, 0.45);
   }
 }
 
 .cm-amber-ambient-glow {
   box-shadow:
-    0 10px 28px -6px rgba(245, 158, 11, 0.32),
-    inset 0 1px 0 0 rgba(255, 255, 255, 0.35);
+    0 8px 22px -6px rgba(245, 158, 11, 0.28),
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.32);
 }
 
 /* Variant 1: Liquid Amber-Gold Bubble (Segmented Controls, Mobile Sub-Bar, Auth, Discover, Watchlist) */
@@ -220,8 +241,6 @@
     inset 0 -2px 4px 0 rgba(146, 64, 14, 0.48),
     0 4px 14px -2px rgba(245, 158, 11, 0.42),
     0 1px 4px 0 rgba(0, 0, 0, 0.38);
-  -webkit-backdrop-filter: blur(8px) saturate(140%);
-  backdrop-filter: blur(8px) saturate(140%);
 }
 
 /* Variant 2: Liquid Rose Bubble (Watchlist Favourites Tab) */
@@ -240,8 +259,6 @@
     inset 0 -2px 4px 0 rgba(136, 19, 55, 0.5),
     0 4px 14px -2px rgba(244, 63, 94, 0.42),
     0 1px 4px 0 rgba(0, 0, 0, 0.38);
-  -webkit-backdrop-filter: blur(8px) saturate(140%);
-  backdrop-filter: blur(8px) saturate(140%);
 }
 
 /* Variant 3: Translucent Obsidian-Amber Liquid Glass Capsule (Desktop Top Nav & Mobile Bottom Nav) */
@@ -260,8 +277,6 @@
     inset 0 -1px 2px 0 rgba(245, 158, 11, 0.22),
     0 4px 14px -3px rgba(0, 0, 0, 0.5),
     0 0 12px -2px rgba(245, 158, 11, 0.18);
-  -webkit-backdrop-filter: blur(8px) saturate(140%);
-  backdrop-filter: blur(8px) saturate(140%);
 }
 
 /* Variant 4: Neutral Crystal Liquid Glass Pill (Secondary Segmented Controls) */
@@ -278,8 +293,6 @@
     inset 0 1px 1.5px 0 rgba(255, 255, 255, 0.34),
     inset 0 -1px 2px 0 rgba(255, 255, 255, 0.08),
     0 3px 10px -2px rgba(0, 0, 0, 0.42);
-  -webkit-backdrop-filter: blur(8px) saturate(135%);
-  backdrop-filter: blur(8px) saturate(135%);
 }
 
 .cm-glass-input {
@@ -289,9 +302,8 @@
     inset 0 1px 2px rgba(0, 0, 0, 0.48),
     inset 0 1px 0 rgba(255, 255, 255, 0.045);
   transition:
-    border-color 160ms var(--cm-glass-ease),
-    box-shadow 160ms var(--cm-glass-ease),
-    background-color 160ms var(--cm-glass-ease);
+    border-color 150ms var(--cm-glass-ease),
+    background-color 150ms var(--cm-glass-ease);
 }
 
 .cm-glass-input:hover:not(:disabled):not(:focus) {
@@ -319,21 +331,21 @@
   .cm-glass-nav {
     background: linear-gradient(
       180deg,
-      rgba(17, 22, 34, 0.78) 0%,
-      rgba(10, 13, 20, 0.72) 100%
+      rgba(17, 22, 34, 0.82) 0%,
+      rgba(10, 13, 20, 0.78) 100%
     );
-    -webkit-backdrop-filter: blur(16px) saturate(145%);
-    backdrop-filter: blur(16px) saturate(145%);
+    -webkit-backdrop-filter: blur(12px) saturate(135%);
+    backdrop-filter: blur(12px) saturate(135%);
   }
 
   .cm-glass-subbar {
     background: linear-gradient(
       180deg,
-      rgba(14, 18, 27, 0.72) 0%,
-      rgba(10, 13, 19, 0.66) 100%
+      rgba(14, 18, 27, 0.78) 0%,
+      rgba(10, 13, 19, 0.72) 100%
     );
-    -webkit-backdrop-filter: blur(12px) saturate(135%);
-    backdrop-filter: blur(12px) saturate(135%);
+    -webkit-backdrop-filter: blur(10px) saturate(130%);
+    backdrop-filter: blur(10px) saturate(130%);
   }
 
   .cm-glass-nav > .cm-glass-subbar,
@@ -343,45 +355,46 @@
     backdrop-filter: none;
   }
 
+  /* Reduced blur intensity on animated modal surfaces to prevent GPU resampling spikes */
   .cm-glass-panel {
     background: linear-gradient(
       165deg,
-      rgba(20, 25, 38, 0.84) 0%,
-      rgba(11, 14, 22, 0.8) 100%
-    );
-    -webkit-backdrop-filter: blur(20px) saturate(145%);
-    backdrop-filter: blur(20px) saturate(145%);
-  }
-
-  .cm-glass-popover {
-    background: linear-gradient(
-      180deg,
-      rgba(21, 27, 40, 0.88) 0%,
-      rgba(12, 16, 25, 0.85) 100%
-    );
-    -webkit-backdrop-filter: blur(16px) saturate(145%);
-    backdrop-filter: blur(16px) saturate(145%);
-  }
-
-  .cm-glass-surface {
-    background: linear-gradient(
-      180deg,
-      rgba(21, 26, 39, 0.68) 0%,
-      rgba(13, 17, 26, 0.63) 100%
+      rgba(20, 25, 38, 0.9) 0%,
+      rgba(11, 14, 22, 0.88) 100%
     );
     -webkit-backdrop-filter: blur(12px) saturate(130%);
     backdrop-filter: blur(12px) saturate(130%);
   }
 
+  .cm-glass-popover {
+    background: linear-gradient(
+      180deg,
+      rgba(21, 27, 40, 0.92) 0%,
+      rgba(12, 16, 25, 0.9) 100%
+    );
+    -webkit-backdrop-filter: blur(10px) saturate(130%);
+    backdrop-filter: blur(10px) saturate(130%);
+  }
+
+  .cm-glass-surface {
+    background: linear-gradient(
+      180deg,
+      rgba(21, 26, 39, 0.76) 0%,
+      rgba(13, 17, 26, 0.72) 100%
+    );
+    -webkit-backdrop-filter: blur(10px) saturate(125%);
+    backdrop-filter: blur(10px) saturate(125%);
+  }
+
   .cm-glass-pill {
-    -webkit-backdrop-filter: blur(10px) saturate(135%);
-    backdrop-filter: blur(10px) saturate(135%);
+    -webkit-backdrop-filter: blur(8px) saturate(125%);
+    backdrop-filter: blur(8px) saturate(125%);
   }
 
   .cm-glass-backdrop {
-    background-color: rgba(4, 6, 10, 0.74);
-    -webkit-backdrop-filter: blur(10px) saturate(120%);
-    backdrop-filter: blur(10px) saturate(120%);
+    background-color: rgba(4, 6, 10, 0.8);
+    -webkit-backdrop-filter: blur(6px);
+    backdrop-filter: blur(6px);
   }
 
   /* Cap blur radius on mobile viewports for smooth 60fps Android WebView performance */
@@ -389,16 +402,16 @@
     .cm-glass-nav,
     .cm-glass-panel,
     .cm-glass-popover {
-      -webkit-backdrop-filter: blur(12px) saturate(130%);
-      backdrop-filter: blur(12px) saturate(130%);
+      -webkit-backdrop-filter: blur(8px) saturate(120%);
+      backdrop-filter: blur(8px) saturate(120%);
     }
 
     .cm-glass-subbar,
     .cm-glass-surface,
     .cm-glass-pill,
     .cm-glass-backdrop {
-      -webkit-backdrop-filter: blur(8px) saturate(120%);
-      backdrop-filter: blur(8px) saturate(120%);
+      -webkit-backdrop-filter: blur(4px);
+      backdrop-filter: blur(4px);
     }
   }
 }

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef, startTransition, Suspense } from 'react';
-import { AnimatePresence, motion } from 'motion/react';
+import { AnimatePresence } from 'motion/react';
 import {
   FranchiseCollection,
   HomeHubMode,
@@ -13,14 +13,6 @@ import {
 import { HeroSpotlight } from './HeroSpotlight';
 import { MediaCarouselRow } from './MediaCarouselRow';
 import { GENRES } from '../data/mediaData';
-import {
-  CINEMATIC_EASE,
-  getBoundedStaggerDelay,
-  MOTION_DURATIONS,
-  SPRING_GENTLE,
-  SPRING_TACTILE,
-  useCinematicMotion,
-} from '../utils/motionSystem';
 
 const FranchiseModal = React.lazy(() =>
   import('./FranchiseModal').then((m) => ({ default: m.FranchiseModal }))
@@ -191,7 +183,6 @@ const HomeViewComponent: React.FC<HomeViewProps> = ({
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [visibleRowCount, setVisibleRowCount] = useState<number>(ROW_BATCH_SIZE);
   const rowBatchSentinelRef = useRef<HTMLDivElement | null>(null);
-  const { prefersReducedMotion, canHover } = useCinematicMotion();
 
   // Reset visible row batch to initial 4 rows when switching between All / Movies / Series
   useEffect(() => {
@@ -762,7 +753,7 @@ const HomeViewComponent: React.FC<HomeViewProps> = ({
   );
 
   return (
-    <div className="space-y-10 sm:space-y-12 pb-12">
+    <div className="space-y-7 sm:space-y-12 pb-8 sm:pb-12">
       {/* 1. Featured Cinematic Hero */}
       <HeroSpotlight
         featuredItems={featuredHeroItems}
@@ -774,21 +765,24 @@ const HomeViewComponent: React.FC<HomeViewProps> = ({
       />
 
       {/* Subtle Catalogue Freshness Bar */}
-      <div className="flex flex-wrap items-center justify-between gap-3 px-1 pb-3.5 mb-6 sm:mb-8 border-b border-white/[0.06] text-xs text-slate-400">
+      <div className="flex items-center justify-between gap-2 px-1 pb-3 border-b border-white/[0.06] text-[11px] sm:text-xs text-slate-400">
         <div className="flex items-center gap-2 min-w-0">
           <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 shrink-0" />
-          <span className="leading-relaxed">
-            Live OTT Discovery Feed · {allMedia.length}+ Curated &amp; TMDB Indexed Titles
+          <span className="truncate">
+            Live OTT Feed · {allMedia.length}+ Curated &amp; TMDB Titles
           </span>
         </div>
         <button
           type="button"
           onClick={() => setRefreshSeed((s) => s + 1)}
           disabled={isRefreshing}
-          className="cm-glass-control inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-slate-300 hover:text-white font-medium transition-colors disabled:opacity-50 shrink-0"
+          className="cm-glass-control inline-flex items-center gap-1.5 min-h-[36px] px-2.5 sm:px-3 py-1.5 rounded-lg text-slate-300 hover:text-white font-medium transition-colors disabled:opacity-50 shrink-0 whitespace-nowrap"
         >
           <RefreshCw className={`w-3.5 h-3.5 text-amber-400 ${isRefreshing ? 'animate-spin' : ''}`} />
-          <span>{isRefreshing ? 'Refreshing Feeds…' : 'Refresh Catalogue'}</span>
+          <span className="hidden min-[380px]:inline">
+            {isRefreshing ? 'Refreshing…' : 'Refresh'}
+          </span>
+          <span className="hidden sm:inline">Catalogue</span>
         </button>
       </div>
 
@@ -821,22 +815,16 @@ const HomeViewComponent: React.FC<HomeViewProps> = ({
       )}
 
       {/* 11. Browse by Genre */}
-      <motion.section
-        initial={prefersReducedMotion ? false : { opacity: 0, y: 16 }}
-        whileInView={prefersReducedMotion ? undefined : { opacity: 1, y: 0 }}
-        viewport={{ once: true, margin: '-40px' }}
-        transition={{ duration: MOTION_DURATIONS.normal, ease: CINEMATIC_EASE }}
-        className="space-y-4 pt-2"
-      >
-        <div className="flex flex-col sm:flex-row sm:items-end justify-between gap-3">
-          <div>
+      <section className="space-y-3.5 sm:space-y-4 pt-1 sm:pt-2">
+        <div className="flex items-start sm:items-end justify-between gap-2 sm:gap-3">
+          <div className="min-w-0">
             <div className="flex items-center gap-2">
-              <Compass className="w-5 h-5 text-amber-400" />
-              <h2 className="font-['Plus_Jakarta_Sans'] text-lg sm:text-xl font-bold text-white tracking-tight">
+              <Compass className="w-5 h-5 text-amber-400 shrink-0" />
+              <h2 className="font-['Plus_Jakarta_Sans'] text-base min-[380px]:text-lg sm:text-xl font-bold text-white tracking-tight">
                 Browse by Genre
               </h2>
             </div>
-            <p className="text-xs text-slate-400 mt-0.5">
+            <p className="text-[11px] sm:text-xs text-slate-400 mt-0.5 line-clamp-1 sm:line-clamp-none">
               Filter instant genre spotlights or open the full multi-filter Discover workspace
             </p>
           </div>
@@ -850,9 +838,10 @@ const HomeViewComponent: React.FC<HomeViewProps> = ({
                 onNavigateTab('discover');
               }
             }}
-            className="text-xs font-semibold text-amber-400 hover:text-amber-300 flex items-center gap-1 self-start sm:self-auto active:scale-[0.97]"
+            className="min-h-[32px] text-xs font-semibold text-amber-400 hover:text-amber-300 flex items-center gap-0.5 shrink-0 whitespace-nowrap active:scale-[0.97]"
           >
-            <span>Open {selectedBrowseGenre} in Discover</span>
+            <span>Open {selectedBrowseGenre}</span>
+            <span className="hidden sm:inline">in Discover</span>
             <ChevronRight className="w-3.5 h-3.5" />
           </button>
         </div>
@@ -862,21 +851,18 @@ const HomeViewComponent: React.FC<HomeViewProps> = ({
           {GENRES.filter((g) => g !== 'All').map((genre) => {
             const active = selectedBrowseGenre === genre;
             return (
-              <motion.button
+              <button
                 key={genre}
                 type="button"
                 onClick={() => setSelectedBrowseGenre(genre)}
-                whileHover={canHover && !prefersReducedMotion ? { y: -1 } : undefined}
-                whileTap={prefersReducedMotion ? undefined : { scale: 0.96 }}
-                transition={SPRING_TACTILE}
-                className={`px-3.5 py-1.5 rounded-xl text-xs font-semibold transition-colors whitespace-nowrap shrink-0 ${
+                className={`min-h-[38px] sm:min-h-0 px-3.5 py-1.5 rounded-xl text-xs font-semibold transition-colors active:scale-[0.97] whitespace-nowrap shrink-0 ${
                   active
                     ? 'bg-amber-500 text-slate-950 shadow-sm shadow-amber-500/20'
                     : 'cm-glass-control text-slate-300 hover:text-white'
                 }`}
               >
                 {genre}
-              </motion.button>
+              </button>
             );
           })}
         </div>
@@ -893,39 +879,33 @@ const HomeViewComponent: React.FC<HomeViewProps> = ({
           onSelectMedia={onSelectMedia}
           onPlayTrailer={onPlayTrailer}
         />
-      </motion.section>
+      </section>
 
       {/* 12. Franchise Collections / Watch Order */}
-      <motion.section
-        initial={prefersReducedMotion ? false : { opacity: 0, y: 16 }}
-        whileInView={prefersReducedMotion ? undefined : { opacity: 1, y: 0 }}
-        viewport={{ once: true, margin: '-40px' }}
-        transition={{ duration: MOTION_DURATIONS.normal, ease: CINEMATIC_EASE }}
-        className="space-y-4 pt-2"
-      >
+      <section className="space-y-3.5 sm:space-y-4 pt-1 sm:pt-2">
         <div className="flex items-end justify-between gap-4">
           <div>
             <div className="flex items-center gap-2">
-              <Layers className="w-5 h-5 text-amber-400" />
-              <h2 className="font-['Plus_Jakarta_Sans'] text-lg sm:text-xl font-bold text-white tracking-tight">
-                Franchise Collections & Watch Orders
+              <Layers className="w-5 h-5 text-amber-400 shrink-0" />
+              <h2 className="font-['Plus_Jakarta_Sans'] text-base min-[380px]:text-lg sm:text-xl font-bold text-white tracking-tight">
+                Franchise Collections &amp; Watch Orders
               </h2>
             </div>
-            <p className="text-xs text-slate-400 mt-0.5">
+            <p className="text-[11px] sm:text-xs text-slate-400 mt-0.5">
               Curated chronological and release-order guides with saga completion tracking
             </p>
           </div>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-5">
-          {FRANCHISE_COLLECTIONS.map((franchise, franchiseIdx) => {
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5 sm:gap-5">
+          {FRANCHISE_COLLECTIONS.map((franchise) => {
             const totalCount = franchise.items.length;
             const completedCount = franchise.items.filter(
               (item) => getWatchlistStatus?.(item.id) === 'completed'
             ).length;
 
             return (
-              <motion.div
+              <div
                 key={franchise.id}
                 onClick={() => setActiveFranchise(franchise)}
                 role="button"
@@ -936,23 +916,14 @@ const HomeViewComponent: React.FC<HomeViewProps> = ({
                     setActiveFranchise(franchise);
                   }
                 }}
-                initial={prefersReducedMotion ? false : { opacity: 0, y: 14 }}
-                whileInView={prefersReducedMotion ? undefined : { opacity: 1, y: 0 }}
-                viewport={{ once: true, margin: '-30px' }}
-                whileHover={canHover && !prefersReducedMotion ? { y: -4, scale: 1.01 } : undefined}
-                whileTap={prefersReducedMotion ? undefined : { scale: 0.99 }}
-                transition={{
-                  ...SPRING_GENTLE,
-                  delay: prefersReducedMotion ? 0 : getBoundedStaggerDelay(franchiseIdx, 0.04, 9),
-                }}
-                className="group relative overflow-hidden rounded-2xl border border-white/10 bg-[#121721] hover:border-amber-400/50 cm-card-glow transition-colors cursor-pointer flex flex-col justify-between p-5 min-h-[210px] shadow-lg"
+                className="group cm-poster-card relative overflow-hidden rounded-2xl border border-white/10 bg-[#121721] hover:border-amber-400/50 cm-card-glow cursor-pointer flex flex-col justify-between p-4 sm:p-5 min-h-[188px] sm:min-h-[210px] shadow-lg"
               >
                 {/* Subtle Backdrop Image */}
                 <img
                   src={franchise.backdropUrl}
                   alt={franchise.title}
                   loading="lazy"
-                  className="absolute inset-0 w-full h-full object-cover opacity-25 md:group-hover:opacity-35 md:group-hover:scale-105 transition-all duration-500 ease-[cubic-bezier(0.16,1,0.3,1)]"
+                  className="absolute inset-0 w-full h-full object-cover opacity-25 md:group-hover:opacity-35 transition-opacity duration-200"
                 />
                 <div className="absolute inset-0 bg-gradient-to-t from-[#0A0D12] via-[#0A0D12]/80 to-[#0A0D12]/40" />
 
@@ -968,7 +939,7 @@ const HomeViewComponent: React.FC<HomeViewProps> = ({
                   )}
                 </div>
 
-                <div className="relative z-10 my-3">
+                <div className="relative z-10 my-2.5 sm:my-3">
                   <h3 className="font-['Plus_Jakarta_Sans'] text-base sm:text-lg font-bold text-white group-hover:text-amber-400 transition-colors">
                     {franchise.title}
                   </h3>
@@ -978,11 +949,11 @@ const HomeViewComponent: React.FC<HomeViewProps> = ({
                 </div>
 
                 <div className="relative z-10 pt-2 border-t border-white/10 flex items-center justify-between gap-2 text-xs">
-                  <div className="flex items-center -space-x-2 overflow-hidden">
-                    {franchise.items.slice(0, 4).map((it, idx) => (
+                  <div className="flex items-center -space-x-2 overflow-hidden min-w-0">
+                    {franchise.items.slice(0, 3).map((it, idx) => (
                       <span
                         key={it.id}
-                        className="inline-flex items-center justify-center px-2 py-0.5 rounded bg-black/70 border border-white/15 text-[10px] font-mono text-slate-300 truncate max-w-[95px]"
+                        className="inline-flex items-center justify-center px-2 py-0.5 rounded bg-black/70 border border-white/15 text-[10px] font-mono text-slate-300 truncate max-w-[88px] sm:max-w-[95px]"
                       >
                         #{idx + 1} {it.title.split(':')[0]}
                       </span>
@@ -994,11 +965,11 @@ const HomeViewComponent: React.FC<HomeViewProps> = ({
                     <span>Watch Order</span>
                   </span>
                 </div>
-              </motion.div>
+              </div>
             );
           })}
         </div>
-      </motion.section>
+      </section>
 
       {/* Franchise Watch-Order Modal */}
       <Suspense fallback={null}>

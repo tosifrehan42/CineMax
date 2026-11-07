@@ -1,14 +1,9 @@
-import React from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import { AnimatePresence, motion } from 'motion/react';
 import { HomeHubMode, TabView, UserProfile } from '../types';
 import { LiquidTabBubble, useLiquidTabBubble } from './LiquidTabBubble';
 import { PWAInstallButton } from './OfflineStatusBanner';
-import {
-  CINEMATIC_EASE,
-  MOTION_DURATIONS,
-  SPRING_TACTILE,
-  useCinematicMotion,
-} from '../utils/motionSystem';
+import { popoverMenuVariants } from '../utils/motionSystem';
 import {
   Film,
   Tv,
@@ -22,6 +17,8 @@ import {
   HardDrive,
   ShieldCheck,
   Home,
+  MoreHorizontal,
+  X,
 } from 'lucide-react';
 
 interface NavbarProps {
@@ -53,12 +50,36 @@ const NavbarComponent: React.FC<NavbarProps> = ({
   onOpenAuthModal,
   onSignOut,
 }) => {
-  const [avatarLoadError, setAvatarLoadError] = React.useState(false);
-  const { prefersReducedMotion, canHover } = useCinematicMotion();
+  const [avatarLoadError, setAvatarLoadError] = useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const mobileMenuRef = useRef<HTMLDivElement>(null);
 
-  React.useEffect(() => {
+  useEffect(() => {
     setAvatarLoadError(false);
   }, [userProfile?.avatarUrl]);
+
+  // Close mobile overflow menu on outside tap or Escape key
+  useEffect(() => {
+    if (!mobileMenuOpen) return;
+    const handleOutside = (e: MouseEvent | TouchEvent) => {
+      if (mobileMenuRef.current && !mobileMenuRef.current.contains(e.target as Node)) {
+        setMobileMenuOpen(false);
+      }
+    };
+    const handleKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setMobileMenuOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleOutside);
+    document.addEventListener('touchstart', handleOutside, { passive: true });
+    window.addEventListener('keydown', handleKey);
+    return () => {
+      document.removeEventListener('mousedown', handleOutside);
+      document.removeEventListener('touchstart', handleOutside);
+      window.removeEventListener('keydown', handleKey);
+    };
+  }, [mobileMenuOpen]);
 
   const initials = (userProfile?.displayName || userEmail || 'CM')
     .split(' ')
@@ -185,27 +206,27 @@ const NavbarComponent: React.FC<NavbarProps> = ({
     watchlistCount,
   ]);
 
+  const isSecondaryToolActive = currentTab === 'estimator' || currentTab === 'admin';
+
   return (
     <>
       {/* Sticky Inset Top Header (Desktop Rounded Panel + Mobile Unified Rounded Shell) */}
-      <header className="sticky top-0 z-50 w-full pt-[max(env(safe-area-inset-top,0px),0.5rem)] sm:pt-2.5 px-2 min-[380px]:px-3 sm:px-6 lg:px-8 pointer-events-none">
+      <header className="sticky top-0 z-50 w-full pt-[max(env(safe-area-inset-top,0px),0.5rem)] sm:pt-2.5 px-3 sm:px-6 lg:px-8 pointer-events-none">
         <div className="pointer-events-auto max-w-[1440px] mx-auto cm-glass-nav rounded-[20px] md:rounded-[22px] transition-colors overflow-visible">
-          <div className="px-2 min-[360px]:px-2.5 min-[390px]:px-3.5 sm:px-5 lg:px-6 h-13 sm:h-14 md:h-16 flex items-center justify-between gap-1.5 min-[380px]:gap-2 sm:gap-4 lg:gap-8 min-w-0">
+          <div className="px-3 sm:px-5 lg:px-6 h-14 md:h-16 flex items-center justify-between gap-2 sm:gap-4 lg:gap-8 min-w-0">
             {/* Left Zone: Brand Logo + Desktop Navigation */}
             <div className="flex items-center gap-2 sm:gap-5 lg:gap-7 min-w-0 shrink-0 h-full">
-              <motion.button
+              <button
                 onClick={() => onTabChange('home', 'all')}
-                whileTap={prefersReducedMotion ? undefined : { scale: 0.97 }}
-                transition={SPRING_TACTILE}
-                className="flex items-center gap-1.5 min-[360px]:gap-2 sm:gap-2.5 text-left group focus:outline-none focus-visible:ring-1 focus-visible:ring-amber-400 rounded-lg shrink-0"
+                className="flex items-center gap-2 sm:gap-2.5 min-h-[44px] text-left group focus:outline-none focus-visible:ring-1 focus-visible:ring-amber-400 rounded-lg shrink-0 active:scale-[0.97] transition-transform"
               >
-                <div className="w-6.5 h-6.5 min-[360px]:w-7 min-[360px]:h-7 sm:w-8 sm:h-8 rounded-lg bg-gradient-to-br from-amber-400 to-amber-600 flex items-center justify-center text-slate-950 shadow-md shadow-amber-500/20 group-hover:scale-105 transition-transform shrink-0">
-                  <Film className="w-3.5 h-3.5 sm:w-4 sm:h-4 stroke-[2.5]" />
+                <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-amber-400 to-amber-600 flex items-center justify-center text-slate-950 shadow-md shadow-amber-500/20 shrink-0">
+                  <Film className="w-4 h-4 stroke-[2.5]" />
                 </div>
-                <span className="font-['Plus_Jakarta_Sans'] text-[15px] min-[360px]:text-base sm:text-xl font-extrabold tracking-tight text-white whitespace-nowrap group-hover:text-amber-400 transition-colors">
+                <span className="font-['Plus_Jakarta_Sans'] text-lg sm:text-xl font-extrabold tracking-tight text-white whitespace-nowrap group-hover:text-amber-400 transition-colors">
                   Cine<span className="text-amber-400">Max</span>
                 </span>
-              </motion.button>
+              </button>
 
               {/* Desktop Primary Navigation with Shared Animated Liquid Glass Water Bubble */}
               <nav
@@ -232,20 +253,11 @@ const NavbarComponent: React.FC<NavbarProps> = ({
                   >
                     {item.icon}
                     <span>{item.label}</span>
-                    <AnimatePresence initial={false} mode="popLayout">
-                      {item.badge !== undefined && (
-                        <motion.span
-                          key={item.badge}
-                          initial={prefersReducedMotion ? false : { scale: 0.75, opacity: 0 }}
-                          animate={{ scale: 1, opacity: 1 }}
-                          exit={prefersReducedMotion ? { opacity: 0 } : { scale: 0.75, opacity: 0 }}
-                          transition={SPRING_TACTILE}
-                          className="ml-0.5 px-1.5 py-0.2 text-[10px] font-mono font-bold rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30 tabular-nums"
-                        >
-                          {item.badge}
-                        </motion.span>
-                      )}
-                    </AnimatePresence>
+                    {item.badge !== undefined && (
+                      <span className="ml-0.5 px-1.5 py-0.2 text-[10px] font-mono font-bold rounded-full bg-amber-500/20 text-amber-300 border border-amber-500/30 tabular-nums">
+                        {item.badge}
+                      </span>
+                    )}
                     {item.isActive && !desktopBubble.ready && (
                       <span className="absolute bottom-1 left-2 right-2 h-[2px] bg-gradient-to-r from-amber-400 to-amber-500 rounded-full shadow-[0_0_8px_rgba(245,158,11,0.45)]" />
                     )}
@@ -254,85 +266,45 @@ const NavbarComponent: React.FC<NavbarProps> = ({
               </nav>
             </div>
 
-            {/* Right Zone: Search, Surprise Me, Tools (Mobile), & Account Controls */}
-            <div className="flex items-center gap-1 min-[390px]:gap-1.5 sm:gap-2.5 shrink-0 min-w-0">
-              {/* Search Trigger */}
-              <motion.button
+            {/* Right Zone: Mobile (Search + Profile/Sign-In + More Tools) | Desktop (Full Controls) */}
+            <div className="flex items-center gap-1.5 sm:gap-2.5 shrink-0 min-w-0">
+              {/* Search Trigger (44x44px minimum on mobile) */}
+              <button
                 onClick={onQuickSearchClick}
                 aria-label="Open search"
-                whileHover={canHover && !prefersReducedMotion ? { y: -1 } : undefined}
-                whileTap={prefersReducedMotion ? undefined : { scale: 0.96 }}
-                transition={SPRING_TACTILE}
-                className="flex items-center justify-center gap-2 w-7 h-7 min-[360px]:w-8 min-[360px]:h-8 min-[400px]:w-9 min-[400px]:h-9 sm:w-auto sm:min-h-[36px] sm:px-3 sm:py-1.5 text-slate-300 hover:text-white cm-glass-control rounded-xl shrink-0 focus:outline-none focus-visible:ring-1 focus-visible:ring-amber-400"
+                className="flex items-center justify-center gap-2 min-w-[44px] min-h-[44px] md:min-w-0 md:min-h-[38px] md:px-3 md:py-1.5 text-slate-200 hover:text-white cm-glass-control rounded-xl shrink-0 focus:outline-none focus-visible:ring-1 focus-visible:ring-amber-400"
                 title="Search movies, series, cast & directors (Ctrl+K)"
               >
-                <Search className="w-3.5 h-3.5 min-[400px]:w-4 min-[400px]:h-4 text-amber-400 shrink-0" />
+                <Search className="w-4 h-4 text-amber-400 shrink-0" />
                 <span className="hidden xl:inline text-xs text-slate-300">Search...</span>
                 <kbd className="hidden xl:inline-block px-1.5 py-0.5 text-[10px] font-mono text-slate-400 bg-black/45 rounded border border-white/10">
                   ⌘K
                 </kbd>
-              </motion.button>
+              </button>
 
-              {/* Mobile Quick Access to Quality & File Size Tool */}
-              <motion.button
-                onClick={() => onTabChange('estimator')}
-                aria-label="Quality & File Size Estimator"
-                title="Quality & File Size Estimator"
-                whileTap={prefersReducedMotion ? undefined : { scale: 0.95 }}
-                transition={SPRING_TACTILE}
-                className={`md:hidden w-7 h-7 min-[360px]:w-8 min-[360px]:h-8 min-[400px]:w-9 min-[400px]:h-9 flex items-center justify-center rounded-xl transition-colors shrink-0 ${
-                  currentTab === 'estimator'
-                    ? 'bg-amber-500/20 text-amber-400 border border-amber-500/40'
-                    : 'text-slate-300 hover:text-white cm-glass-control'
-                }`}
-              >
-                <HardDrive className="w-3.5 h-3.5 min-[400px]:w-4 min-[400px]:h-4 shrink-0" />
-              </motion.button>
-
-              {/* Surprise Me Button */}
-              <motion.button
+              {/* Desktop-Only Surprise Me Button */}
+              <button
                 onClick={onOpenSurprise}
                 aria-label="Surprise Me — Instant Recommendation"
                 title="Surprise Me — Instant Recommendation"
-                whileHover={canHover && !prefersReducedMotion ? { scale: 1.03, y: -1 } : undefined}
-                whileTap={prefersReducedMotion ? undefined : { scale: 0.96 }}
-                transition={SPRING_TACTILE}
-                className="flex items-center justify-center gap-1.5 w-7 h-7 min-[360px]:w-8 min-[360px]:h-8 min-[400px]:w-9 min-[400px]:h-9 sm:w-auto sm:min-h-[36px] sm:px-3 sm:py-2 text-xs font-semibold text-slate-950 bg-gradient-to-r from-amber-400 to-amber-500 hover:from-amber-300 hover:to-amber-400 rounded-xl shadow-sm shadow-amber-500/20 transition-colors whitespace-nowrap shrink-0 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
+                className="hidden md:flex items-center justify-center gap-1.5 min-h-[38px] px-3 py-2 text-xs font-semibold text-slate-950 bg-gradient-to-r from-amber-400 to-amber-500 hover:from-amber-300 hover:to-amber-400 active:scale-[0.97] rounded-xl shadow-sm shadow-amber-500/20 transition-colors whitespace-nowrap shrink-0 focus:outline-none focus-visible:ring-2 focus-visible:ring-amber-400"
               >
                 <Dice5 className="w-3.5 h-3.5 stroke-[2.5] shrink-0" />
-                <span className="hidden sm:inline">Surprise Me</span>
-              </motion.button>
+                <span>Surprise Me</span>
+              </button>
 
-              {/* In-App PWA Install Action (Auto-hides when installed or in native app) */}
-              <PWAInstallButton compact />
-
-              {/* Mobile Verified Admin Access Icon (Only shown to verified admin) */}
-              {isAuthenticated && isAdmin && (
-                <motion.button
-                  onClick={() => onTabChange('admin')}
-                  aria-label="Admin Dashboard"
-                  title="Admin Dashboard"
-                  whileTap={prefersReducedMotion ? undefined : { scale: 0.95 }}
-                  transition={SPRING_TACTILE}
-                  className={`md:hidden w-7 h-7 min-[360px]:w-8 min-[360px]:h-8 min-[400px]:w-9 min-[400px]:h-9 flex items-center justify-center rounded-xl border transition-colors shrink-0 ${
-                    currentTab === 'admin'
-                      ? 'bg-amber-500/20 text-amber-400 border-amber-500/40'
-                      : 'text-amber-400/90 bg-amber-500/10 border-amber-500/25'
-                  }`}
-                >
-                  <ShieldCheck className="w-3.5 h-3.5 min-[400px]:w-4 min-[400px]:h-4 shrink-0" />
-                </motion.button>
-              )}
+              {/* Desktop-Only In-App PWA Install Action */}
+              <div className="hidden md:block">
+                <PWAInstallButton compact />
+              </div>
 
               {/* Account / Profile Session Control */}
               {isAuthenticated ? (
-                <div className="flex items-center gap-1 shrink-0">
-                  <motion.button
+                <div className="flex items-center gap-1.5 shrink-0">
+                  <button
                     onClick={() => onTabChange('profile')}
                     aria-label={userProfile?.displayName || userEmail || 'Profile'}
-                    whileTap={prefersReducedMotion ? undefined : { scale: 0.96 }}
-                    transition={SPRING_TACTILE}
-                    className={`flex items-center justify-center gap-2 w-7 h-7 min-[360px]:w-8 min-[360px]:h-8 min-[400px]:w-9 min-[400px]:h-9 lg:w-auto sm:min-h-[36px] lg:px-2.5 rounded-xl text-xs font-medium transition-colors whitespace-nowrap shrink-0 ${
+                    className={`flex items-center justify-center gap-2 min-w-[44px] min-h-[44px] md:min-w-0 md:min-h-[38px] lg:px-2.5 rounded-xl text-xs font-medium transition-colors active:scale-[0.97] whitespace-nowrap shrink-0 ${
                       currentTab === 'profile'
                         ? 'bg-amber-500/15 border border-amber-400/50 text-white'
                         : 'cm-glass-control text-white'
@@ -344,128 +316,223 @@ const NavbarComponent: React.FC<NavbarProps> = ({
                         src={userProfile!.avatarUrl!}
                         alt={userProfile?.displayName || 'Profile avatar'}
                         onError={() => setAvatarLoadError(true)}
-                        className="w-4.5 h-4.5 min-[360px]:w-5 min-[360px]:h-5 rounded-full object-cover border border-amber-400/60 shrink-0"
+                        className="w-6 h-6 md:w-5 md:h-5 rounded-full object-cover border border-amber-400/60 shrink-0"
                       />
                     ) : (
-                      <span className="w-4.5 h-4.5 min-[360px]:w-5 min-[360px]:h-5 rounded-full bg-amber-500/20 border border-amber-400/40 text-amber-300 font-mono text-[9px] min-[360px]:text-[10px] font-bold flex items-center justify-center shrink-0">
+                      <span className="w-6 h-6 md:w-5 md:h-5 rounded-full bg-amber-500/20 border border-amber-400/40 text-amber-300 font-mono text-[10px] font-bold flex items-center justify-center shrink-0">
                         {initials}
                       </span>
                     )}
                     <span className="hidden lg:inline max-w-[100px] truncate">
                       {userProfile?.displayName || userEmail?.split('@')[0] || 'Account'}
                     </span>
-                  </motion.button>
-                  <motion.button
+                  </button>
+
+                  {/* Desktop-Only Sign Out Button (moved to More Menu on mobile) */}
+                  <button
                     onClick={onSignOut}
                     aria-label="Sign out"
                     title="Sign Out"
-                    whileTap={prefersReducedMotion ? undefined : { scale: 0.94 }}
-                    transition={SPRING_TACTILE}
-                    className="flex items-center justify-center w-7 h-7 min-[360px]:w-8 min-[360px]:h-8 min-[400px]:w-9 min-[400px]:h-9 sm:min-h-[36px] sm:min-w-[36px] text-slate-400 hover:text-red-400 hover:bg-white/5 rounded-xl transition-colors shrink-0 focus:outline-none focus-visible:ring-1 focus-visible:ring-amber-400"
+                    className="hidden md:flex items-center justify-center min-h-[38px] min-w-[38px] text-slate-400 hover:text-red-400 hover:bg-white/5 active:scale-95 rounded-xl transition-colors shrink-0 focus:outline-none focus-visible:ring-1 focus-visible:ring-amber-400"
                   >
-                    <LogOut className="w-3.5 h-3.5 min-[400px]:w-4 min-[400px]:h-4 shrink-0" />
-                  </motion.button>
+                    <LogOut className="w-4 h-4 shrink-0" />
+                  </button>
                 </div>
               ) : (
-                <motion.button
+                <button
                   onClick={() => onOpenAuthModal?.('signin')}
-                  whileHover={canHover && !prefersReducedMotion ? { y: -1 } : undefined}
-                  whileTap={prefersReducedMotion ? undefined : { scale: 0.96 }}
-                  transition={SPRING_TACTILE}
-                  className="flex items-center gap-1 min-[360px]:gap-1.5 px-2 min-[360px]:px-2.5 sm:px-3 h-7 min-[360px]:h-8 min-[400px]:h-9 sm:min-h-[36px] text-[11px] min-[360px]:text-xs font-semibold text-white cm-glass-control rounded-xl whitespace-nowrap shrink-0 focus:outline-none focus-visible:ring-1 focus-visible:ring-amber-400"
+                  className="flex items-center justify-center gap-1.5 px-3 min-h-[44px] md:min-h-[38px] text-xs font-semibold text-white cm-glass-control rounded-xl whitespace-nowrap shrink-0 focus:outline-none focus-visible:ring-1 focus-visible:ring-amber-400"
                 >
                   <LogIn className="w-3.5 h-3.5 text-amber-400 shrink-0" />
                   <span>Sign In</span>
-                </motion.button>
+                </button>
               )}
+
+              {/* Mobile More / Tools Overflow Menu Button (44x44px touch target) */}
+              <div ref={mobileMenuRef} className="relative md:hidden">
+                <button
+                  type="button"
+                  onClick={() => setMobileMenuOpen((prev) => !prev)}
+                  aria-label="More tools and options"
+                  aria-expanded={mobileMenuOpen}
+                  className={`flex items-center justify-center min-w-[44px] min-h-[44px] rounded-xl transition-colors active:scale-95 ${
+                    mobileMenuOpen || isSecondaryToolActive
+                      ? 'bg-amber-500/20 text-amber-300 border border-amber-400/50'
+                      : 'cm-glass-control text-slate-200 hover:text-white'
+                  }`}
+                >
+                  {mobileMenuOpen ? (
+                    <X className="w-4 h-4 text-amber-400" />
+                  ) : (
+                    <MoreHorizontal className="w-5 h-5" />
+                  )}
+                </button>
+
+                {/* Mobile Overflow Menu Popover Sheet */}
+                <AnimatePresence>
+                  {mobileMenuOpen && (
+                    <motion.div
+                      variants={popoverMenuVariants}
+                      initial="hidden"
+                      animate="visible"
+                      exit="exit"
+                      className="absolute right-0 mt-2 w-64 rounded-2xl cm-glass-popover p-2 z-50 origin-top-right shadow-2xl space-y-1"
+                    >
+                      <div className="px-3 py-1.5 text-[10px] font-mono font-semibold uppercase tracking-wider text-slate-400 border-b border-white/10">
+                        Quick Tools &amp; Actions
+                      </div>
+
+                      {/* 1. Surprise Me */}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setMobileMenuOpen(false);
+                          onOpenSurprise();
+                        }}
+                        className="w-full min-h-[44px] px-3 py-2 rounded-xl flex items-center gap-3 text-left text-xs font-semibold text-slate-950 bg-gradient-to-r from-amber-400 to-amber-500 hover:from-amber-300 hover:to-amber-400 active:scale-[0.98] transition-all"
+                      >
+                        <Dice5 className="w-4 h-4 stroke-[2.5] shrink-0" />
+                        <div className="min-w-0">
+                          <div className="font-bold leading-tight">Surprise Me</div>
+                          <div className="text-[10px] text-slate-900/80 font-medium">
+                            Instant curated recommendation
+                          </div>
+                        </div>
+                      </button>
+
+                      {/* 2. Quality & File Size Estimator */}
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setMobileMenuOpen(false);
+                          onTabChange('estimator');
+                        }}
+                        className={`w-full min-h-[44px] px-3 py-2 rounded-xl flex items-center gap-3 text-left text-xs font-semibold transition-colors ${
+                          currentTab === 'estimator'
+                            ? 'bg-amber-500/20 text-amber-300 border border-amber-500/35'
+                            : 'text-slate-200 hover:bg-white/10 hover:text-white'
+                        }`}
+                      >
+                        <HardDrive className="w-4 h-4 text-amber-400 shrink-0" />
+                        <div className="min-w-0">
+                          <div className="leading-tight">Quality &amp; File Size Tool</div>
+                          <div className="text-[10px] text-slate-400 font-normal">
+                            Bitrate &amp; storage calculator
+                          </div>
+                        </div>
+                      </button>
+
+                      {/* 3. PWA Install Button (Renders when installable or iOS) */}
+                      <div className="px-1 pt-0.5">
+                        <PWAInstallButton />
+                      </div>
+
+                      {/* 4. Verified Admin Dashboard (Only shown if verified admin) */}
+                      {isAuthenticated && isAdmin && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setMobileMenuOpen(false);
+                            onTabChange('admin');
+                          }}
+                          className={`w-full min-h-[44px] px-3 py-2 rounded-xl flex items-center gap-3 text-left text-xs font-semibold transition-colors ${
+                            currentTab === 'admin'
+                              ? 'bg-amber-500/20 text-amber-300 border border-amber-500/35'
+                              : 'text-amber-300 hover:bg-amber-500/15'
+                          }`}
+                        >
+                          <ShieldCheck className="w-4 h-4 text-amber-400 shrink-0" />
+                          <span>Admin Dashboard</span>
+                        </button>
+                      )}
+
+                      {/* 5. Sign Out (Only shown when signed in) */}
+                      {isAuthenticated && onSignOut && (
+                        <div className="pt-1 border-t border-white/10">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setMobileMenuOpen(false);
+                              onSignOut();
+                            }}
+                            className="w-full min-h-[44px] px-3 py-2 rounded-xl flex items-center gap-3 text-left text-xs font-semibold text-rose-300 hover:bg-rose-500/15 hover:text-rose-200 transition-colors"
+                          >
+                            <LogOut className="w-4 h-4 text-rose-400 shrink-0" />
+                            <span>Sign Out</span>
+                          </button>
+                        </div>
+                      )}
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
             </div>
           </div>
 
-          {/* Mobile Sub-Hub Pill Bar when on Home Tab (All Titles / Movies / Series + Size Tool) inside unified rounded shell */}
-          <AnimatePresence initial={false}>
-            {currentTab === 'home' && (
-              <motion.div
-                key="mobile-home-subbar"
-                initial={prefersReducedMotion ? false : { opacity: 0, y: -4 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={prefersReducedMotion ? { opacity: 0 } : { opacity: 0, y: -4 }}
-                transition={{ duration: MOTION_DURATIONS.fast, ease: CINEMATIC_EASE }}
-                className="md:hidden px-2 min-[380px]:px-3 py-1.5 border-t border-white/[0.07] cm-glass-subbar rounded-b-[20px] flex items-center justify-between gap-1.5 min-[380px]:gap-2 min-w-0"
+          {/* Mobile Home Hub Switcher (3 Equal-Width Segmented Columns: All Titles | Movies | Series) */}
+          {currentTab === 'home' && (
+            <div className="md:hidden px-3 py-2 border-t border-white/[0.07] cm-glass-subbar rounded-b-[20px]">
+              <div
+                ref={mobileHubBubble.containerRef}
+                role="tablist"
+                aria-label="Content category filter"
+                className="relative grid grid-cols-3 gap-1 p-1 rounded-xl cm-glass-segmented overflow-hidden"
               >
-                <div
-                  ref={mobileHubBubble.containerRef}
-                  role="tablist"
-                  aria-label="Content category filter"
-                  className="relative flex-1 min-w-0 flex items-center gap-0.5 min-[360px]:gap-1 p-1 rounded-xl cm-glass-segmented overflow-hidden"
-                >
-                  <LiquidTabBubble
-                    controller={mobileHubBubble}
-                    variant="amber"
-                    className="top-1 bottom-1 rounded-[9px]"
-                  />
-                  {(
-                    [
-                      { id: 'all', label: 'All Titles', icon: null },
-                      {
-                        id: 'movies',
-                        label: 'Movies',
-                        icon: <Film className="hidden min-[365px]:inline-block w-3 h-3 shrink-0" />,
-                      },
-                      {
-                        id: 'series',
-                        label: 'Series',
-                        icon: <Tv className="hidden min-[365px]:inline-block w-3 h-3 shrink-0" />,
-                      },
-                    ] as const
-                  ).map((hub) => {
-                    const active = homeHubMode === hub.id;
-                    return (
-                      <button
-                        key={hub.id}
-                        ref={mobileHubBubble.registerTab(hub.id)}
-                        role="tab"
-                        aria-selected={active}
-                        onClick={() => onTabChange('home', hub.id)}
-                        className={`relative z-10 flex-1 min-w-0 shrink flex items-center justify-center gap-1 px-1.5 min-[360px]:px-2.5 py-1.5 min-h-[30px] rounded-[9px] text-[11px] min-[360px]:text-xs font-semibold leading-none transition-colors whitespace-nowrap select-none focus:outline-none focus-visible:ring-1 focus-visible:ring-amber-400 active:scale-[0.97] ${
-                          active
-                            ? mobileHubBubble.ready
-                              ? 'text-slate-950 font-bold'
-                              : 'bg-amber-500 text-slate-950 font-bold shadow-sm'
-                            : 'text-slate-300 hover:text-white'
-                        }`}
-                      >
-                        {hub.icon}
-                        <span className="whitespace-nowrap">{hub.label}</span>
-                      </button>
-                    );
-                  })}
-                </div>
-
-                <motion.button
-                  onClick={() => onTabChange('estimator')}
-                  aria-label="Quality & File Size Estimator"
-                  title="Quality & File Size Estimator"
-                  whileTap={prefersReducedMotion ? undefined : { scale: 0.95 }}
-                  transition={SPRING_TACTILE}
-                  className="flex items-center justify-center gap-1.5 text-[11px] font-medium text-amber-400 hover:text-amber-300 px-2.5 min-[390px]:px-3 py-1.5 min-h-[34px] min-w-[34px] rounded-xl bg-amber-500/10 border border-amber-500/25 hover:bg-amber-500/15 transition-colors whitespace-nowrap shrink-0 focus:outline-none focus-visible:ring-1 focus-visible:ring-amber-400"
-                >
-                  <HardDrive className="w-3.5 h-3.5 shrink-0" />
-                  <span className="hidden min-[390px]:inline">Size Tool</span>
-                </motion.button>
-              </motion.div>
-            )}
-          </AnimatePresence>
+                <LiquidTabBubble
+                  controller={mobileHubBubble}
+                  variant="amber"
+                  className="top-1 bottom-1 rounded-[9px]"
+                />
+                {(
+                  [
+                    { id: 'all', label: 'All Titles', icon: null },
+                    {
+                      id: 'movies',
+                      label: 'Movies',
+                      icon: <Film className="hidden min-[360px]:inline-block w-3.5 h-3.5 shrink-0" />,
+                    },
+                    {
+                      id: 'series',
+                      label: 'Series',
+                      icon: <Tv className="hidden min-[360px]:inline-block w-3.5 h-3.5 shrink-0" />,
+                    },
+                  ] as const
+                ).map((hub) => {
+                  const active = homeHubMode === hub.id;
+                  return (
+                    <button
+                      key={hub.id}
+                      ref={mobileHubBubble.registerTab(hub.id)}
+                      role="tab"
+                      aria-selected={active}
+                      onClick={() => onTabChange('home', hub.id)}
+                      className={`relative z-10 w-full min-h-[38px] px-2 py-1.5 rounded-[9px] flex items-center justify-center gap-1.5 text-xs font-semibold leading-none transition-colors whitespace-nowrap select-none focus:outline-none focus-visible:ring-1 focus-visible:ring-amber-400 active:scale-[0.98] ${
+                        active
+                          ? mobileHubBubble.ready
+                            ? 'text-slate-950 font-bold'
+                            : 'bg-amber-500 text-slate-950 font-bold shadow-sm'
+                          : 'text-slate-300 hover:text-white'
+                      }`}
+                    >
+                      {hub.icon}
+                      <span>{hub.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
         </div>
       </header>
 
       {/* Mobile Floating Inset Bottom Navigation Bar (Home, Discover, Watchlist, Profile) */}
       <nav
         aria-label="Mobile Bottom Navigation"
-        className="md:hidden fixed inset-x-3 sm:inset-x-4 bottom-[calc(env(safe-area-inset-bottom,0px)+0.5rem)] z-50 cm-glass-nav rounded-[20px] overflow-hidden"
+        className="md:hidden fixed inset-x-3 sm:inset-x-4 bottom-[calc(env(safe-area-inset-bottom,0px)+0.5rem)] z-50 cm-glass-nav rounded-[20px] overflow-hidden shadow-2xl"
       >
         <div
           ref={mobileBottomBubble.containerRef}
-          className="relative grid grid-cols-4 h-14 px-1.5 py-1.5"
+          className="relative grid grid-cols-4 h-[60px] px-1.5 py-1.5"
         >
           <LiquidTabBubble
             controller={mobileBottomBubble}
@@ -478,7 +545,7 @@ const NavbarComponent: React.FC<NavbarProps> = ({
               key={item.id}
               ref={mobileBottomBubble.registerTab(item.id)}
               onClick={item.onClick}
-              className={`relative z-10 flex flex-col items-center justify-center gap-1 rounded-[14px] transition-colors focus:outline-none active:scale-[0.95] ${
+              className={`relative z-10 min-h-[44px] flex flex-col items-center justify-center gap-1 rounded-[14px] transition-colors focus:outline-none active:scale-[0.95] ${
                 item.isActive
                   ? 'text-amber-400 font-semibold'
                   : 'text-slate-400 hover:text-slate-200 font-medium'
@@ -487,15 +554,7 @@ const NavbarComponent: React.FC<NavbarProps> = ({
               {item.isActive && !mobileBottomBubble.ready && (
                 <span className="absolute top-0 w-8 h-0.5 bg-amber-400 rounded-full shadow-[0_0_8px_rgba(245,158,11,0.5)]" />
               )}
-              <motion.div
-                animate={
-                  !prefersReducedMotion && item.isActive
-                    ? { y: -1, scale: 1.05 }
-                    : { y: 0, scale: 1 }
-                }
-                transition={SPRING_TACTILE}
-                className="relative"
-              >
+              <div className="relative flex items-center justify-center">
                 {item.id === 'profile' && isAuthenticated && showAvatarImage ? (
                   <img
                     src={userProfile!.avatarUrl!}
@@ -506,22 +565,13 @@ const NavbarComponent: React.FC<NavbarProps> = ({
                 ) : (
                   item.icon
                 )}
-                <AnimatePresence initial={false} mode="popLayout">
-                  {item.id === 'watchlist' && watchlistCount > 0 && (
-                    <motion.span
-                      key={watchlistCount}
-                      initial={prefersReducedMotion ? false : { scale: 0.7, opacity: 0 }}
-                      animate={{ scale: 1, opacity: 1 }}
-                      exit={prefersReducedMotion ? { opacity: 0 } : { scale: 0.7, opacity: 0 }}
-                      transition={SPRING_TACTILE}
-                      className="absolute -top-1.5 -right-2.5 min-w-[15px] h-[15px] px-1 rounded-full bg-amber-500 text-slate-950 text-[9px] font-mono font-bold flex items-center justify-center tabular-nums"
-                    >
-                      {watchlistCount}
-                    </motion.span>
-                  )}
-                </AnimatePresence>
-              </motion.div>
-              <span className="text-[11px] leading-none">{item.label}</span>
+                {item.id === 'watchlist' && watchlistCount > 0 && (
+                  <span className="absolute -top-1.5 -right-2.5 min-w-[15px] h-[15px] px-1 rounded-full bg-amber-500 text-slate-950 text-[9px] font-mono font-bold flex items-center justify-center tabular-nums">
+                    {watchlistCount}
+                  </span>
+                )}
+              </div>
+              <span className="text-[11px] leading-none tracking-tight">{item.label}</span>
             </button>
           ))}
         </div>

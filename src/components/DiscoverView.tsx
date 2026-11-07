@@ -1,17 +1,10 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { AnimatePresence, motion } from 'motion/react';
 import { MediaItem, WatchStatus } from '../types';
 import { MOODS, GENRES } from '../data/mediaData';
 import { MediaCard } from './MediaCard';
 import { LiquidTabBubble, useLiquidTabBubble } from './LiquidTabBubble';
 import { CatalogueCategory, fetchCatalogue } from '../services/mediaApi';
 import { dedupeMediaItems } from '../utils/mediaIntegrity';
-import {
-  fadeUpVariants,
-  reducedMotionVariants,
-  SPRING_TACTILE,
-  useCinematicMotion,
-} from '../utils/motionSystem';
 import {
   Search,
   RotateCcw,
@@ -124,11 +117,13 @@ const DiscoverViewComponent: React.FC<DiscoverViewProps> = ({
     'relevance' | 'popularity' | 'rating' | 'year' | 'title'
   >('popularity');
   const [minRating, setMinRating] = useState<number>(0);
+  const [mobileFiltersOpen, setMobileFiltersOpen] = useState<boolean>(false);
 
   const effectiveFormatType: 'all' | 'movie' | 'tv' =
     debouncedQuery && !hasCustomTypeFilter ? 'all' : selectedType;
   const categoryBubble = useLiquidTabBubble<CatalogueCategory>(category);
   const formatBubble = useLiquidTabBubble<'all' | 'movie' | 'tv'>(effectiveFormatType);
+  const mobileFormatBubble = useLiquidTabBubble<'all' | 'movie' | 'tv'>(effectiveFormatType);
 
   const [items, setItems] = useState<MediaItem[]>([]);
   const [page, setPage] = useState<number>(1);
@@ -140,7 +135,6 @@ const DiscoverViewComponent: React.FC<DiscoverViewProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [searchWarning, setSearchWarning] = useState<string | null>(null);
   const requestIdRef = React.useRef(0);
-  const { prefersReducedMotion } = useCinematicMotion();
 
   // Sync external initial props
   useEffect(() => {
@@ -377,25 +371,44 @@ const DiscoverViewComponent: React.FC<DiscoverViewProps> = ({
     });
   }
 
+  const activeDetailedFilterCount =
+    (selectedGenre !== 'All' ? 1 : 0) +
+    (selectedYear !== 'All' ? 1 : 0) +
+    (selectedLanguage !== 'all' ? 1 : 0) +
+    (minRating > 0 ? 1 : 0) +
+    (selectedMood !== 'all' ? 1 : 0) +
+    (sortBy !== 'popularity' && !(debouncedQuery && sortBy === 'relevance') ? 1 : 0);
+
+  const handleSelectFormat = (fmtId: 'all' | 'movie' | 'tv') => {
+    setSelectedType(fmtId);
+    setHasCustomTypeFilter(fmtId !== 'all');
+    if (
+      (fmtId === 'movie' && category.includes('_tv')) ||
+      (fmtId === 'tv' && category.includes('movies'))
+    ) {
+      setCategory('discover');
+    }
+  };
+
   return (
-    <div className="space-y-6 pb-16">
+    <div className="space-y-4 sm:space-y-6 pb-10 sm:pb-16">
       {/* Top Header + Quality & File Size Estimator Shortcut */}
-      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 sm:gap-4">
         <div>
-          <h1 className="font-['Plus_Jakarta_Sans'] text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
-            Discover & Explore Catalogue
+          <h1 className="font-['Plus_Jakarta_Sans'] text-xl min-[380px]:text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
+            Discover &amp; Explore Catalogue
           </h1>
-          <p className="text-xs sm:text-sm text-slate-400 mt-1">
+          <p className="text-xs sm:text-sm text-slate-400 mt-0.5 sm:mt-1">
             Filter movies and series by format, genre, release era, language, and consensus rating
           </p>
         </div>
 
-        {/* Prominent Quality & File Size Estimator Shortcut */}
+        {/* Prominent Quality & File Size Estimator Shortcut (Desktop & Tablet) */}
         {onOpenEstimator && (
           <button
             type="button"
             onClick={onOpenEstimator}
-            className="flex items-center justify-between sm:justify-start gap-3 px-4 py-2.5 rounded-xl bg-gradient-to-r from-amber-500/15 via-amber-500/10 to-transparent hover:from-amber-500/25 border border-amber-500/30 text-left transition-all group shrink-0"
+            className="hidden sm:flex items-center justify-between sm:justify-start gap-3 px-4 py-2.5 rounded-xl bg-gradient-to-r from-amber-500/15 via-amber-500/10 to-transparent hover:from-amber-500/25 border border-amber-500/30 text-left transition-all group shrink-0"
           >
             <div className="w-8 h-8 rounded-lg bg-amber-500/20 border border-amber-400/40 flex items-center justify-center text-amber-400 shrink-0">
               <HardDrive className="w-4 h-4" />
@@ -415,13 +428,13 @@ const DiscoverViewComponent: React.FC<DiscoverViewProps> = ({
 
       {/* Debounced Search Bar */}
       <div className="relative">
-        <Search className="w-5 h-5 text-amber-400 absolute left-4 top-1/2 -translate-y-1/2" />
+        <Search className="w-4 h-4 sm:w-5 sm:h-5 text-amber-400 absolute left-3.5 sm:left-4 top-1/2 -translate-y-1/2 pointer-events-none" />
         <input
           type="text"
           value={searchInput}
           onChange={(e) => setSearchInput(e.target.value)}
-          placeholder="Search movies and series by title, director, cast, or keyword..."
-          className="cm-glass-input w-full pl-12 pr-20 py-3.5 rounded-xl text-white placeholder:text-slate-500 text-sm focus:outline-none"
+          placeholder="Search title, director, cast, or keyword..."
+          className="cm-glass-input w-full pl-10 sm:pl-12 pr-20 py-3 sm:py-3.5 min-h-[44px] rounded-xl text-white placeholder:text-slate-500 text-sm focus:outline-none"
         />
         {searchInput && (
           <button
@@ -430,9 +443,85 @@ const DiscoverViewComponent: React.FC<DiscoverViewProps> = ({
               setSearchInput('');
               setDebouncedQuery('');
             }}
-            className="cm-glass-control absolute right-3.5 top-1/2 -translate-y-1/2 text-xs text-slate-300 hover:text-white px-2.5 py-1 rounded-lg"
+            className="cm-glass-control absolute right-2.5 sm:right-3.5 top-1/2 -translate-y-1/2 text-xs text-slate-300 hover:text-white px-2.5 py-1.5 rounded-lg"
           >
             Clear
+          </button>
+        )}
+      </div>
+
+      {/* Mobile Primary Format Selector + Filters Toggle Bar (< md) */}
+      <div className="md:hidden flex items-center gap-2">
+        <div
+          ref={mobileFormatBubble.containerRef}
+          role="tablist"
+          aria-label="Filter by format"
+          className="relative flex-1 cm-glass-segmented grid grid-cols-3 p-1 rounded-xl overflow-hidden"
+        >
+          <LiquidTabBubble
+            controller={mobileFormatBubble}
+            variant="amber"
+            className="top-1 bottom-1 rounded-lg"
+          />
+          {(
+            [
+              { id: 'all', label: 'All' },
+              { id: 'movie', label: 'Movies' },
+              { id: 'tv', label: 'Series' },
+            ] as const
+          ).map((fmt) => {
+            const isFmtActive = effectiveFormatType === fmt.id;
+            return (
+              <button
+                key={fmt.id}
+                ref={mobileFormatBubble.registerTab(fmt.id)}
+                type="button"
+                role="tab"
+                aria-selected={isFmtActive}
+                onClick={() => handleSelectFormat(fmt.id)}
+                className={`relative z-10 min-h-[36px] py-1.5 text-xs font-semibold rounded-lg transition-colors whitespace-nowrap ${
+                  isFmtActive
+                    ? mobileFormatBubble.ready
+                      ? 'text-slate-950 font-bold'
+                      : 'bg-amber-500 text-slate-950 font-bold'
+                    : 'text-slate-300 hover:text-white'
+                }`}
+              >
+                {fmt.label}
+              </button>
+            );
+          })}
+        </div>
+
+        {/* Mobile Filters Toggle Button with Applied Filter Count */}
+        <button
+          type="button"
+          onClick={() => setMobileFiltersOpen((prev) => !prev)}
+          aria-expanded={mobileFiltersOpen}
+          className={`min-h-[44px] px-3.5 rounded-xl text-xs font-semibold flex items-center gap-1.5 shrink-0 transition-colors active:scale-[0.98] ${
+            mobileFiltersOpen || activeDetailedFilterCount > 0
+              ? 'bg-amber-500/20 text-amber-300 border border-amber-400/50'
+              : 'cm-glass-control text-slate-200 hover:text-white'
+          }`}
+        >
+          <SlidersHorizontal className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+          <span>Filters</span>
+          {activeDetailedFilterCount > 0 && (
+            <span className="px-1.5 py-0.2 rounded-full bg-amber-500 text-slate-950 font-mono text-[10px] font-bold tabular-nums">
+              {activeDetailedFilterCount}
+            </span>
+          )}
+        </button>
+
+        {activeChips.length > 0 && (
+          <button
+            type="button"
+            onClick={resetFilters}
+            aria-label="Reset all filters"
+            title="Reset all filters"
+            className="min-h-[44px] min-w-[44px] rounded-xl cm-glass-control text-slate-300 hover:text-white flex items-center justify-center shrink-0 active:scale-95"
+          >
+            <RotateCcw className="w-4 h-4 text-amber-400" />
           </button>
         )}
       </div>
@@ -461,7 +550,7 @@ const DiscoverViewComponent: React.FC<DiscoverViewProps> = ({
                 else if (tab.id.includes('_tv')) setSelectedType('tv');
                 else setSelectedType('all');
               }}
-              className={`relative z-10 px-3.5 py-2 text-xs font-semibold rounded-xl transition-colors whitespace-nowrap shrink-0 ${
+              className={`relative z-10 min-h-[36px] px-3 sm:px-3.5 py-1.5 sm:py-2 text-xs font-semibold rounded-xl transition-colors whitespace-nowrap shrink-0 ${
                 isActive
                   ? categoryBubble.ready
                     ? 'text-slate-950 font-bold'
@@ -475,11 +564,30 @@ const DiscoverViewComponent: React.FC<DiscoverViewProps> = ({
         })}
       </div>
 
-      {/* Compact Inline Filter Bar: Format, Genre, Release Year, Language, Rating, Sort */}
-      <div className="cm-glass-surface p-4 rounded-2xl space-y-3.5">
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3">
-          {/* 1. Format Segmented Toggle */}
-          <div className="flex flex-col gap-1">
+      {/* Collapsible Filter Panel on Mobile (< md) / Always-Expanded Inline Filter Bar on Desktop (md:block) */}
+      <div
+        className={`${
+          mobileFiltersOpen ? 'block' : 'hidden'
+        } md:block cm-glass-surface p-3.5 sm:p-4 rounded-2xl space-y-3.5`}
+      >
+        <div className="flex items-center justify-between md:hidden pb-2 border-b border-white/[0.07]">
+          <div className="flex items-center gap-2 text-xs font-bold text-white">
+            <SlidersHorizontal className="w-3.5 h-3.5 text-amber-400" />
+            <span>Refine Catalogue Filters</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setMobileFiltersOpen(false)}
+            className="p-1 text-slate-400 hover:text-white rounded-lg"
+            aria-label="Close filter panel"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-2.5 sm:gap-3">
+          {/* 1. Format Segmented Toggle (Desktop Only — Mobile uses top primary format selector) */}
+          <div className="hidden md:flex flex-col gap-1">
             <label className="text-[11px] font-medium text-slate-400 flex items-center gap-1">
               <SlidersHorizontal className="w-3 h-3 text-amber-400" />
               <span>Format</span>
@@ -506,16 +614,7 @@ const DiscoverViewComponent: React.FC<DiscoverViewProps> = ({
                     key={fmt.id}
                     ref={formatBubble.registerTab(fmt.id)}
                     type="button"
-                    onClick={() => {
-                      setSelectedType(fmt.id);
-                      setHasCustomTypeFilter(fmt.id !== 'all');
-                      if (
-                        (fmt.id === 'movie' && category.includes('_tv')) ||
-                        (fmt.id === 'tv' && category.includes('movies'))
-                      ) {
-                        setCategory('discover');
-                      }
-                    }}
+                    onClick={() => handleSelectFormat(fmt.id)}
                     className={`relative z-10 py-1.5 text-xs font-semibold rounded-md transition-colors ${
                       isFmtActive
                         ? formatBubble.ready
@@ -540,7 +639,7 @@ const DiscoverViewComponent: React.FC<DiscoverViewProps> = ({
               id="discover-genre"
               value={selectedGenre}
               onChange={(e) => setSelectedGenre(e.target.value)}
-              className="cm-glass-input text-slate-100 rounded-lg px-3 py-2 text-xs focus:outline-none"
+              className="cm-glass-input min-h-[40px] md:min-h-0 text-slate-100 rounded-lg px-2.5 sm:px-3 py-2 text-xs focus:outline-none"
             >
               {GENRES.map((g) => (
                 <option key={g} value={g} className="bg-[#0E131C]">
@@ -559,7 +658,7 @@ const DiscoverViewComponent: React.FC<DiscoverViewProps> = ({
               id="discover-year"
               value={selectedYear}
               onChange={(e) => setSelectedYear(e.target.value)}
-              className="cm-glass-input text-slate-100 rounded-lg px-3 py-2 text-xs focus:outline-none"
+              className="cm-glass-input min-h-[40px] md:min-h-0 text-slate-100 rounded-lg px-2.5 sm:px-3 py-2 text-xs focus:outline-none"
             >
               {RELEASE_YEAR_OPTIONS.map((yr) => (
                 <option key={yr.value} value={yr.value} className="bg-[#0E131C]">
@@ -578,7 +677,7 @@ const DiscoverViewComponent: React.FC<DiscoverViewProps> = ({
               id="discover-language"
               value={selectedLanguage}
               onChange={(e) => setSelectedLanguage(e.target.value)}
-              className="cm-glass-input text-slate-100 rounded-lg px-3 py-2 text-xs focus:outline-none"
+              className="cm-glass-input min-h-[40px] md:min-h-0 text-slate-100 rounded-lg px-2.5 sm:px-3 py-2 text-xs focus:outline-none"
             >
               {LANGUAGE_OPTIONS.map((lang) => (
                 <option key={lang.value} value={lang.value} className="bg-[#0E131C]">
@@ -597,7 +696,7 @@ const DiscoverViewComponent: React.FC<DiscoverViewProps> = ({
               id="discover-rating"
               value={minRating}
               onChange={(e) => setMinRating(Number(e.target.value))}
-              className="cm-glass-input text-slate-100 rounded-lg px-3 py-2 text-xs focus:outline-none"
+              className="cm-glass-input min-h-[40px] md:min-h-0 text-slate-100 rounded-lg px-2.5 sm:px-3 py-2 text-xs focus:outline-none"
             >
               {RATING_OPTIONS.map((rt) => (
                 <option key={rt.value} value={rt.value} className="bg-[#0E131C]">
@@ -608,7 +707,7 @@ const DiscoverViewComponent: React.FC<DiscoverViewProps> = ({
           </div>
 
           {/* 6. Sort By Dropdown */}
-          <div className="flex flex-col gap-1">
+          <div className="col-span-2 md:col-span-1 flex flex-col gap-1">
             <label htmlFor="discover-sort" className="text-[11px] font-medium text-slate-400">
               Sort Results By
             </label>
@@ -616,7 +715,7 @@ const DiscoverViewComponent: React.FC<DiscoverViewProps> = ({
               id="discover-sort"
               value={sortBy}
               onChange={(e) => setSortBy(e.target.value as any)}
-              className="cm-glass-input text-slate-100 rounded-lg px-3 py-2 text-xs focus:outline-none"
+              className="cm-glass-input min-h-[40px] md:min-h-0 text-slate-100 rounded-lg px-2.5 sm:px-3 py-2 text-xs focus:outline-none"
             >
               {debouncedQuery && (
                 <option value="relevance" className="bg-[#0E131C]">
@@ -640,7 +739,7 @@ const DiscoverViewComponent: React.FC<DiscoverViewProps> = ({
         </div>
 
         {/* Mood Quick Filter Pills */}
-        <div className="pt-2 border-t border-white/[0.06] flex items-center gap-2 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+        <div className="pt-2 border-t border-white/[0.06] flex items-center gap-2 overflow-x-auto pb-0.5 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           <span className="text-[11px] text-slate-400 font-semibold flex items-center gap-1 shrink-0">
             <Sparkles className="w-3 h-3 text-amber-400" />
             <span>Mood:</span>
@@ -652,7 +751,7 @@ const DiscoverViewComponent: React.FC<DiscoverViewProps> = ({
                 key={m.id}
                 type="button"
                 onClick={() => setSelectedMood(m.id)}
-                className={`px-2.5 py-1 text-xs font-medium rounded-lg transition-colors whitespace-nowrap shrink-0 ${
+                className={`min-h-[34px] md:min-h-0 px-2.5 py-1 text-xs font-medium rounded-lg transition-colors whitespace-nowrap shrink-0 ${
                   isSelected
                     ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40 font-semibold'
                     : 'cm-glass-control text-slate-400 hover:text-white'
@@ -663,53 +762,57 @@ const DiscoverViewComponent: React.FC<DiscoverViewProps> = ({
             );
           })}
         </div>
+
+        {/* Mobile Filter Panel Footer Actions (Apply / Reset) */}
+        <div className="flex items-center justify-between gap-2 pt-2 border-t border-white/[0.07] md:hidden">
+          <button
+            type="button"
+            onClick={resetFilters}
+            className="min-h-[40px] px-3.5 py-2 rounded-xl cm-glass-control text-xs font-semibold text-slate-300 hover:text-white flex items-center gap-1.5"
+          >
+            <RotateCcw className="w-3.5 h-3.5 text-amber-400" />
+            <span>Reset Filters</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setMobileFiltersOpen(false)}
+            className="min-h-[40px] px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs shadow-sm"
+          >
+            Apply &amp; View ({totalResults})
+          </button>
+        </div>
       </div>
 
       {/* Active Filter Chips Bar */}
-      <AnimatePresence initial={false}>
-        {activeChips.length > 0 && (
-          <motion.div
-            variants={prefersReducedMotion ? reducedMotionVariants : fadeUpVariants}
-            initial="hidden"
-            animate="visible"
-            exit="exit"
-            className="flex flex-wrap items-center gap-2"
-          >
-            <span className="text-xs text-slate-400 mr-1">Active Filters:</span>
-            <AnimatePresence initial={false} mode="popLayout">
-              {activeChips.map((chip) => (
-                <motion.span
-                  key={chip.key}
-                  layout={!prefersReducedMotion}
-                  initial={prefersReducedMotion ? false : { opacity: 0, scale: 0.9 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  exit={prefersReducedMotion ? { opacity: 0 } : { opacity: 0, scale: 0.9 }}
-                  transition={SPRING_TACTILE}
-                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-amber-500/15 border border-amber-500/30 text-xs font-medium text-amber-200"
-                >
-                  <span>{chip.label}</span>
-                  <button
-                    type="button"
-                    onClick={chip.onClear}
-                    aria-label={`Remove ${chip.label} filter`}
-                    className="text-amber-300 hover:text-white active:scale-90 transition-transform"
-                  >
-                    <X className="w-3 h-3" />
-                  </button>
-                </motion.span>
-              ))}
-            </AnimatePresence>
-            <button
-              type="button"
-              onClick={resetFilters}
-              className="cm-glass-control inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold text-slate-300 hover:text-white transition-colors active:scale-[0.97]"
+      {activeChips.length > 0 && (
+        <div className="flex items-center gap-1.5 sm:gap-2 overflow-x-auto pb-0.5 sm:flex-wrap [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          <span className="text-[11px] sm:text-xs text-slate-400 mr-0.5 shrink-0">Active:</span>
+          {activeChips.map((chip) => (
+            <span
+              key={chip.key}
+              className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-amber-500/15 border border-amber-500/30 text-xs font-medium text-amber-200 whitespace-nowrap shrink-0"
             >
-              <RotateCcw className="w-3 h-3 text-amber-400" />
-              <span>Clear All</span>
-            </button>
-          </motion.div>
-        )}
-      </AnimatePresence>
+              <span>{chip.label}</span>
+              <button
+                type="button"
+                onClick={chip.onClear}
+                aria-label={`Remove ${chip.label} filter`}
+                className="p-0.5 text-amber-300 hover:text-white active:scale-90 transition-transform"
+              >
+                <X className="w-3 h-3" />
+              </button>
+            </span>
+          ))}
+          <button
+            type="button"
+            onClick={resetFilters}
+            className="cm-glass-control inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold text-slate-300 hover:text-white transition-colors active:scale-[0.97] whitespace-nowrap shrink-0"
+          >
+            <RotateCcw className="w-3 h-3 text-amber-400" />
+            <span>Clear All</span>
+          </button>
+        </div>
+      )}
 
       {/* Results Summary & Top Pagination */}
       <div className="flex flex-wrap items-center justify-between gap-3 text-xs text-slate-400">
@@ -831,12 +934,11 @@ const DiscoverViewComponent: React.FC<DiscoverViewProps> = ({
         <>
           {/* Responsive OTT Poster Grid (2 cols mobile -> 6 cols desktop) */}
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4 sm:gap-5">
-            {items.map((item, idx) => (
+            {items.map((item) => (
               <MediaCard
                 key={item.id}
                 media={item}
                 compact={true}
-                staggerIndex={idx % 12}
                 isInWatchlist={isInWatchlist(item.id)}
                 watchlistStatus={getWatchlistStatus?.(item.id)}
                 onToggleWatchlist={onToggleWatchlist}

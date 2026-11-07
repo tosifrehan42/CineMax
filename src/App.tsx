@@ -67,12 +67,7 @@ import {
   shouldShowAdminTab,
 } from './services/adminApi';
 import { Film, Loader2 } from 'lucide-react';
-import { AnimatePresence, motion } from 'motion/react';
-import {
-  pageTransitionVariants,
-  reducedMotionVariants,
-  useCinematicMotion,
-} from './utils/motionSystem';
+import { AnimatePresence } from 'motion/react';
 
 // Lazy-loaded secondary views and modals to keep the initial Home bundle fast
 const DiscoverView = React.lazy(() =>
@@ -211,7 +206,6 @@ const INITIAL_WATCHED_EPISODES: WatchedEpisodeEntry[] = [
 ];
 
 export default function App() {
-  const { prefersReducedMotion } = useCinematicMotion();
   const [currentTab, setCurrentTab] = useState<TabView>(() =>
     isUrlAdminRoute() ? 'admin' : 'home'
   );
@@ -1858,7 +1852,7 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen bg-[#0A0D12] text-slate-100 flex flex-col font-['Plus_Jakarta_Sans'] pb-24 md:pb-0">
+    <div className="cm-min-h-dvh bg-[#0A0D12] text-slate-100 flex flex-col font-['Plus_Jakarta_Sans'] pb-[calc(env(safe-area-inset-bottom,0px)+5.5rem)] md:pb-0">
       {/* Responsive OTT Navigation */}
       <Navbar
         currentTab={currentTab}
@@ -1886,144 +1880,134 @@ export default function App() {
         }}
       />
 
-      {/* Main View Area (1440px Fluid OTT Container) */}
-      <main className="flex-1 max-w-[1440px] w-full mx-auto px-4 sm:px-6 lg:px-8 pt-4 sm:pt-6">
-        <AnimatePresence mode="wait" initial={false}>
-          <motion.div
-            key={currentTab === 'home' ? `home-${homeHubMode}` : currentTab}
-            variants={prefersReducedMotion ? reducedMotionVariants : pageTransitionVariants}
-            initial="initial"
-            animate="animate"
-            exit="exit"
-          >
-            {currentTab === 'home' && (
-              <HomeView
-                initialItems={MEDIA_ITEMS}
-                allMedia={knownMedia}
-                hubMode={homeHubMode}
-                watchlist={activeWatchlist}
-                watchedEpisodes={activeWatchedEpisodes}
-                watchHistory={effectiveWatchHistory}
-                userProfile={userProfile}
-                isInWatchlist={isInWatchlist}
-                getWatchlistStatus={getWatchlistStatus}
-                onToggleWatchlist={handleToggleWatchlist}
-                onUpdateStatus={handleUpdateStatus}
-                onRemoveFromWatchlist={handleRemoveFromWatchlist}
-                getWatchedEpisodesCount={getWatchedEpisodesCount}
-                onSelectMedia={handleSelectMedia}
-                onPlayTrailer={handlePlayTrailer}
-                onExploreMood={handleExploreMood}
-                onExploreCategory={handleExploreCategory}
-                onExploreGenre={handleExploreGenre}
-                onNavigateTab={navigateToTab}
-                onRegisterMedia={handleRegisterMedia}
-              />
-            )}
+      {/* Main View Area (1440px Fluid OTT Container with Consistent Mobile Gutters) */}
+      <main className="flex-1 max-w-[1440px] w-full mx-auto px-3 min-[380px]:px-4 sm:px-6 lg:px-8 pt-3.5 sm:pt-6">
+        {currentTab === 'home' && (
+          <HomeView
+            initialItems={MEDIA_ITEMS}
+            allMedia={knownMedia}
+            hubMode={homeHubMode}
+            watchlist={activeWatchlist}
+            watchedEpisodes={activeWatchedEpisodes}
+            watchHistory={effectiveWatchHistory}
+            userProfile={userProfile}
+            isInWatchlist={isInWatchlist}
+            getWatchlistStatus={getWatchlistStatus}
+            onToggleWatchlist={handleToggleWatchlist}
+            onUpdateStatus={handleUpdateStatus}
+            onRemoveFromWatchlist={handleRemoveFromWatchlist}
+            getWatchedEpisodesCount={getWatchedEpisodesCount}
+            onSelectMedia={handleSelectMedia}
+            onPlayTrailer={handlePlayTrailer}
+            onExploreMood={handleExploreMood}
+            onExploreCategory={handleExploreCategory}
+            onExploreGenre={handleExploreGenre}
+            onNavigateTab={navigateToTab}
+            onRegisterMedia={handleRegisterMedia}
+          />
+        )}
 
-            <Suspense fallback={viewFallback}>
-              {currentTab === 'discover' && (
-                <DiscoverView
-                  isInWatchlist={isInWatchlist}
-                  getWatchlistStatus={getWatchlistStatus}
-                  onToggleWatchlist={handleToggleWatchlist}
-                  onUpdateStatus={handleUpdateStatus}
-                  onRemoveFromWatchlist={handleRemoveFromWatchlist}
-                  getWatchedEpisodesCount={getWatchedEpisodesCount}
-                  onSelectMedia={handleSelectMedia}
-                  onPlayTrailer={handlePlayTrailer}
-                  onOpenEstimator={handleOpenEstimatorFromDiscover}
-                  initialMood={discoverInitialMood}
-                  initialCategory={discoverInitialCategory}
-                  initialGenre={discoverInitialGenre}
-                  onRegisterMedia={handleRegisterMedia}
-                />
-              )}
+        <Suspense fallback={viewFallback}>
+          {currentTab === 'discover' && (
+            <DiscoverView
+              isInWatchlist={isInWatchlist}
+              getWatchlistStatus={getWatchlistStatus}
+              onToggleWatchlist={handleToggleWatchlist}
+              onUpdateStatus={handleUpdateStatus}
+              onRemoveFromWatchlist={handleRemoveFromWatchlist}
+              getWatchedEpisodesCount={getWatchedEpisodesCount}
+              onSelectMedia={handleSelectMedia}
+              onPlayTrailer={handlePlayTrailer}
+              onOpenEstimator={handleOpenEstimatorFromDiscover}
+              initialMood={discoverInitialMood}
+              initialCategory={discoverInitialCategory}
+              initialGenre={discoverInitialGenre}
+              onRegisterMedia={handleRegisterMedia}
+            />
+          )}
 
-              {currentTab === 'watchlist' && (
-                <WatchlistView
-                  watchlist={activeWatchlist}
-                  allMedia={knownMedia}
-                  watchedEpisodes={activeWatchedEpisodes}
-                  onRemoveFromWatchlist={handleRemoveFromWatchlist}
-                  onUpdateStatus={(mediaId, status) => handleUpdateStatus(mediaId, status)}
-                  onToggleFavourite={handleToggleFavourite}
-                  onSelectMedia={handleSelectMedia}
-                  onNavigateHome={() => setCurrentTab('discover')}
-                  isAuthenticated={isAuthenticated}
-                  isLoading={isCloudLoading}
-                  error={cloudError}
-                  schemaMissing={schemaMissing}
-                  migrationNeeded={migrationNeeded}
-                  onRetry={authUser ? () => loadCloudUserData(authUser) : undefined}
-                  onOpenAuthModal={handleOpenAuthModal}
-                  pendingLocalCount={pendingLocalItems.length}
-                  onImportLocalWatchlist={handleImportLocalWatchlist}
-                  onOpenImportCompleted={() => setIsImportCompletedModalOpen(true)}
-                />
-              )}
+          {currentTab === 'watchlist' && (
+            <WatchlistView
+              watchlist={activeWatchlist}
+              allMedia={knownMedia}
+              watchedEpisodes={activeWatchedEpisodes}
+              onRemoveFromWatchlist={handleRemoveFromWatchlist}
+              onUpdateStatus={(mediaId, status) => handleUpdateStatus(mediaId, status)}
+              onToggleFavourite={handleToggleFavourite}
+              onSelectMedia={handleSelectMedia}
+              onNavigateHome={() => setCurrentTab('discover')}
+              isAuthenticated={isAuthenticated}
+              isLoading={isCloudLoading}
+              error={cloudError}
+              schemaMissing={schemaMissing}
+              migrationNeeded={migrationNeeded}
+              onRetry={authUser ? () => loadCloudUserData(authUser) : undefined}
+              onOpenAuthModal={handleOpenAuthModal}
+              pendingLocalCount={pendingLocalItems.length}
+              onImportLocalWatchlist={handleImportLocalWatchlist}
+              onOpenImportCompleted={() => setIsImportCompletedModalOpen(true)}
+            />
+          )}
 
-              {currentTab === 'estimator' && (
-                <QualityFileSizeEstimator
-                  allMedia={knownMedia}
-                  initialMedia={estimatorInitialMedia}
-                  initialSeasonNumber={estimatorInitialSeason}
-                  onClearInitialMedia={() => {
-                    setEstimatorInitialMedia(null);
-                    setEstimatorInitialSeason(undefined);
-                  }}
-                  onSelectMediaDetail={handleSelectMedia}
-                  onRegisterMedia={handleRegisterMedia}
-                />
-              )}
+          {currentTab === 'estimator' && (
+            <QualityFileSizeEstimator
+              allMedia={knownMedia}
+              initialMedia={estimatorInitialMedia}
+              initialSeasonNumber={estimatorInitialSeason}
+              onClearInitialMedia={() => {
+                setEstimatorInitialMedia(null);
+                setEstimatorInitialSeason(undefined);
+              }}
+              onSelectMediaDetail={handleSelectMedia}
+              onRegisterMedia={handleRegisterMedia}
+            />
+          )}
 
-              {currentTab === 'profile' && (
-                <ProfileView
-                  watchlist={activeWatchlist}
-                  watchHistory={effectiveWatchHistory}
-                  userProfile={userProfile}
-                  userEmail={authUser?.email}
-                  isAuthenticated={isAuthenticated}
-                  isLoading={isCloudLoading}
-                  error={cloudError}
-                  schemaMissing={schemaMissing}
-                  onRetry={authUser ? () => loadCloudUserData(authUser) : undefined}
-                  onOpenAuthModal={handleOpenAuthModal}
-                  onOpenChangePassword={() => setIsChangePasswordModalOpen(true)}
-                  onSignOut={handleSignOut}
-                  onUpdateProfile={handleUpdateProfile}
-                  onUploadAvatar={handleUploadAvatar}
-                  onRemoveAvatar={handleRemoveAvatar}
-                  onDeleteHistoryEntry={handleDeleteHistoryEntry}
-                  onOpenImportCompleted={() => setIsImportCompletedModalOpen(true)}
-                  allMedia={knownMedia}
-                  onSelectMedia={handleSelectMedia}
-                  onNavigateTab={navigateToTab}
-                />
-              )}
+          {currentTab === 'profile' && (
+            <ProfileView
+              watchlist={activeWatchlist}
+              watchHistory={effectiveWatchHistory}
+              userProfile={userProfile}
+              userEmail={authUser?.email}
+              isAuthenticated={isAuthenticated}
+              isLoading={isCloudLoading}
+              error={cloudError}
+              schemaMissing={schemaMissing}
+              onRetry={authUser ? () => loadCloudUserData(authUser) : undefined}
+              onOpenAuthModal={handleOpenAuthModal}
+              onOpenChangePassword={() => setIsChangePasswordModalOpen(true)}
+              onSignOut={handleSignOut}
+              onUpdateProfile={handleUpdateProfile}
+              onUploadAvatar={handleUploadAvatar}
+              onRemoveAvatar={handleRemoveAvatar}
+              onDeleteHistoryEntry={handleDeleteHistoryEntry}
+              onOpenImportCompleted={() => setIsImportCompletedModalOpen(true)}
+              allMedia={knownMedia}
+              onSelectMedia={handleSelectMedia}
+              onNavigateTab={navigateToTab}
+            />
+          )}
 
-              {currentTab === 'admin' && (
-                <AdminDashboardView
-                  isAuthenticated={isAuthenticated}
-                  isAuthInitializing={isAuthInitializing}
-                  adminAccessState={adminAccessState}
-                  adminCheckError={adminCheckError}
-                  currentUserId={authUserId}
-                  currentUserEmail={authUser?.email || null}
-                  onOpenAuthModal={handleOpenAuthModal}
-                  onExitAdmin={() => navigateToTab('home')}
-                  onRetryAdminAccess={() =>
-                    authUserId
-                      ? verifyCurrentUserAdminAccess(authUserId, true)
-                      : undefined
-                  }
-                  onAdminVerified={handleAdminVerifiedFromDashboard}
-                  onAdminExplicitlyDenied={handleAdminExplicitlyDeniedFromDashboard}
-                />
-              )}
-            </Suspense>
-          </motion.div>
-        </AnimatePresence>
+          {currentTab === 'admin' && (
+            <AdminDashboardView
+              isAuthenticated={isAuthenticated}
+              isAuthInitializing={isAuthInitializing}
+              adminAccessState={adminAccessState}
+              adminCheckError={adminCheckError}
+              currentUserId={authUserId}
+              currentUserEmail={authUser?.email || null}
+              onOpenAuthModal={handleOpenAuthModal}
+              onExitAdmin={() => navigateToTab('home')}
+              onRetryAdminAccess={() =>
+                authUserId
+                  ? verifyCurrentUserAdminAccess(authUserId, true)
+                  : undefined
+              }
+              onAdminVerified={handleAdminVerifiedFromDashboard}
+              onAdminExplicitlyDenied={handleAdminExplicitlyDeniedFromDashboard}
+            />
+          )}
+        </Suspense>
       </main>
 
       {/* Global Modals & Overlays (Lazy Mounted when active) */}
@@ -2220,22 +2204,22 @@ export default function App() {
 
       {/* Clean OTT Footer */}
       <footer className="border-t border-white/[0.06] bg-[#07090E] mt-auto">
-        <div className="max-w-[1440px] mx-auto px-4 sm:px-6 lg:px-8 py-8 flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-slate-500">
-          <div className="flex items-center gap-2">
-            <div className="w-5 h-5 rounded bg-amber-500/20 text-amber-400 flex items-center justify-center">
+        <div className="max-w-[1440px] mx-auto px-3 min-[380px]:px-4 sm:px-6 lg:px-8 py-6 sm:py-8 flex flex-col sm:flex-row items-center justify-between gap-4 text-xs text-slate-500">
+          <div className="flex items-center gap-2 text-center sm:text-left">
+            <div className="w-5 h-5 rounded bg-amber-500/20 text-amber-400 flex items-center justify-center shrink-0">
               <Film className="w-3 h-3 stroke-[2.5]" />
             </div>
             <span className="font-['Plus_Jakarta_Sans'] font-bold text-slate-300">CineMax</span>
             <span>· Cinema &amp; Television Discovery</span>
           </div>
 
-          <div className="flex flex-wrap items-center justify-center gap-5 sm:gap-6">
+          <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-2 sm:gap-6">
             <button
               onClick={() => {
                 navigateToTab('home', 'all');
                 window.scrollTo({ top: 0, behavior: 'smooth' });
               }}
-              className="hover:text-slate-300 transition-colors"
+              className="py-1 hover:text-slate-300 transition-colors"
             >
               Home
             </button>
@@ -2244,7 +2228,7 @@ export default function App() {
                 navigateToTab('home', 'movies');
                 window.scrollTo({ top: 0, behavior: 'smooth' });
               }}
-              className="hover:text-slate-300 transition-colors"
+              className="py-1 hover:text-slate-300 transition-colors"
             >
               Movies
             </button>
@@ -2253,7 +2237,7 @@ export default function App() {
                 navigateToTab('home', 'series');
                 window.scrollTo({ top: 0, behavior: 'smooth' });
               }}
-              className="hover:text-slate-300 transition-colors"
+              className="py-1 hover:text-slate-300 transition-colors"
             >
               Series
             </button>
@@ -2262,7 +2246,7 @@ export default function App() {
                 navigateToTab('discover');
                 window.scrollTo({ top: 0, behavior: 'smooth' });
               }}
-              className="hover:text-slate-300 transition-colors"
+              className="py-1 hover:text-slate-300 transition-colors"
             >
               Discover
             </button>
@@ -2271,7 +2255,7 @@ export default function App() {
                 navigateToTab('watchlist');
                 window.scrollTo({ top: 0, behavior: 'smooth' });
               }}
-              className="hover:text-slate-300 transition-colors"
+              className="py-1 hover:text-slate-300 transition-colors"
             >
               Watchlist
             </button>
@@ -2280,13 +2264,13 @@ export default function App() {
                 navigateToTab('estimator');
                 window.scrollTo({ top: 0, behavior: 'smooth' });
               }}
-              className="hover:text-slate-300 transition-colors"
+              className="py-1 hover:text-slate-300 transition-colors"
             >
               Quality &amp; File Size
             </button>
             <button
               onClick={() => setIsSurpriseOpen(true)}
-              className="text-amber-400 hover:text-amber-300 transition-colors"
+              className="py-1 text-amber-400 hover:text-amber-300 transition-colors"
             >
               Surprise Me
             </button>

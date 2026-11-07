@@ -8,11 +8,8 @@ import {
 } from '../types';
 import { MediaPoster } from './MediaPoster';
 import {
-  CINEMATIC_EASE,
-  getBoundedStaggerDelay,
   modalBackdropVariants,
   modalPanelVariants,
-  MOTION_DURATIONS,
   reducedMotionVariants,
   useCinematicMotion,
 } from '../utils/motionSystem';
@@ -151,15 +148,8 @@ export const FranchiseModal: React.FC<FranchiseModalProps> = ({
               const isCompleted = status === 'completed';
 
               return (
-                <motion.div
+                <div
                   key={item.id}
-                  initial={prefersReducedMotion ? false : { opacity: 0, y: 8 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{
-                    duration: MOTION_DURATIONS.normal,
-                    delay: prefersReducedMotion ? 0 : getBoundedStaggerDelay(idx, 0.035, 8),
-                    ease: CINEMATIC_EASE,
-                  }}
                   className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 p-4 rounded-xl bg-[#131924] hover:bg-[#171F2E] border border-white/[0.08] transition-colors"
                 >
                   <div className="flex items-start sm:items-center gap-4 min-w-0">
@@ -281,7 +271,7 @@ export const FranchiseModal: React.FC<FranchiseModalProps> = ({
                       <Info className="w-4 h-4" />
                     </button>
                   </div>
-                </motion.div>
+                </div>
               );
             })}
           </div>

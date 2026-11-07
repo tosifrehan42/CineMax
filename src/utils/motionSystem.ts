@@ -1,10 +1,12 @@
-import { useEffect, useState } from 'react';
-import { useReducedMotion, type Transition, type Variants } from 'motion/react';
+import { useSyncExternalStore } from 'react';
+import type { Transition, Variants } from 'motion/react';
 
 /**
- * CineMax Global Cinematic Motion System
- * Provides unified easing curves, damped spring presets, reusable motion variants,
- * and accessibility/device-capability hooks across the entire application.
+ * CineMax Global Cinematic Motion System (Performance-Optimized)
+ * - Centralizes reduced-motion and desktop fine-pointer hover detection into a
+ *   single shared browser media-query store (zero per-component matchMedia listeners).
+ * - Restricts JS animations to high-value surfaces (modals, popovers, hero crossfade)
+ *   using compositor-only opacity and transform properties.
  */
 
 export const CINEMATIC_EASE: [number, number, number, number] = [0.16, 1, 0.3, 1];
@@ -12,80 +14,74 @@ export const CINEMATIC_SMOOTH_EASE: [number, number, number, number] = [0.22, 1,
 export const CINEMATIC_EXIT_EASE: [number, number, number, number] = [0.4, 0, 1, 1];
 
 export const MOTION_DURATIONS = {
-  micro: 0.16,
-  fast: 0.22,
-  normal: 0.34,
-  medium: 0.34,
-  slow: 0.52,
-  hero: 0.85,
+  micro: 0.14,
+  fast: 0.18,
+  normal: 0.26,
+  medium: 0.26,
+  slow: 0.36,
+  hero: 0.32,
 } as const;
 
 export const SPRING_TACTILE: Transition = {
   type: 'spring',
-  stiffness: 420,
-  damping: 28,
-  mass: 0.65,
+  stiffness: 460,
+  damping: 32,
+  mass: 0.6,
 };
 
 export const SPRING_GENTLE: Transition = {
   type: 'spring',
-  stiffness: 280,
-  damping: 28,
-  mass: 0.8,
-};
-
-export const SPRING_MODAL: Transition = {
-  type: 'spring',
-  stiffness: 340,
+  stiffness: 320,
   damping: 30,
   mass: 0.75,
 };
 
-export const SPRING_CARD_TILT = {
-  stiffness: 260,
-  damping: 24,
-  mass: 0.6,
-} as const;
+export const SPRING_MODAL: Transition = {
+  type: 'spring',
+  stiffness: 360,
+  damping: 32,
+  mass: 0.7,
+};
 
 /**
- * Reusable Animation Variants
+ * Reusable Animation Variants (Opacity + Transform Only)
  */
 export const fadeUpVariants: Variants = {
-  hidden: { opacity: 0, y: 14 },
-  initial: { opacity: 0, y: 14 },
+  hidden: { opacity: 0, y: 8 },
+  initial: { opacity: 0, y: 8 },
   visible: {
     opacity: 1,
     y: 0,
-    transition: { duration: MOTION_DURATIONS.medium, ease: CINEMATIC_EASE },
+    transition: { duration: MOTION_DURATIONS.normal, ease: CINEMATIC_EASE },
   },
   animate: {
     opacity: 1,
     y: 0,
-    transition: { duration: MOTION_DURATIONS.medium, ease: CINEMATIC_EASE },
+    transition: { duration: MOTION_DURATIONS.normal, ease: CINEMATIC_EASE },
   },
   exit: {
     opacity: 0,
-    y: -8,
-    transition: { duration: 0.18, ease: CINEMATIC_EXIT_EASE },
+    y: -4,
+    transition: { duration: MOTION_DURATIONS.micro, ease: CINEMATIC_EXIT_EASE },
   },
 };
 
 export const fadeDownVariants: Variants = {
-  hidden: { opacity: 0, y: -12 },
-  initial: { opacity: 0, y: -12 },
+  hidden: { opacity: 0, y: -8 },
+  initial: { opacity: 0, y: -8 },
   visible: {
     opacity: 1,
     y: 0,
-    transition: { duration: 0.3, ease: CINEMATIC_EASE },
+    transition: { duration: 0.22, ease: CINEMATIC_EASE },
   },
   animate: {
     opacity: 1,
     y: 0,
-    transition: { duration: 0.3, ease: CINEMATIC_EASE },
+    transition: { duration: 0.22, ease: CINEMATIC_EASE },
   },
   exit: {
     opacity: 0,
-    y: -8,
+    y: -6,
     transition: { duration: MOTION_DURATIONS.micro, ease: CINEMATIC_EXIT_EASE },
   },
 };
@@ -95,72 +91,37 @@ export const fadeInVariants: Variants = {
   initial: { opacity: 0 },
   visible: {
     opacity: 1,
-    transition: { duration: 0.28, ease: CINEMATIC_EASE },
+    transition: { duration: 0.2, ease: CINEMATIC_EASE },
   },
   animate: {
     opacity: 1,
-    transition: { duration: 0.28, ease: CINEMATIC_EASE },
+    transition: { duration: 0.2, ease: CINEMATIC_EASE },
   },
   exit: {
     opacity: 0,
-    transition: { duration: 0.18, ease: CINEMATIC_EXIT_EASE },
+    transition: { duration: MOTION_DURATIONS.micro, ease: CINEMATIC_EXIT_EASE },
   },
 };
 
 export const scaleRevealVariants: Variants = {
-  hidden: { opacity: 0, scale: 0.96, y: 8 },
-  initial: { opacity: 0, scale: 0.96, y: 8 },
+  hidden: { opacity: 0, scale: 0.98, y: 6 },
+  initial: { opacity: 0, scale: 0.98, y: 6 },
   visible: {
     opacity: 1,
     scale: 1,
     y: 0,
-    transition: { duration: 0.32, ease: CINEMATIC_EASE },
+    transition: { duration: 0.22, ease: CINEMATIC_EASE },
   },
   animate: {
     opacity: 1,
     scale: 1,
     y: 0,
-    transition: { duration: 0.32, ease: CINEMATIC_EASE },
+    transition: { duration: 0.22, ease: CINEMATIC_EASE },
   },
   exit: {
     opacity: 0,
-    scale: 0.97,
-    y: 4,
-    transition: { duration: 0.18, ease: CINEMATIC_EXIT_EASE },
-  },
-};
-
-export const staggerContainerVariants: Variants = {
-  hidden: { opacity: 0 },
-  initial: { opacity: 0 },
-  visible: {
-    opacity: 1,
-    transition: {
-      staggerChildren: 0.045,
-      delayChildren: 0.02,
-    },
-  },
-  animate: {
-    opacity: 1,
-    transition: {
-      staggerChildren: 0.045,
-      delayChildren: 0.02,
-    },
-  },
-};
-
-export const staggerItemVariants: Variants = {
-  hidden: { opacity: 0, y: 12 },
-  initial: { opacity: 0, y: 12 },
-  visible: {
-    opacity: 1,
-    y: 0,
-    transition: { duration: MOTION_DURATIONS.medium, ease: CINEMATIC_EASE },
-  },
-  animate: {
-    opacity: 1,
-    y: 0,
-    transition: { duration: MOTION_DURATIONS.medium, ease: CINEMATIC_EASE },
+    scale: 0.985,
+    transition: { duration: MOTION_DURATIONS.micro, ease: CINEMATIC_EXIT_EASE },
   },
 };
 
@@ -169,81 +130,61 @@ export const modalBackdropVariants: Variants = {
   initial: { opacity: 0 },
   visible: {
     opacity: 1,
-    transition: { duration: MOTION_DURATIONS.fast, ease: CINEMATIC_EASE },
+    transition: { duration: 0.18, ease: CINEMATIC_EASE },
   },
   animate: {
     opacity: 1,
-    transition: { duration: MOTION_DURATIONS.fast, ease: CINEMATIC_EASE },
+    transition: { duration: 0.18, ease: CINEMATIC_EASE },
   },
   exit: {
     opacity: 0,
-    transition: { duration: 0.18, ease: CINEMATIC_EXIT_EASE },
-  },
-};
-
-export const modalPanelVariants: Variants = {
-  hidden: { opacity: 0, scale: 0.965, y: 14 },
-  initial: { opacity: 0, scale: 0.965, y: 14 },
-  visible: {
-    opacity: 1,
-    scale: 1,
-    y: 0,
-    transition: { duration: 0.28, ease: CINEMATIC_EASE },
-  },
-  animate: {
-    opacity: 1,
-    scale: 1,
-    y: 0,
-    transition: { duration: 0.28, ease: CINEMATIC_EASE },
-  },
-  exit: {
-    opacity: 0,
-    scale: 0.975,
-    y: 10,
-    transition: { duration: 0.18, ease: CINEMATIC_EXIT_EASE },
-  },
-};
-
-export const popoverMenuVariants: Variants = {
-  hidden: { opacity: 0, scale: 0.94, y: -6 },
-  initial: { opacity: 0, scale: 0.94, y: -6 },
-  visible: {
-    opacity: 1,
-    scale: 1,
-    y: 0,
-    transition: SPRING_TACTILE,
-  },
-  animate: {
-    opacity: 1,
-    scale: 1,
-    y: 0,
-    transition: SPRING_TACTILE,
-  },
-  exit: {
-    opacity: 0,
-    scale: 0.95,
-    y: -4,
     transition: { duration: 0.14, ease: CINEMATIC_EXIT_EASE },
   },
 };
 
-export const pageTransitionVariants: Variants = {
-  hidden: { opacity: 0, y: 10 },
-  initial: { opacity: 0, y: 10 },
+export const modalPanelVariants: Variants = {
+  hidden: { opacity: 0, scale: 0.98, y: 8 },
+  initial: { opacity: 0, scale: 0.98, y: 8 },
   visible: {
     opacity: 1,
+    scale: 1,
     y: 0,
-    transition: { duration: 0.24, ease: CINEMATIC_EASE },
+    transition: { duration: 0.22, ease: CINEMATIC_EASE },
   },
   animate: {
     opacity: 1,
+    scale: 1,
     y: 0,
-    transition: { duration: 0.24, ease: CINEMATIC_EASE },
+    transition: { duration: 0.22, ease: CINEMATIC_EASE },
   },
   exit: {
     opacity: 0,
-    y: -6,
-    transition: { duration: 0.15, ease: CINEMATIC_EXIT_EASE },
+    scale: 0.985,
+    y: 6,
+    transition: { duration: 0.14, ease: CINEMATIC_EXIT_EASE },
+  },
+};
+
+export const popoverMenuVariants: Variants = {
+  hidden: { opacity: 0, scale: 0.96, y: -4 },
+  initial: { opacity: 0, scale: 0.96, y: -4 },
+  visible: {
+    opacity: 1,
+    scale: 1,
+    y: 0,
+    transition: { duration: 0.15, ease: CINEMATIC_EASE },
+  },
+  animate: {
+    opacity: 1,
+    scale: 1,
+    y: 0,
+    transition: { duration: 0.15, ease: CINEMATIC_EASE },
+  },
+  exit: {
+    opacity: 0,
+    scale: 0.97,
+    y: -3,
+    transition: { duration: 0.11, ease: CINEMATIC_EXIT_EASE },
   },
 };
 
@@ -256,45 +197,98 @@ export const reducedMotionVariants: Variants = {
 };
 
 /**
- * Calculates a bounded stagger delay so large poster grids or paginated lists
- * never accumulate long delays.
+ * Centralized Singleton Capability Store
+ * Attaches at most ONE matchMedia listener per query across the entire browser session,
+ * preventing per-component listener overhead.
  */
-export function getBoundedStaggerDelay(
-  index: number,
-  stepSeconds = 0.032,
-  maxItems = 10
-): number {
-  return Math.min(Math.max(0, index), maxItems) * stepSeconds;
+interface MotionCapabilitySnapshot {
+  prefersReducedMotion: boolean;
+  canHoverDesktop: boolean;
+  canHover: boolean;
 }
 
-/**
- * Detects whether the user has requested reduced motion and whether the active
- * device supports desktop fine-pointer hover interactions.
- */
-export function useCinematicMotion() {
-  const rawReducedMotion = useReducedMotion();
-  const prefersReducedMotion = Boolean(rawReducedMotion);
+const SERVER_SNAPSHOT: MotionCapabilitySnapshot = {
+  prefersReducedMotion: false,
+  canHoverDesktop: false,
+  canHover: false,
+};
 
-  const [canHoverDesktop, setCanHoverDesktop] = useState<boolean>(() => {
-    if (typeof window === 'undefined' || !window.matchMedia) return false;
-    return window.matchMedia('(hover: hover) and (pointer: fine)').matches;
-  });
+let currentSnapshot: MotionCapabilitySnapshot = SERVER_SNAPSHOT;
+let storeInitialized = false;
+const subscribers = new Set<() => void>();
 
-  useEffect(() => {
-    if (typeof window === 'undefined' || !window.matchMedia) return;
-    const mediaQuery = window.matchMedia('(hover: hover) and (pointer: fine)');
-    const handleChange = (e: MediaQueryListEvent) => {
-      setCanHoverDesktop(e.matches);
-    };
-    setCanHoverDesktop(mediaQuery.matches);
-    mediaQuery.addEventListener('change', handleChange);
-    return () => mediaQuery.removeEventListener('change', handleChange);
-  }, []);
+function computeSnapshot(): MotionCapabilitySnapshot {
+  if (typeof window === 'undefined' || !window.matchMedia) {
+    return SERVER_SNAPSHOT;
+  }
+  const prefersReducedMotion = window.matchMedia(
+    '(prefers-reduced-motion: reduce)'
+  ).matches;
+  const canHoverDesktop = window.matchMedia(
+    '(hover: hover) and (pointer: fine)'
+  ).matches;
+  const canHover = !prefersReducedMotion && canHoverDesktop;
 
-  return {
+  if (
+    storeInitialized &&
+    currentSnapshot.prefersReducedMotion === prefersReducedMotion &&
+    currentSnapshot.canHoverDesktop === canHoverDesktop &&
+    currentSnapshot.canHover === canHover
+  ) {
+    return currentSnapshot;
+  }
+
+  currentSnapshot = {
     prefersReducedMotion,
     canHoverDesktop,
-    canHover: !prefersReducedMotion && canHoverDesktop,
-    enable3DTilt: !prefersReducedMotion && canHoverDesktop,
+    canHover,
   };
+  return currentSnapshot;
+}
+
+function initCapabilityStore(): void {
+  if (storeInitialized || typeof window === 'undefined' || !window.matchMedia) {
+    return;
+  }
+  storeInitialized = true;
+  currentSnapshot = computeSnapshot();
+
+  const reducedMql = window.matchMedia('(prefers-reduced-motion: reduce)');
+  const hoverMql = window.matchMedia('(hover: hover) and (pointer: fine)');
+
+  const handleChange = () => {
+    const prev = currentSnapshot;
+    const next = computeSnapshot();
+    if (prev !== next) {
+      subscribers.forEach((listener) => listener());
+    }
+  };
+
+  reducedMql.addEventListener('change', handleChange);
+  hoverMql.addEventListener('change', handleChange);
+}
+
+function subscribeCapabilities(listener: () => void): () => void {
+  initCapabilityStore();
+  subscribers.add(listener);
+  return () => {
+    subscribers.delete(listener);
+  };
+}
+
+function getCapabilitySnapshot(): MotionCapabilitySnapshot {
+  initCapabilityStore();
+  return currentSnapshot;
+}
+
+function getServerCapabilitySnapshot(): MotionCapabilitySnapshot {
+  return SERVER_SNAPSHOT;
+}
+
+export function useCinematicMotion(): MotionCapabilitySnapshot {
+  return useSyncExternalStore(
+    subscribeCapabilities,
+    getCapabilitySnapshot,
+    getServerCapabilitySnapshot
+  );
 }

@@ -250,7 +250,7 @@ const MediaPosterComponent: React.FC<MediaPosterProps> = ({
             if (cleanPosterUrl) failedImageUrls.add(cleanPosterUrl);
             setHasPosterError(true);
           }}
-          className="w-full h-full object-cover object-center md:transition-transform md:duration-500 md:ease-[cubic-bezier(0.16,1,0.3,1)] md:group-hover:scale-[1.04]"
+          className="w-full h-full object-cover object-center"
         />
       ) : (
         /* Graceful Stylized Fallback Artwork when an image fails to load */

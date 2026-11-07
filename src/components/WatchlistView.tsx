@@ -1,5 +1,4 @@
 import React, { useState, useMemo } from 'react';
-import { motion } from 'motion/react';
 import {
   MediaItem,
   WatchedEpisodeEntry,
@@ -10,14 +9,6 @@ import {
 } from '../types';
 import { MediaPoster } from './MediaPoster';
 import { LiquidTabBubble, useLiquidTabBubble } from './LiquidTabBubble';
-import {
-  CINEMATIC_EASE,
-  getBoundedStaggerDelay,
-  MOTION_DURATIONS,
-  SPRING_GENTLE,
-  SPRING_TACTILE,
-  useCinematicMotion,
-} from '../utils/motionSystem';
 import {
   parseRuntimeMinutes,
   SUPABASE_SCHEMA_SQL,
@@ -95,7 +86,6 @@ export const WatchlistView: React.FC<WatchlistViewProps> = ({
   const [viewMode, setViewMode] = useState<'grid' | 'table'>('grid');
   const [copiedSql, setCopiedSql] = useState(false);
   const [copiedMigrationSql, setCopiedMigrationSql] = useState(false);
-  const { prefersReducedMotion, canHover } = useCinematicMotion();
 
   // Map watchlist entries to their media items (supporting dynamically paginated titles)
   const entriesWithMedia = useMemo(() => {
@@ -254,25 +244,25 @@ export const WatchlistView: React.FC<WatchlistViewProps> = ({
   };
 
   return (
-    <div className="space-y-7 pb-16">
+    <div className="space-y-5 sm:space-y-7 pb-10 sm:pb-16">
       {/* Page Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3.5 sm:gap-4">
         <div>
-          <h1 className="font-['Outfit'] text-3xl font-extrabold text-white tracking-tight flex items-center gap-2.5">
-            <Bookmark className="w-7 h-7 text-amber-400 stroke-[2.2]" />
-            <span>My Checklist & Watchlist</span>
+          <h1 className="font-['Outfit'] text-xl min-[380px]:text-2xl sm:text-3xl font-extrabold text-white tracking-tight flex items-center gap-2 sm:gap-2.5">
+            <Bookmark className="w-6 h-6 sm:w-7 sm:h-7 text-amber-400 stroke-[2.2] shrink-0" />
+            <span>My Checklist &amp; Watchlist</span>
           </h1>
-          <p className="text-sm text-slate-400 mt-1">
+          <p className="text-xs sm:text-sm text-slate-400 mt-1">
             Personal viewing checklist, watch statuses, episode progress, and cinephile ratings
           </p>
         </div>
 
-        <div className="flex flex-wrap items-center gap-3 self-start sm:self-auto">
+        <div className="flex flex-wrap items-center gap-2.5 sm:gap-3 self-start sm:self-auto w-full sm:w-auto">
           {onOpenImportCompleted && (
             <button
               type="button"
               onClick={onOpenImportCompleted}
-              className="cm-glass-control px-3.5 py-2 rounded-xl text-xs font-semibold text-amber-300 hover:text-amber-200 flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0"
+              className="cm-glass-control min-h-[40px] px-3.5 py-2 rounded-xl text-xs font-semibold text-amber-300 hover:text-amber-200 flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0"
             >
               <UploadCloud className="w-3.5 h-3.5 text-amber-400" />
               <span>Import Completed List</span>
@@ -281,17 +271,17 @@ export const WatchlistView: React.FC<WatchlistViewProps> = ({
           {totalCount > 0 && (
             <div
               ref={viewModeBubble.containerRef}
-              className="relative cm-glass-segmented flex items-center gap-1.5 p-1 rounded-lg text-xs overflow-hidden"
+              className="relative cm-glass-segmented flex items-center gap-1 p-1 rounded-xl text-xs overflow-hidden"
             >
               <LiquidTabBubble
                 controller={viewModeBubble}
                 variant="glass"
-                className="top-1 bottom-1 rounded"
+                className="top-1 bottom-1 rounded-lg"
               />
               <button
                 ref={viewModeBubble.registerTab('grid')}
                 onClick={() => setViewMode('grid')}
-                className={`relative z-10 px-3 py-1.5 rounded transition-colors whitespace-nowrap ${
+                className={`relative z-10 min-h-[32px] px-3 py-1.5 rounded-lg transition-colors whitespace-nowrap ${
                   viewMode === 'grid'
                     ? viewModeBubble.ready
                       ? 'text-white font-semibold'
@@ -304,7 +294,7 @@ export const WatchlistView: React.FC<WatchlistViewProps> = ({
               <button
                 ref={viewModeBubble.registerTab('table')}
                 onClick={() => setViewMode('table')}
-                className={`relative z-10 px-3 py-1.5 rounded transition-colors whitespace-nowrap ${
+                className={`relative z-10 min-h-[32px] px-3 py-1.5 rounded-lg transition-colors whitespace-nowrap ${
                   viewMode === 'table'
                     ? viewModeBubble.ready
                       ? 'text-white font-semibold'
@@ -436,13 +426,13 @@ export const WatchlistView: React.FC<WatchlistViewProps> = ({
       )}
 
       {/* Checklist Progress Summary & KPI Strip */}
-      <div className="cm-glass-surface p-5 rounded-2xl space-y-4">
+      <div className="cm-glass-surface p-3.5 sm:p-5 rounded-2xl space-y-3.5 sm:space-y-4">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
           <div>
-            <h2 className="font-['Outfit'] text-sm font-bold text-white uppercase tracking-wider">
+            <h2 className="font-['Outfit'] text-xs sm:text-sm font-bold text-white uppercase tracking-wider">
               Checklist Completion Progress
             </h2>
-            <p className="text-xs text-slate-400 mt-0.5">
+            <p className="text-[11px] sm:text-xs text-slate-400 mt-0.5 leading-relaxed">
               <span className="font-mono text-white font-semibold tabular-nums">{completedCount}</span>{' '}
               completed ·{' '}
               <span className="font-mono text-sky-300 font-semibold tabular-nums">{watchingCount}</span>{' '}
@@ -462,7 +452,7 @@ export const WatchlistView: React.FC<WatchlistViewProps> = ({
             </p>
           </div>
           <div className="flex items-baseline gap-2">
-            <span className="font-mono text-2xl font-extrabold text-amber-400 tabular-nums">
+            <span className="font-mono text-xl sm:text-2xl font-extrabold text-amber-400 tabular-nums">
               {completionPct}%
             </span>
             <span className="text-xs text-slate-400">completed</span>
@@ -478,58 +468,58 @@ export const WatchlistView: React.FC<WatchlistViewProps> = ({
         </div>
 
         {/* 4-Column KPI Grid */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-1">
-          <div className="p-3.5 rounded-xl bg-black/30 border border-white/5 flex flex-col justify-between">
-            <span className="text-[11px] uppercase tracking-wider text-slate-400 font-medium">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 sm:gap-3 pt-1">
+          <div className="p-3 sm:p-3.5 rounded-xl bg-black/30 border border-white/5 flex flex-col justify-between">
+            <span className="text-[10px] sm:text-[11px] uppercase tracking-wider text-slate-400 font-medium">
               Total Saved
             </span>
-            <div className="mt-1.5 flex items-baseline gap-2">
-              <span className="font-mono text-2xl font-bold text-white tabular-nums">
+            <div className="mt-1 sm:mt-1.5 flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+              <span className="font-mono text-xl sm:text-2xl font-bold text-white tabular-nums">
                 {totalCount}
               </span>
-              <span className="text-xs text-slate-400 font-mono tabular-nums">
+              <span className="text-[11px] sm:text-xs text-slate-400 font-mono tabular-nums">
                 {moviesCount} films · {tvCount} shows
               </span>
             </div>
           </div>
 
-          <div className="p-3.5 rounded-xl bg-black/30 border border-white/5 flex flex-col justify-between">
-            <span className="text-[11px] uppercase tracking-wider text-slate-400 font-medium">
+          <div className="p-3 sm:p-3.5 rounded-xl bg-black/30 border border-white/5 flex flex-col justify-between">
+            <span className="text-[10px] sm:text-[11px] uppercase tracking-wider text-slate-400 font-medium">
               Completed
             </span>
-            <div className="mt-1.5 flex items-baseline gap-2">
-              <span className="font-mono text-2xl font-bold text-emerald-400 tabular-nums">
+            <div className="mt-1 sm:mt-1.5 flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+              <span className="font-mono text-xl sm:text-2xl font-bold text-emerald-400 tabular-nums">
                 {completedCount}
               </span>
-              <span className="text-xs text-slate-400 font-mono tabular-nums">
+              <span className="text-[11px] sm:text-xs text-slate-400 font-mono tabular-nums">
                 of {totalCount} titles
               </span>
             </div>
           </div>
 
-          <div className="p-3.5 rounded-xl bg-black/30 border border-white/5 flex flex-col justify-between">
-            <span className="text-[11px] uppercase tracking-wider text-slate-400 font-medium">
+          <div className="p-3 sm:p-3.5 rounded-xl bg-black/30 border border-white/5 flex flex-col justify-between">
+            <span className="text-[10px] sm:text-[11px] uppercase tracking-wider text-slate-400 font-medium">
               Remaining
             </span>
-            <div className="mt-1.5 flex items-baseline gap-2">
-              <span className="font-mono text-2xl font-bold text-amber-400 tabular-nums">
+            <div className="mt-1 sm:mt-1.5 flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+              <span className="font-mono text-xl sm:text-2xl font-bold text-amber-400 tabular-nums">
                 {remainingCount}
               </span>
-              <span className="text-xs text-slate-400 font-mono tabular-nums">
-                ~{Math.round(totalEstimatedHours)}h total runtime
+              <span className="text-[11px] sm:text-xs text-slate-400 font-mono tabular-nums">
+                ~{Math.round(totalEstimatedHours)}h runtime
               </span>
             </div>
           </div>
 
-          <div className="p-3.5 rounded-xl bg-black/30 border border-white/5 flex flex-col justify-between">
-            <span className="text-[11px] uppercase tracking-wider text-slate-400 font-medium">
+          <div className="p-3 sm:p-3.5 rounded-xl bg-black/30 border border-white/5 flex flex-col justify-between">
+            <span className="text-[10px] sm:text-[11px] uppercase tracking-wider text-slate-400 font-medium">
               Avg My Rating
             </span>
-            <div className="mt-1.5 flex items-baseline gap-2">
-              <span className="font-mono text-2xl font-bold text-amber-300 tabular-nums">
+            <div className="mt-1 sm:mt-1.5 flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+              <span className="font-mono text-xl sm:text-2xl font-bold text-amber-300 tabular-nums">
                 {avgPersonalRating ? `${avgPersonalRating} ★` : '—'}
               </span>
-              <span className="text-xs text-slate-400 font-mono tabular-nums">
+              <span className="text-[11px] sm:text-xs text-slate-400 font-mono tabular-nums">
                 {ratedEntries.length} rated · {favouritesCount} favs
               </span>
             </div>
@@ -540,7 +530,7 @@ export const WatchlistView: React.FC<WatchlistViewProps> = ({
       {/* Status Segmented Tabs (All, Want to Watch, Watching, Completed, On Hold, Dropped, Favourites) */}
       <div
         ref={statusBubble.containerRef}
-        className="relative cm-glass-segmented flex items-center gap-1.5 p-1.5 rounded-xl overflow-x-auto max-w-full"
+        className="relative cm-glass-segmented flex items-center gap-1 sm:gap-1.5 p-1.5 rounded-xl overflow-x-auto max-w-full [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
       >
         <LiquidTabBubble
           controller={statusBubble}
@@ -643,22 +633,22 @@ export const WatchlistView: React.FC<WatchlistViewProps> = ({
 
       {/* Search Within Saved Titles, Format Filter & Sort Controls */}
       {totalCount > 0 && (
-        <div className="cm-glass-surface flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3 p-3.5 rounded-xl">
+        <div className="cm-glass-surface flex flex-col md:flex-row items-stretch md:items-center justify-between gap-2.5 sm:gap-3 p-3 sm:p-3.5 rounded-xl">
           {/* Search Input */}
-          <div className="relative flex-1 max-w-md">
+          <div className="relative flex-1 md:max-w-md">
             <Search className="w-4 h-4 text-amber-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
             <input
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               placeholder="Search saved titles by name, director, or genre..."
-              className="cm-glass-input w-full pl-9 pr-8 py-2 rounded-lg text-xs text-white placeholder:text-slate-500 focus:outline-none"
+              className="cm-glass-input w-full min-h-[40px] pl-9 pr-8 py-2 rounded-lg text-xs text-white placeholder:text-slate-500 focus:outline-none"
             />
             {searchQuery && (
               <button
                 type="button"
                 onClick={() => setSearchQuery('')}
-                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white"
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-white p-1"
                 aria-label="Clear checklist search"
               >
                 <X className="w-3.5 h-3.5" />
@@ -666,11 +656,11 @@ export const WatchlistView: React.FC<WatchlistViewProps> = ({
             )}
           </div>
 
-          <div className="flex flex-wrap items-center gap-3">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 sm:gap-3">
             {/* Media Type Filter */}
             <div
               ref={mediaTypeBubble.containerRef}
-              className="relative cm-glass-segmented flex items-center gap-1 p-1 rounded-lg text-xs overflow-hidden"
+              className="relative cm-glass-segmented grid grid-cols-3 sm:flex items-center gap-1 p-1 rounded-lg text-xs overflow-hidden"
             >
               <LiquidTabBubble
                 controller={mediaTypeBubble}
@@ -681,7 +671,7 @@ export const WatchlistView: React.FC<WatchlistViewProps> = ({
                 ref={mediaTypeBubble.registerTab('all')}
                 type="button"
                 onClick={() => setMediaTypeFilter('all')}
-                className={`relative z-10 px-2.5 py-1 rounded transition-colors whitespace-nowrap ${
+                className={`relative z-10 min-h-[30px] px-2 sm:px-2.5 py-1 rounded transition-colors whitespace-nowrap text-center ${
                   mediaTypeFilter === 'all'
                     ? mediaTypeBubble.ready
                       ? 'text-white font-semibold'
@@ -695,7 +685,7 @@ export const WatchlistView: React.FC<WatchlistViewProps> = ({
                 ref={mediaTypeBubble.registerTab('movie')}
                 type="button"
                 onClick={() => setMediaTypeFilter('movie')}
-                className={`relative z-10 px-2.5 py-1 rounded transition-colors whitespace-nowrap ${
+                className={`relative z-10 min-h-[30px] px-2 sm:px-2.5 py-1 rounded transition-colors whitespace-nowrap text-center ${
                   mediaTypeFilter === 'movie'
                     ? mediaTypeBubble.ready
                       ? 'text-white font-semibold'
@@ -709,7 +699,7 @@ export const WatchlistView: React.FC<WatchlistViewProps> = ({
                 ref={mediaTypeBubble.registerTab('tv')}
                 type="button"
                 onClick={() => setMediaTypeFilter('tv')}
-                className={`relative z-10 px-2.5 py-1 rounded transition-colors whitespace-nowrap ${
+                className={`relative z-10 min-h-[30px] px-2 sm:px-2.5 py-1 rounded transition-colors whitespace-nowrap text-center ${
                   mediaTypeFilter === 'tv'
                     ? mediaTypeBubble.ready
                       ? 'text-white font-semibold'
@@ -717,12 +707,12 @@ export const WatchlistView: React.FC<WatchlistViewProps> = ({
                     : 'text-slate-400 hover:text-white'
                 }`}
               >
-                TV Series ({tvCount})
+                Series ({tvCount})
               </button>
             </div>
 
             {/* Sort Selector */}
-            <div className="flex items-center gap-2 text-xs">
+            <div className="flex items-center justify-between sm:justify-start gap-2 text-xs">
               <span className="text-slate-400 flex items-center gap-1 whitespace-nowrap">
                 <SlidersHorizontal className="w-3.5 h-3.5 text-amber-400" />
                 <span>Sort by:</span>
@@ -730,7 +720,7 @@ export const WatchlistView: React.FC<WatchlistViewProps> = ({
               <select
                 value={sortBy}
                 onChange={(e) => setSortBy(e.target.value as SortOption)}
-                className="cm-glass-input text-xs text-slate-200 rounded-lg px-2.5 py-1.5 focus:outline-none"
+                className="cm-glass-input min-h-[36px] flex-1 sm:flex-initial text-xs text-slate-200 rounded-lg px-2.5 py-1.5 focus:outline-none"
               >
                 <option value="date_added">Date Added (Newest)</option>
                 <option value="title">Title (A–Z)</option>
@@ -788,8 +778,8 @@ export const WatchlistView: React.FC<WatchlistViewProps> = ({
         </div>
       ) : viewMode === 'grid' ? (
         /* Poster Grid View */
-        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4 sm:gap-6">
-          {filteredAndSorted.map(({ entry, media }, idx) => {
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3 min-[380px]:gap-4 sm:gap-6">
+          {filteredAndSorted.map(({ entry, media }) => {
             const watchedEps = watchedEpCountByMedia.get(media.id) || 0;
             const totalEps = media.totalEpisodes || (media.seasons ? media.seasons * 8 : 0);
             const tvPct =
@@ -799,19 +789,9 @@ export const WatchlistView: React.FC<WatchlistViewProps> = ({
             const isCompleted = entry.status === 'completed';
 
             return (
-              <motion.div
+              <div
                 key={media.id}
-                initial={prefersReducedMotion ? false : { opacity: 0, y: 12 }}
-                whileInView={prefersReducedMotion ? undefined : { opacity: 1, y: 0 }}
-                viewport={{ once: true, margin: '-20px' }}
-                whileHover={canHover && !prefersReducedMotion ? { y: -4 } : undefined}
-                transition={{
-                  ...SPRING_GENTLE,
-                  delay: prefersReducedMotion ? 0 : getBoundedStaggerDelay(idx % 12, 0.035, 10),
-                  duration: MOTION_DURATIONS.normal,
-                  ease: CINEMATIC_EASE,
-                }}
-                className="group relative flex flex-col bg-slate-900/60 rounded-xl border border-white/5 p-2.5 hover:border-amber-400/30 cm-card-glow transition-colors"
+                className="group cm-poster-card relative flex flex-col bg-slate-900/60 rounded-xl border border-white/5 p-2 sm:p-2.5 hover:border-amber-400/30 cm-card-glow"
               >
                 <div
                   onClick={() => onSelectMedia(media)}
@@ -820,7 +800,7 @@ export const WatchlistView: React.FC<WatchlistViewProps> = ({
                   <MediaPoster media={media} aspect="poster" />
 
                   {/* Top-left Quick Checkable Completion Control */}
-                  <motion.button
+                  <button
                     type="button"
                     onClick={(e) => {
                       e.stopPropagation();
@@ -830,8 +810,6 @@ export const WatchlistView: React.FC<WatchlistViewProps> = ({
                         media
                       );
                     }}
-                    whileTap={prefersReducedMotion ? undefined : { scale: 0.9 }}
-                    transition={SPRING_TACTILE}
                     aria-label={
                       isCompleted ? 'Mark as Want to Watch' : 'Mark as Completed'
                     }
@@ -840,7 +818,7 @@ export const WatchlistView: React.FC<WatchlistViewProps> = ({
                         ? 'Completed (Click to uncheck)'
                         : 'Mark as Completed'
                     }
-                    className={`absolute top-2 left-2 p-1.5 rounded-lg backdrop-blur-md border transition-colors flex items-center gap-1 text-[11px] font-semibold ${
+                    className={`absolute top-2 left-2 p-1.5 rounded-lg backdrop-blur-md border transition-colors active:scale-90 flex items-center gap-1 text-[11px] font-semibold ${
                       isCompleted
                         ? 'bg-emerald-500 text-slate-950 border-emerald-400 shadow-md'
                         : 'bg-black/65 text-white/80 border-white/15 hover:bg-black/85 hover:text-white'
@@ -851,22 +829,20 @@ export const WatchlistView: React.FC<WatchlistViewProps> = ({
                     ) : (
                       <Square className="w-3.5 h-3.5" />
                     )}
-                  </motion.button>
+                  </button>
 
                   {/* Top-right Favourite Heart Button */}
                   {onToggleFavourite && (
-                    <motion.button
+                    <button
                       type="button"
                       onClick={(e) => {
                         e.stopPropagation();
                         onToggleFavourite(media.id, media);
                       }}
-                      whileTap={prefersReducedMotion ? undefined : { scale: 0.88 }}
-                      transition={SPRING_TACTILE}
                       aria-label={
                         entry.isFavourite ? 'Remove from favourites' : 'Mark as favourite'
                       }
-                      className={`absolute top-2 right-2 p-1.5 rounded-full backdrop-blur-md border transition-colors ${
+                      className={`absolute top-2 right-2 p-1.5 rounded-full backdrop-blur-md border transition-colors active:scale-90 ${
                         entry.isFavourite
                           ? 'bg-rose-500/90 border-rose-400 text-white'
                           : 'bg-black/60 border-white/10 text-white/70 hover:text-white'
@@ -875,14 +851,14 @@ export const WatchlistView: React.FC<WatchlistViewProps> = ({
                       <Heart
                         className={`w-3.5 h-3.5 ${entry.isFavourite ? 'fill-current' : ''}`}
                       />
-                    </motion.button>
+                    </button>
                   )}
 
                   {/* Bottom Progress Bar for TV Series */}
                   {media.type === 'tv' && watchedEps > 0 && (
                     <div className="absolute bottom-0 inset-x-0 h-1.5 bg-black/75">
                       <div
-                        className="h-full bg-amber-400 transition-all duration-300"
+                        className="h-full bg-amber-400 transition-[width] duration-200"
                         style={{ width: `${tvPct > 0 ? tvPct : 15}%` }}
                       />
                     </div>
@@ -964,7 +940,7 @@ export const WatchlistView: React.FC<WatchlistViewProps> = ({
                     </button>
                   </div>
                 </div>
-              </motion.div>
+              </div>
             );
           })}
         </div>

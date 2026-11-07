@@ -8,11 +8,8 @@ import {
 } from '../types';
 import { MediaPoster } from './MediaPoster';
 import {
-  CINEMATIC_EASE,
-  getBoundedStaggerDelay,
   modalBackdropVariants,
   modalPanelVariants,
-  MOTION_DURATIONS,
   reducedMotionVariants,
   useCinematicMotion,
 } from '../utils/motionSystem';
@@ -449,14 +446,14 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
       : 'New Member';
 
   return (
-    <div className="space-y-8 pb-16">
+    <div className="space-y-6 sm:space-y-8 pb-10 sm:pb-16">
       {/* Signed-Out Callout Banner */}
       {!isAuthenticated && (
-        <div className="p-5 rounded-2xl bg-slate-900/80 border border-amber-500/30 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div className="p-4 sm:p-5 rounded-2xl bg-slate-900/80 border border-amber-500/30 flex flex-col sm:flex-row sm:items-center justify-between gap-3.5 sm:gap-4">
           <div className="space-y-1">
-            <h2 className="font-['Outfit'] text-base font-bold text-white flex items-center gap-2">
-              <LogIn className="w-4 h-4 text-amber-400" />
-              <span>Sign In for Persistent Profile & Viewing Journal</span>
+            <h2 className="font-['Outfit'] text-sm sm:text-base font-bold text-white flex items-center gap-2">
+              <LogIn className="w-4 h-4 text-amber-400 shrink-0" />
+              <span>Sign In for Persistent Profile &amp; Viewing Journal</span>
             </h2>
             <p className="text-xs text-slate-300 max-w-2xl leading-relaxed">
               Sign in with your Supabase account to customize your cinephile profile, record dated entries in your Viewing Journal, and sync statistics across devices.
@@ -465,13 +462,13 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
           <div className="flex items-center gap-2.5 shrink-0">
             <button
               onClick={() => onOpenAuthModal?.('signin')}
-              className="px-4 py-2 rounded-xl bg-gradient-to-r from-amber-400 to-amber-500 hover:from-amber-300 hover:to-amber-400 text-slate-950 font-bold text-xs whitespace-nowrap shadow-md shadow-amber-500/20"
+              className="min-h-[40px] px-4 py-2 rounded-xl bg-gradient-to-r from-amber-400 to-amber-500 hover:from-amber-300 hover:to-amber-400 text-slate-950 font-bold text-xs whitespace-nowrap shadow-md shadow-amber-500/20"
             >
               Sign In
             </button>
             <button
               onClick={() => onOpenAuthModal?.('signup')}
-              className="px-4 py-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-white font-semibold text-xs whitespace-nowrap"
+              className="min-h-[40px] px-4 py-2 rounded-xl bg-white/5 hover:bg-white/10 border border-white/10 text-white font-semibold text-xs whitespace-nowrap"
             >
               Create Account
             </button>
@@ -601,17 +598,12 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
       ) : (
         <>
           {/* Profile Header Hero */}
-          <motion.div
-            initial={prefersReducedMotion ? false : { opacity: 0, y: 14 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: MOTION_DURATIONS.normal, ease: CINEMATIC_EASE }}
-            className="cm-glass-surface relative overflow-hidden rounded-2xl p-6 sm:p-8 shadow-xl"
-          >
-            <div className="relative z-10 flex flex-col lg:flex-row items-center lg:items-start justify-between gap-6 text-center sm:text-left">
-              <div className="flex flex-col sm:flex-row items-center sm:items-start gap-6">
+          <div className="cm-glass-surface relative overflow-hidden rounded-2xl p-4 sm:p-8 shadow-xl">
+            <div className="relative z-10 flex flex-col lg:flex-row items-center lg:items-start justify-between gap-5 sm:gap-6 text-center sm:text-left">
+              <div className="flex flex-col sm:flex-row items-center sm:items-start gap-4 sm:gap-6">
                 {/* Avatar container + Quick Photo Controls */}
                 <div className="flex flex-col items-center gap-2.5 shrink-0">
-                  <div className="relative group w-24 h-24 sm:w-28 sm:h-28 rounded-2xl bg-gradient-to-br from-amber-400 to-amber-600 p-0.5 shadow-xl shadow-amber-500/20">
+                  <div className="relative group w-20 h-20 sm:w-28 sm:h-28 rounded-2xl bg-gradient-to-br from-amber-400 to-amber-600 p-0.5 shadow-xl shadow-amber-500/20">
                     <div className="w-full h-full rounded-2xl bg-[#090a0f] flex items-center justify-center overflow-hidden relative">
                       {hasValidAvatar ? (
                         <img
@@ -725,7 +717,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
                   )}
 
                   {/* Quick Micro Stats */}
-                  <div className="pt-3 flex flex-wrap items-center justify-center sm:justify-start gap-4 text-xs text-slate-400">
+                  <div className="pt-2.5 sm:pt-3 flex flex-wrap items-center justify-center sm:justify-start gap-x-3 gap-y-2 sm:gap-4 text-xs text-slate-400">
                     <span className="flex items-center gap-1.5">
                       <Film className="w-3.5 h-3.5 text-amber-400" />
                       <strong className="text-white font-mono tabular-nums">
@@ -771,11 +763,11 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
 
               {/* Profile Actions */}
               {isAuthenticated && (
-                <div className="flex flex-wrap items-center justify-center sm:justify-end gap-2 shrink-0">
+                <div className="flex flex-wrap items-center justify-center sm:justify-end gap-2 shrink-0 w-full sm:w-auto">
                   <button
                     type="button"
                     onClick={openEditModal}
-                    className="cm-glass-control px-3.5 py-2 rounded-xl text-xs font-semibold text-white flex items-center gap-1.5 transition-colors whitespace-nowrap"
+                    className="cm-glass-control min-h-[40px] px-3.5 py-2 rounded-xl text-xs font-semibold text-white flex items-center gap-1.5 transition-colors whitespace-nowrap"
                   >
                     <Edit3 className="w-3.5 h-3.5 text-amber-400" />
                     <span>Edit Profile</span>
@@ -787,7 +779,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
                         ? onOpenChangePassword()
                         : setIsLocalChangePasswordOpen(true)
                     }
-                    className="cm-glass-control px-3.5 py-2 rounded-xl text-xs font-semibold text-white flex items-center gap-1.5 transition-colors whitespace-nowrap"
+                    className="cm-glass-control min-h-[40px] px-3.5 py-2 rounded-xl text-xs font-semibold text-white flex items-center gap-1.5 transition-colors whitespace-nowrap"
                   >
                     <KeyRound className="w-3.5 h-3.5 text-amber-400" />
                     <span>Change Password</span>
@@ -796,7 +788,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
                     <button
                       type="button"
                       onClick={onSignOut}
-                      className="px-3.5 py-2 rounded-xl bg-red-500/10 hover:bg-red-500/20 border border-red-500/20 text-xs font-semibold text-red-300 flex items-center gap-1.5 transition-colors whitespace-nowrap"
+                      className="min-h-[40px] px-3.5 py-2 rounded-xl bg-red-500/10 hover:bg-red-500/20 border border-red-500/20 text-xs font-semibold text-red-300 flex items-center gap-1.5 transition-colors whitespace-nowrap"
                     >
                       <LogOut className="w-3.5 h-3.5" />
                       <span>Sign Out</span>
@@ -805,13 +797,13 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
                 </div>
               )}
             </div>
-          </motion.div>
+          </div>
 
           {/* Two-Column Grid: Taste DNA & Viewing Journal */}
-          <div className="grid grid-cols-1 md:grid-cols-12 gap-8">
+          <div className="grid grid-cols-1 md:grid-cols-12 gap-5 sm:gap-8">
             {/* Left: Genre & Taste DNA + Auteur Affinity */}
-            <div className="md:col-span-6 space-y-6">
-              <div className="p-6 rounded-2xl bg-slate-900/60 border border-white/5 space-y-4">
+            <div className="md:col-span-6 space-y-5 sm:space-y-6">
+              <div className="p-4 sm:p-6 rounded-2xl bg-slate-900/60 border border-white/5 space-y-4">
                 <div className="flex items-center justify-between">
                   <h2 className="font-['Outfit'] text-base font-bold text-white flex items-center gap-2">
                     <Sparkles className="w-4 h-4 text-amber-400" />
@@ -868,11 +860,11 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
               </div>
 
               {/* Auteur / Director Affinity (Computed from user's real titles) */}
-              <div className="p-6 rounded-2xl bg-slate-900/60 border border-white/5 space-y-4">
+              <div className="p-4 sm:p-6 rounded-2xl bg-slate-900/60 border border-white/5 space-y-4">
                 <div className="flex items-center justify-between">
                   <h2 className="font-['Outfit'] text-base font-bold text-white flex items-center gap-2">
                     <Heart className="w-4 h-4 text-rose-400" />
-                    <span>Director & Creator Affinity</span>
+                    <span>Director &amp; Creator Affinity</span>
                   </h2>
                   <span className="text-xs text-slate-400">From your library</span>
                 </div>
@@ -903,24 +895,24 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
             </div>
 
             {/* Right: Dated Viewing Journal (watch_history) */}
-            <div className="md:col-span-6 space-y-6">
-              <div className="p-6 rounded-2xl bg-slate-900/60 border border-white/5 space-y-4">
-                <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="md:col-span-6 space-y-5 sm:space-y-6">
+              <div className="p-4 sm:p-6 rounded-2xl bg-slate-900/60 border border-white/5 space-y-4">
+                <div className="flex flex-wrap items-center justify-between gap-2.5">
                   <div>
                     <h2 className="font-['Outfit'] text-base font-bold text-white flex items-center gap-2">
                       <BookOpen className="w-4 h-4 text-amber-400" />
-                      <span>Viewing Journal & Watch History</span>
+                      <span>Viewing Journal &amp; Watch History</span>
                     </h2>
                     <p className="text-[11px] text-slate-400 mt-0.5">
-                      Chronological log of completed titles, watch dates & personal ratings
+                      Chronological log of completed titles, watch dates &amp; personal ratings
                     </p>
                   </div>
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
                     {onOpenImportCompleted && (
                       <button
                         type="button"
                         onClick={onOpenImportCompleted}
-                        className="cm-glass-control px-2.5 py-1.5 rounded-lg text-xs font-semibold text-amber-300 hover:text-amber-200 flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0"
+                        className="cm-glass-control min-h-[36px] px-2.5 py-1.5 rounded-lg text-xs font-semibold text-amber-300 hover:text-amber-200 flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0"
                       >
                         <Upload className="w-3.5 h-3.5 text-amber-400" />
                         <span>Import Completed List</span>
@@ -928,7 +920,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
                     )}
                     <button
                       onClick={() => onNavigateTab('watchlist')}
-                      className="text-xs text-amber-400 hover:text-amber-300 flex items-center gap-0.5 font-medium whitespace-nowrap"
+                      className="min-h-[36px] px-1 text-xs text-amber-400 hover:text-amber-300 flex items-center gap-0.5 font-medium whitespace-nowrap"
                     >
                       <span>Manage Library</span>
                       <ChevronRight className="w-3 h-3" />
@@ -958,22 +950,14 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
                   </div>
                 ) : (
                   <div className="space-y-3 pt-1 max-h-[520px] overflow-y-auto pr-1">
-                    {combinedJournal.map((item, journalIdx) => {
+                    {combinedJournal.map((item) => {
                       const formattedDate = item.watchedAt
                         ? String(item.watchedAt).split('T')[0]
                         : 'Logged';
                       return (
-                        <motion.div
+                        <div
                           key={`${item.mediaId}-${item.watchedAt}`}
-                          initial={prefersReducedMotion ? false : { opacity: 0, y: 10 }}
-                          whileInView={prefersReducedMotion ? undefined : { opacity: 1, y: 0 }}
-                          viewport={{ once: true, margin: '-15px' }}
-                          transition={{
-                            duration: MOTION_DURATIONS.normal,
-                            ease: CINEMATIC_EASE,
-                            delay: prefersReducedMotion ? 0 : getBoundedStaggerDelay(journalIdx, 0.035, 8),
-                          }}
-                          className="p-3 rounded-xl bg-black/30 border border-white/5 hover:border-amber-400/30 transition-all flex gap-3 items-start group"
+                          className="p-3 rounded-xl bg-black/30 border border-white/5 hover:border-amber-400/30 transition-colors flex gap-3 items-start group"
                         >
                           <div
                             onClick={() => onSelectMedia(item.media)}
@@ -1024,7 +1008,7 @@ export const ProfileView: React.FC<ProfileViewProps> = ({
                               </p>
                             )}
                           </div>
-                        </motion.div>
+                        </div>
                       );
                     })}
                   </div>

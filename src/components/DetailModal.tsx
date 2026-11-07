@@ -395,7 +395,7 @@ export const DetailModal: React.FC<DetailModalProps> = ({
       initial="hidden"
       animate="visible"
       exit="exit"
-      className="fixed inset-0 z-50 overflow-y-auto cm-glass-backdrop flex items-center justify-center p-3 sm:p-6"
+      className="fixed inset-0 z-50 overflow-y-auto cm-glass-backdrop flex items-end sm:items-center justify-center p-1.5 sm:p-6"
     >
       {/* Background click dismiss */}
       <div className="fixed inset-0" onClick={onClose} />
@@ -405,33 +405,34 @@ export const DetailModal: React.FC<DetailModalProps> = ({
         initial="hidden"
         animate="visible"
         exit="exit"
-        className="relative z-10 w-full max-w-4xl cm-glass-panel rounded-2xl overflow-hidden my-auto max-h-[92vh] flex flex-col"
+        className="relative z-10 w-full max-w-4xl cm-glass-panel rounded-2xl overflow-hidden my-auto max-h-[95dvh] sm:max-h-[92vh] flex flex-col"
       >
         {/* Top Backdrop Header */}
-        <div className="relative w-full h-48 sm:h-64 shrink-0 overflow-hidden">
+        <div className="relative w-full h-40 min-[380px]:h-44 sm:h-64 shrink-0 overflow-hidden">
           <MediaPoster
             media={activeMedia}
             aspect="backdrop"
             className="w-full h-full"
           />
+          <div className="absolute inset-0 bg-gradient-to-t from-[#0D1018] via-[#0D1018]/55 to-transparent pointer-events-none" />
 
-          {/* Close button */}
+          {/* Close button (44x44px touch target) */}
           <button
             onClick={onClose}
             aria-label="Close modal"
-            className="absolute top-4 right-4 z-20 p-2.5 rounded-full cm-glass-control text-white/85 hover:text-white"
+            className="absolute top-3 right-3 sm:top-4 sm:right-4 z-20 min-w-[44px] min-h-[44px] p-2.5 rounded-full cm-glass-control text-white/90 hover:text-white flex items-center justify-center"
           >
             <X className="w-5 h-5" />
           </button>
 
-          {/* Share button */}
+          {/* Share button (44x44px touch target) */}
           <button
             onClick={handleShare}
             aria-label="Share title"
-            className="absolute top-4 right-16 z-20 p-2.5 rounded-full cm-glass-control text-white/85 hover:text-white"
+            className="absolute top-3 right-15 sm:top-4 sm:right-16 z-20 min-w-[44px] min-h-[44px] p-2.5 rounded-full cm-glass-control text-white/90 hover:text-white flex items-center justify-center"
             title="Copy link"
           >
-            <Share2 className="w-5 h-5" />
+            <Share2 className="w-4 h-4 sm:w-5 sm:h-5" />
           </button>
           {copiedLink && (
             <div className="absolute top-4 right-28 z-20 px-3 py-1 bg-amber-500 text-black text-xs font-semibold rounded-md shadow-lg animate-in fade-in">
@@ -440,18 +441,18 @@ export const DetailModal: React.FC<DetailModalProps> = ({
           )}
 
           {/* Backdrop Floating Overlay Title Info */}
-          <div className="absolute bottom-4 left-6 sm:left-8 right-6 z-10 flex items-end justify-between">
-            <div>
-              <div className="flex items-center gap-2 text-xs text-amber-300 font-medium mb-1">
+          <div className="absolute bottom-3 sm:bottom-4 left-4 sm:left-8 right-4 sm:right-6 z-10 flex items-end justify-between">
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-1.5 sm:gap-2 text-[11px] sm:text-xs text-amber-300 font-medium mb-0.5 sm:mb-1">
                 <span className="uppercase tracking-wider">
                   {activeMedia.type === 'movie' ? 'Feature Film' : 'Television Series'}
                 </span>
                 <span aria-hidden="true">·</span>
-                <span>{activeMedia.year}</span>
+                <span className="tabular-nums">{activeMedia.year}</span>
                 <span aria-hidden="true">·</span>
                 <span>{activeMedia.contentRating}</span>
               </div>
-              <h2 className="font-['Outfit'] text-2xl sm:text-3xl font-extrabold text-white tracking-tight">
+              <h2 className="font-['Outfit'] text-xl min-[380px]:text-2xl sm:text-3xl font-extrabold text-white tracking-tight leading-tight line-clamp-2">
                 {activeMedia.title}
               </h2>
             </div>
@@ -459,16 +460,16 @@ export const DetailModal: React.FC<DetailModalProps> = ({
         </div>
 
         {/* Scrollable Content Body */}
-        <div className="overflow-y-auto px-6 sm:px-8 py-6 space-y-8">
+        <div className="overflow-y-auto overscroll-contain px-4 min-[380px]:px-5 sm:px-8 py-4 sm:py-6 pb-[max(env(safe-area-inset-bottom,0px),1.5rem)] space-y-6 sm:space-y-8">
           {/* Main Two-Column Layout */}
-          <div className="grid grid-cols-1 md:grid-cols-12 gap-8">
+          <div className="grid grid-cols-1 md:grid-cols-12 gap-6 md:gap-8">
             {/* Left Column: Poster + Quick Actions */}
             <div className="md:col-span-4 flex flex-col items-center md:items-start">
-              <div className="w-48 sm:w-56 -mt-16 md:-mt-20 relative z-20 rounded-xl overflow-hidden shadow-2xl border-2 border-white/10">
+              <div className="w-32 min-[380px]:w-36 sm:w-56 -mt-10 sm:-mt-16 md:-mt-20 relative z-20 rounded-xl overflow-hidden shadow-2xl border-2 border-white/10">
                 <MediaPoster media={activeMedia} aspect="poster" />
               </div>
 
-              {/* Action Buttons */}
+              {/* Action Buttons (44px Touch Targets & Non-Overflowing Labels) */}
               <div className="w-full mt-4 space-y-2.5">
                 {onlinePlayback?.available && onPlayOnline ? (
                   <button
@@ -488,10 +489,10 @@ export const DetailModal: React.FC<DetailModalProps> = ({
                         onPlayOnline(activeMedia);
                       }
                     }}
-                    className="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 font-semibold text-sm shadow-md shadow-emerald-950/30 transition-all hover:scale-[1.01]"
+                    className="w-full min-h-[44px] flex items-center justify-center gap-2 py-2.5 px-3.5 rounded-xl bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 font-semibold text-xs sm:text-sm shadow-md shadow-emerald-950/30 transition-all active:scale-[0.98]"
                   >
                     <MonitorPlay className="w-4 h-4 text-emerald-400 shrink-0" />
-                    <span>
+                    <span className="truncate">
                       {activeMedia.type === 'tv'
                         ? `Play Online (${onlinePlayback.sources.length} Verified ${
                             onlinePlayback.sources.length === 1 ? 'Episode' : 'Episodes'
@@ -503,16 +504,16 @@ export const DetailModal: React.FC<DetailModalProps> = ({
 
                 <button
                   onClick={() => onPlayTrailer(activeMedia)}
-                  className="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl bg-gradient-to-r from-amber-400 to-amber-500 hover:from-amber-300 hover:to-amber-400 text-slate-950 font-semibold text-sm shadow-md shadow-amber-500/20 transition-all hover:scale-[1.01]"
+                  className="w-full min-h-[44px] flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl bg-gradient-to-r from-amber-400 to-amber-500 hover:from-amber-300 hover:to-amber-400 text-slate-950 font-semibold text-xs sm:text-sm shadow-md shadow-amber-500/20 transition-all active:scale-[0.98]"
                 >
-                  <Play className="w-4 h-4 fill-slate-950" />
+                  <Play className="w-4 h-4 fill-slate-950 shrink-0" />
                   <span>Play Teaser Preview</span>
                 </button>
 
                 <div className="flex gap-2">
                   <button
                     onClick={() => onToggleWatchlist(activeMedia.id, activeMedia)}
-                    className={`flex-1 flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl font-semibold text-xs sm:text-sm transition-all whitespace-nowrap ${
+                    className={`flex-1 min-w-0 min-h-[44px] flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl font-semibold text-xs sm:text-sm transition-all ${
                       isInWatchlist
                         ? 'bg-amber-500/20 text-amber-300 border border-amber-500/40 hover:bg-amber-500/30'
                         : 'cm-glass-control text-white'
@@ -520,13 +521,15 @@ export const DetailModal: React.FC<DetailModalProps> = ({
                   >
                     {isInWatchlist ? (
                       <>
-                        <Check className="w-4 h-4 stroke-[2.5]" />
-                        <span>In Checklist ({WATCH_STATUS_LABELS[currentStatus]})</span>
+                        <Check className="w-4 h-4 stroke-[2.5] shrink-0" />
+                        <span className="truncate">
+                          In Checklist ({WATCH_STATUS_LABELS[currentStatus]})
+                        </span>
                       </>
                     ) : (
                       <>
-                        <Bookmark className="w-4 h-4" />
-                        <span>Add to Checklist</span>
+                        <Bookmark className="w-4 h-4 shrink-0" />
+                        <span className="truncate">Add to Checklist</span>
                       </>
                     )}
                   </button>
@@ -536,7 +539,7 @@ export const DetailModal: React.FC<DetailModalProps> = ({
                       onClick={() => onToggleFavourite(activeMedia.id, activeMedia)}
                       aria-label={isFavourite ? 'Remove from favourites' : 'Add to favourites'}
                       title={isFavourite ? 'In Favourites' : 'Mark as Favourite'}
-                      className={`px-3.5 py-2.5 rounded-xl transition-all flex items-center justify-center ${
+                      className={`min-w-[44px] min-h-[44px] px-3.5 py-2.5 rounded-xl transition-all flex items-center justify-center shrink-0 ${
                         isFavourite
                           ? 'bg-rose-500/20 text-rose-400 border border-rose-500/40 hover:bg-rose-500/30'
                           : 'cm-glass-control text-slate-300 hover:text-white'
@@ -558,10 +561,10 @@ export const DetailModal: React.FC<DetailModalProps> = ({
                         activeMedia.type === 'tv' ? selectedSeason : undefined
                       )
                     }
-                    className="w-full flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl cm-glass-control text-slate-200 hover:text-amber-300 font-semibold text-xs sm:text-sm"
+                    className="w-full min-h-[44px] flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl cm-glass-control text-slate-200 hover:text-amber-300 font-semibold text-xs sm:text-sm"
                   >
-                    <HardDrive className="w-4 h-4 text-amber-400" />
-                    <span>Estimate Quality &amp; File Size</span>
+                    <HardDrive className="w-4 h-4 text-amber-400 shrink-0" />
+                    <span className="truncate">Estimate Quality &amp; File Size</span>
                   </button>
                 )}
 
@@ -589,7 +592,7 @@ export const DetailModal: React.FC<DetailModalProps> = ({
               </div>
 
               {/* Streaming Platforms / Where to Watch in India (IN) */}
-              <div className="w-full mt-6 pt-5 border-t border-white/5 space-y-2.5">
+              <div className="w-full mt-5 sm:mt-6 pt-4 sm:pt-5 border-t border-white/5 space-y-2.5">
                 <div className="flex items-center justify-between gap-2">
                   <span className="text-xs uppercase tracking-wider text-slate-400 font-semibold">
                     Where to Watch in India (IN)
@@ -599,7 +602,7 @@ export const DetailModal: React.FC<DetailModalProps> = ({
                       href={activeMedia.watchProviders.tmdbWatchUrl}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="inline-flex items-center gap-1 text-[11px] text-amber-400 hover:text-amber-300 font-medium transition-colors"
+                      className="inline-flex items-center gap-1 text-[11px] text-amber-400 hover:text-amber-300 font-medium transition-colors shrink-0"
                       title="Open official TMDB / JustWatch India availability page"
                     >
                       <span>All India Options</span>
@@ -623,7 +626,7 @@ export const DetailModal: React.FC<DetailModalProps> = ({
                           href={offer.url}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="group flex items-center justify-between gap-2.5 p-2 rounded-xl cm-glass-control hover:border-amber-400/40 transition-all"
+                          className="group flex items-center justify-between gap-2.5 p-2.5 rounded-xl cm-glass-control hover:border-amber-400/40 transition-all"
                           title={`Watch ${activeMedia.title} on ${offer.providerName} (${offer.categoryLabel}) in India`}
                         >
                           <div className="flex items-center gap-2.5 min-w-0">
@@ -690,9 +693,9 @@ export const DetailModal: React.FC<DetailModalProps> = ({
             </div>
 
             {/* Right Column: Detailed Story, Credits & Personal Tracker */}
-            <div className="md:col-span-8 space-y-6">
+            <div className="md:col-span-8 space-y-5 sm:space-y-6">
               {/* Unboxed Metadata Strip */}
-              <div className="flex flex-wrap items-center gap-3 text-xs text-slate-400 pb-4 border-b border-white/5">
+              <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1.5 text-xs text-slate-400 pb-3.5 sm:pb-4 border-b border-white/5">
                 <div className="flex items-center gap-1 text-amber-400 font-mono">
                   <Star className="w-4 h-4 fill-amber-400 text-amber-400" />
                   <span className="font-bold text-sm text-white tabular-nums">
@@ -714,29 +717,31 @@ export const DetailModal: React.FC<DetailModalProps> = ({
                 </span>
                 <span aria-hidden="true" className="text-slate-600">·</span>
                 <span>{activeMedia.genres.join(' / ')}</span>
-                <span aria-hidden="true" className="text-slate-600">·</span>
-                <span className="font-mono text-slate-300">4K UHD · Dolby Atmos</span>
+                <span aria-hidden="true" className="hidden sm:inline text-slate-600">·</span>
+                <span className="hidden sm:inline font-mono text-slate-300">
+                  4K UHD · Dolby Atmos
+                </span>
               </div>
 
               {/* Tagline */}
               {activeMedia.tagline && (
-                <p className="text-base font-medium text-amber-200/90 italic">
+                <p className="text-sm sm:text-base font-medium text-amber-200/90 italic">
                   "{activeMedia.tagline}"
                 </p>
               )}
 
               {/* Synopsis */}
               <div>
-                <h4 className="text-xs uppercase tracking-wider text-slate-400 font-semibold mb-2">
+                <h4 className="text-xs uppercase tracking-wider text-slate-400 font-semibold mb-1.5 sm:mb-2">
                   Overview
                 </h4>
-                <p className="text-sm text-slate-300 leading-relaxed">
+                <p className="text-xs sm:text-sm text-slate-300 leading-relaxed">
                   {activeMedia.synopsis}
                 </p>
               </div>
 
               {/* Key Creators & Cast */}
-              <div className="space-y-3 pt-2">
+              <div className="space-y-2.5 sm:space-y-3 pt-1 sm:pt-2">
                 <div className="flex items-baseline gap-2 text-xs">
                   <span className="text-slate-400 font-semibold uppercase tracking-wider shrink-0 w-20">
                     Directed by
@@ -781,11 +786,11 @@ export const DetailModal: React.FC<DetailModalProps> = ({
               </div>
 
               {/* Personal Cinephile Checklist, Watch Status & Journal */}
-              <div className="mt-6 p-4 rounded-xl cm-glass-surface space-y-3.5">
-                <div className="flex items-center justify-between gap-2">
+              <div className="mt-4 sm:mt-6 p-3.5 sm:p-4 rounded-xl cm-glass-surface space-y-3.5">
+                <div className="flex flex-wrap items-center justify-between gap-2">
                   <h4 className="text-xs uppercase tracking-wider text-slate-300 font-semibold flex items-center gap-1.5">
-                    <Edit3 className="w-3.5 h-3.5 text-amber-400" />
-                    <span>My Checklist Status, Rating & Watch Log</span>
+                    <Edit3 className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                    <span>Checklist Status, Rating &amp; Log</span>
                   </h4>
                   {isInWatchlist ? (
                     <div className="flex items-center gap-2">
@@ -811,7 +816,7 @@ export const DetailModal: React.FC<DetailModalProps> = ({
 
                 {/* 5-Stage Status Selector */}
                 <div className="grid grid-cols-2 sm:grid-cols-5 gap-1.5 p-1 cm-glass-segmented rounded-lg">
-                  {WATCH_STATUS_ORDER.map((st) => {
+                  {WATCH_STATUS_ORDER.map((st, idx) => {
                     const isActive = isInWatchlist && currentStatus === st;
                     let activeStyle = 'bg-white/15 text-white border border-white/20 shadow-sm';
                     if (st === 'completed') {
@@ -836,7 +841,9 @@ export const DetailModal: React.FC<DetailModalProps> = ({
                         key={st}
                         type="button"
                         onClick={() => handleStatusChange(st)}
-                        className={`py-1.5 px-2 text-xs font-medium rounded-md transition-all whitespace-nowrap ${
+                        className={`min-h-[36px] sm:min-h-0 py-1.5 px-2 text-xs font-medium rounded-md transition-all whitespace-nowrap ${
+                          idx === 0 ? 'col-span-2 sm:col-span-1' : ''
+                        } ${
                           isActive
                             ? activeStyle
                             : 'text-slate-400 hover:text-white hover:bg-white/5'
@@ -860,7 +867,7 @@ export const DetailModal: React.FC<DetailModalProps> = ({
                       value={watchedDate}
                       max={new Date().toISOString().split('T')[0]}
                       onChange={(e) => handleWatchedDateChange(e.target.value)}
-                      className="bg-black/50 border border-white/10 rounded-lg px-2.5 py-1 text-xs font-mono text-white focus:outline-none focus:border-amber-400 tabular-nums"
+                      className="bg-black/50 border border-white/10 rounded-lg px-2.5 py-1.5 text-xs font-mono text-white focus:outline-none focus:border-amber-400 tabular-nums"
                     />
                   </div>
                 )}
@@ -868,13 +875,13 @@ export const DetailModal: React.FC<DetailModalProps> = ({
                 {/* Personal 10-Star Rating */}
                 <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
                   <span className="text-xs text-slate-400">My Rating:</span>
-                  <div className="flex items-center gap-1">
+                  <div className="flex items-center gap-0.5 sm:gap-1 flex-wrap">
                     {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((star) => (
                       <button
                         key={star}
                         type="button"
                         onClick={() => handleRatingClick(star)}
-                        className="p-0.5 hover:scale-125 transition-transform"
+                        className="p-1 sm:p-0.5 hover:scale-125 transition-transform"
                         title={`Rate ${star}/10`}
                       >
                         <Star
@@ -886,7 +893,7 @@ export const DetailModal: React.FC<DetailModalProps> = ({
                         />
                       </button>
                     ))}
-                    <span className="text-xs font-mono font-semibold text-amber-300 ml-1.5 tabular-nums">
+                    <span className="text-xs font-mono font-semibold text-amber-300 ml-1 tabular-nums">
                       {currentRating > 0 ? `${currentRating}/10` : '—'}
                     </span>
                   </div>
@@ -906,14 +913,14 @@ export const DetailModal: React.FC<DetailModalProps> = ({
                         <button
                           type="button"
                           onClick={() => setIsEditingNotes(false)}
-                          className="px-3 py-1 text-xs text-slate-400 hover:text-white"
+                          className="px-3 py-1.5 text-xs text-slate-400 hover:text-white"
                         >
                           Cancel
                         </button>
                         <button
                           type="button"
                           onClick={handleSaveNotes}
-                          className="px-3 py-1 text-xs font-semibold bg-amber-500 text-black rounded hover:bg-amber-400"
+                          className="px-3 py-1.5 text-xs font-semibold bg-amber-500 text-black rounded-lg hover:bg-amber-400"
                         >
                           Save Reflection
                         </button>
@@ -928,7 +935,7 @@ export const DetailModal: React.FC<DetailModalProps> = ({
                         <p className="text-slate-300 italic">"{notes}"</p>
                       ) : (
                         <p className="text-slate-500 flex items-center justify-between">
-                          <span>Click to add a private note or review...</span>
+                          <span>Tap to add a private note or review...</span>
                           <span className="text-amber-400/80">+ Add</span>
                         </p>
                       )}
