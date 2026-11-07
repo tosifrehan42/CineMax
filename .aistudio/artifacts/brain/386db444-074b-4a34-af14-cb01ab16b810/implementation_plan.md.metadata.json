@@ -1,6 +1,6 @@
 {
-  "summary": "Implementation plan to audit and fix Gemini API error diagnostics and request timeout in the server-side title resolution service without exposing secrets or altering frontend behavior.",
-  "updatedAt": "2026-11-06T19:30:50.298254102Z",
-  "requestFeedback": true,
-  "userFacing": true
+  "summary":  "Implementation plan to fix the Gemini primary-model timeout handling bug in titleResolutionService.ts so primary timeouts and 503-retry timeouts immediately trigger the secondary model (gemini-3.7-flash) with proper AbortController cancellation, meaningful remaining timeout allocation within a 25s overall budget, and structured diagnostic log events.",
+  "updatedAt":  "2026-11-07T07:47:14.518376076Z",
+  "requestFeedback":  true,
+  "userFacing":  true
 }

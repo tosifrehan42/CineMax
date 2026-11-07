@@ -40,9 +40,11 @@ export const MAX_TITLES_PER_REQUEST = 50;
 export const MAX_TITLE_LENGTH = 200;
 const PRIMARY_GEMINI_MODEL = 'gemini-3.8-flash';
 const FALLBACK_GEMINI_MODEL = 'gemini-3.7-flash';
-const GEMINI_TOTAL_BUDGET_MS = 22000;
-const GEMINI_ATTEMPT_TIMEOUT_MS = 8500;
-const MIN_REMAINING_BUDGET_MS = 1500;
+const GEMINI_TOTAL_BUDGET_MS = 24500;
+const PRIMARY_ATTEMPT_TIMEOUT_MS = 8500;
+const PRIMARY_RETRY_TIMEOUT_MS = 6500;
+const SECONDARY_MAX_TIMEOUT_MS = 15500;
+const MIN_SECONDARY_TIMEOUT_MS = 3000;
 const BACKOFF_BASE_DELAY_MS = 500;
 const BACKOFF_JITTER_MS = 350;
 const RESOLUTION_CACHE_TTL_MS = 1000 * 60 * 15; // 15 minutes
@@ -143,8 +145,53 @@ function isNonRetryableGeminiError(err: any): boolean {
   );
 }
 
-function isHttp503UnavailableError(err: any): boolean {
+function isTimeoutError(err: any): boolean {
   if (isNonRetryableGeminiError(err)) {
+    return false;
+  }
+
+  if (
+    err?.isTimeout === true ||
+    err?.name === 'GeminiTimeoutError' ||
+    err?.name === 'AbortError' ||
+    err?.name === 'TimeoutError'
+  ) {
+    return true;
+  }
+
+  const status =
+    typeof err?.status === 'number'
+      ? err.status
+      : typeof err?.statusCode === 'number'
+      ? err.statusCode
+      : typeof err?.response?.status === 'number'
+      ? err.response.status
+      : typeof err?.error?.code === 'number'
+      ? err.error.code
+      : undefined;
+
+  if (status === 408 || status === 504) {
+    return true;
+  }
+
+  const codeStr = String(
+    err?.code ?? err?.error?.status ?? err?.error?.code ?? ''
+  ).toUpperCase();
+  if (
+    codeStr === 'TIMEOUT' ||
+    codeStr === 'ETIMEDOUT' ||
+    codeStr === 'DEADLINE_EXCEEDED' ||
+    codeStr === 'ABORT_ERR'
+  ) {
+    return true;
+  }
+
+  const msg = String(err?.message ?? '');
+  return /timed?\s*out|abort|deadline[_\s]*exceeded/i.test(msg);
+}
+
+function isHttp503UnavailableError(err: any): boolean {
+  if (isNonRetryableGeminiError(err) || isTimeoutError(err)) {
     return false;
   }
 
@@ -501,19 +548,54 @@ export function buildFallbackTitleResolution(
   };
 }
 
-function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+function withTimeoutAndAbort<T>(
+  factory: (signal: AbortSignal) => Promise<T>,
+  timeoutMs: number,
+  model: string
+): Promise<T> {
+  const controller = new AbortController();
+
   return new Promise<T>((resolve, reject) => {
+    let settled = false;
+
     const timer = setTimeout(() => {
-      reject(new Error(`Gemini title resolution timed out after ${timeoutMs}ms`));
+      if (settled) return;
+      settled = true;
+      const timeoutErr: any = new Error(
+        `Gemini title resolution (${model}) timed out after ${timeoutMs}ms`
+      );
+      timeoutErr.name = 'GeminiTimeoutError';
+      timeoutErr.code = 'TIMEOUT';
+      timeoutErr.isTimeout = true;
+      try {
+        controller.abort(timeoutErr);
+      } catch {
+        // Ignore abort errors if signal was already aborted
+      }
+      reject(timeoutErr);
     }, timeoutMs);
 
-    promise
+    factory(controller.signal)
       .then((val) => {
+        if (settled) return;
+        settled = true;
         clearTimeout(timer);
         resolve(val);
       })
       .catch((err) => {
+        if (settled) return;
+        settled = true;
         clearTimeout(timer);
+        if (controller.signal.aborted) {
+          const timeoutErr: any = new Error(
+            `Gemini title resolution (${model}) timed out after ${timeoutMs}ms`
+          );
+          timeoutErr.name = 'GeminiTimeoutError';
+          timeoutErr.code = 'TIMEOUT';
+          timeoutErr.isTimeout = true;
+          reject(timeoutErr);
+          return;
+        }
         reject(err);
       });
   });
@@ -584,66 +666,160 @@ async function generateTitleResolutionWithRetryAndFallback(
   const getRemainingBudgetMs = () =>
     Math.max(0, GEMINI_TOTAL_BUDGET_MS - (Date.now() - startTime));
 
-  const invokeModel = (model: string) => {
+  const invokeModel = (model: string, maxAttemptTimeoutMs: number) => {
     const remainingMs = getRemainingBudgetMs();
-    if (remainingMs < MIN_REMAINING_BUDGET_MS) {
-      throw new Error(
+    const attemptTimeoutMs = Math.min(maxAttemptTimeoutMs, remainingMs);
+    if (attemptTimeoutMs <= 0) {
+      const budgetErr: any = new Error(
         `Gemini title resolution time budget exhausted (${GEMINI_TOTAL_BUDGET_MS}ms)`
       );
+      budgetErr.name = 'GeminiTimeoutError';
+      budgetErr.code = 'TIMEOUT';
+      budgetErr.isTimeout = true;
+      throw budgetErr;
     }
-    const attemptTimeoutMs = Math.min(GEMINI_ATTEMPT_TIMEOUT_MS, remainingMs);
-    return withTimeout(
-      ai.models.generateContent({
-        model,
-        contents: promptText,
-        config: {
-          responseMimeType: 'application/json',
-          responseSchema: TITLE_RESOLUTION_RESPONSE_SCHEMA,
-        },
-      }),
-      attemptTimeoutMs
+
+    return withTimeoutAndAbort(
+      (abortSignal) =>
+        ai.models.generateContent({
+          model,
+          contents: promptText,
+          config: {
+            abortSignal,
+            responseMimeType: 'application/json',
+            responseSchema: TITLE_RESOLUTION_RESPONSE_SCHEMA,
+          },
+        }),
+      attemptTimeoutMs,
+      model
     );
   };
 
+  let shouldAttemptSecondary = false;
+  let secondaryTriggerReason:
+    | 'PRIMARY_TIMEOUT'
+    | 'PRIMARY_503_RETRY_503'
+    | 'PRIMARY_503_RETRY_TIMEOUT'
+    | 'PRIMARY_503_BUDGET_LOW' = 'PRIMARY_TIMEOUT';
+
   try {
-    return await invokeModel(PRIMARY_GEMINI_MODEL);
+    return await invokeModel(PRIMARY_GEMINI_MODEL, PRIMARY_ATTEMPT_TIMEOUT_MS);
   } catch (primaryErr: any) {
     if (isNonRetryableGeminiError(primaryErr)) {
       throw primaryErr;
     }
 
-    if (isHttp503UnavailableError(primaryErr)) {
+    if (isTimeoutError(primaryErr)) {
+      console.error('[TitleResolutionService] PRIMARY_TIMEOUT:', {
+        model: PRIMARY_GEMINI_MODEL,
+        timeoutMs: PRIMARY_ATTEMPT_TIMEOUT_MS,
+        remainingBudgetMs: getRemainingBudgetMs(),
+        ...extractSafeGeminiErrorDetails(primaryErr, geminiApiKey),
+      });
+      shouldAttemptSecondary = true;
+      secondaryTriggerReason = 'PRIMARY_TIMEOUT';
+    } else if (isHttp503UnavailableError(primaryErr)) {
       const backoffMs = computeBackoffWithJitterMs(0);
-      console.error(
-        `[TitleResolutionService] ${PRIMARY_GEMINI_MODEL} returned HTTP 503; retrying once after ${backoffMs}ms:`,
-        extractSafeGeminiErrorDetails(primaryErr, geminiApiKey)
-      );
+      console.error('[TitleResolutionService] PRIMARY_503:', {
+        model: PRIMARY_GEMINI_MODEL,
+        retryBackoffMs: backoffMs,
+        remainingBudgetMs: getRemainingBudgetMs(),
+        ...extractSafeGeminiErrorDetails(primaryErr, geminiApiKey),
+      });
 
-      if (getRemainingBudgetMs() > backoffMs + MIN_REMAINING_BUDGET_MS) {
+      // Only retry primary if we have enough remaining budget for backoff + retry + meaningful secondary fallback
+      if (
+        getRemainingBudgetMs() >=
+        backoffMs + PRIMARY_RETRY_TIMEOUT_MS + MIN_SECONDARY_TIMEOUT_MS
+      ) {
         await delay(backoffMs);
-      }
 
-      try {
-        return await invokeModel(PRIMARY_GEMINI_MODEL);
-      } catch (retryErr: any) {
-        if (isNonRetryableGeminiError(retryErr)) {
-          throw retryErr;
+        try {
+          return await invokeModel(PRIMARY_GEMINI_MODEL, PRIMARY_RETRY_TIMEOUT_MS);
+        } catch (retryErr: any) {
+          if (isNonRetryableGeminiError(retryErr)) {
+            throw retryErr;
+          }
+
+          if (isTimeoutError(retryErr)) {
+            console.error('[TitleResolutionService] PRIMARY_TIMEOUT (on 503 retry):', {
+              model: PRIMARY_GEMINI_MODEL,
+              timeoutMs: PRIMARY_RETRY_TIMEOUT_MS,
+              remainingBudgetMs: getRemainingBudgetMs(),
+              ...extractSafeGeminiErrorDetails(retryErr, geminiApiKey),
+            });
+            shouldAttemptSecondary = true;
+            secondaryTriggerReason = 'PRIMARY_503_RETRY_TIMEOUT';
+          } else if (isHttp503UnavailableError(retryErr)) {
+            console.error('[TitleResolutionService] PRIMARY_503 (on retry):', {
+              model: PRIMARY_GEMINI_MODEL,
+              remainingBudgetMs: getRemainingBudgetMs(),
+              ...extractSafeGeminiErrorDetails(retryErr, geminiApiKey),
+            });
+            shouldAttemptSecondary = true;
+            secondaryTriggerReason = 'PRIMARY_503_RETRY_503';
+          } else {
+            throw retryErr;
+          }
         }
-
-        if (isHttp503UnavailableError(retryErr)) {
-          console.error(
-            `[TitleResolutionService] ${PRIMARY_GEMINI_MODEL} returned HTTP 503 after retry; switching to ${FALLBACK_GEMINI_MODEL}:`,
-            extractSafeGeminiErrorDetails(retryErr, geminiApiKey)
-          );
-          return await invokeModel(FALLBACK_GEMINI_MODEL);
-        }
-
-        throw retryErr;
+      } else {
+        shouldAttemptSecondary = true;
+        secondaryTriggerReason = 'PRIMARY_503_BUDGET_LOW';
       }
+    } else {
+      throw primaryErr;
+    }
+  }
+
+  if (shouldAttemptSecondary) {
+    const remainingMs = getRemainingBudgetMs();
+    if (remainingMs < MIN_SECONDARY_TIMEOUT_MS) {
+      const budgetErr: any = new Error(
+        `Insufficient remaining budget (${remainingMs}ms) to attempt secondary model ${FALLBACK_GEMINI_MODEL}`
+      );
+      budgetErr.name = 'GeminiTimeoutError';
+      budgetErr.code = 'TIMEOUT';
+      budgetErr.isTimeout = true;
+      console.error('[TitleResolutionService] SECONDARY_FAILURE:', {
+        model: FALLBACK_GEMINI_MODEL,
+        reason: secondaryTriggerReason,
+        remainingBudgetMs: remainingMs,
+        ...extractSafeGeminiErrorDetails(budgetErr, geminiApiKey),
+      });
+      throw budgetErr;
     }
 
-    throw primaryErr;
+    const secondaryTimeoutMs = Math.min(SECONDARY_MAX_TIMEOUT_MS, remainingMs);
+    console.error('[TitleResolutionService] SECONDARY_ATTEMPT:', {
+      model: FALLBACK_GEMINI_MODEL,
+      reason: secondaryTriggerReason,
+      timeoutMs: secondaryTimeoutMs,
+      remainingBudgetMs: remainingMs,
+    });
+
+    try {
+      const secondaryResponse = await invokeModel(
+        FALLBACK_GEMINI_MODEL,
+        secondaryTimeoutMs
+      );
+      console.info('[TitleResolutionService] SECONDARY_SUCCESS:', {
+        model: FALLBACK_GEMINI_MODEL,
+        reason: secondaryTriggerReason,
+        elapsedMs: Date.now() - startTime,
+      });
+      return secondaryResponse;
+    } catch (secondaryErr: any) {
+      console.error('[TitleResolutionService] SECONDARY_FAILURE:', {
+        model: FALLBACK_GEMINI_MODEL,
+        reason: secondaryTriggerReason,
+        elapsedMs: Date.now() - startTime,
+        ...extractSafeGeminiErrorDetails(secondaryErr, geminiApiKey),
+      });
+      throw secondaryErr;
+    }
   }
+
+  throw new Error('Unexpected end of Gemini title resolution control flow');
 }
 
 export async function resolveTitlesWithGemini(
